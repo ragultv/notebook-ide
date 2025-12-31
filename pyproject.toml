@@ -1,0 +1,7 @@
+[tool.poetry]
+name = "notebook-ide"
+version = "0.1.0"
+description = "Local notebook IDE scaffold"
+
+[build-system]
+requires = ["setuptools", "wheel"]
