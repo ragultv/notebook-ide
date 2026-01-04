@@ -53,9 +53,12 @@ async def fix_error(request: ErrorFixRequest):
             "error": request.error,
             "cellContent": request.cellContent,
         }
+        # Force use of the NVIDIA 405B model for error fixing (higher reasoning/robustness)
         result = await ai_service.fix_error(
             error_info=error_info,
             context=request.context.model_dump() if request.context else None,
+            provider="nvidia",
+            model="meta/llama-3.1-405b-instruct",
         )
         return result
     except Exception as e:

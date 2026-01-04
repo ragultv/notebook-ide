@@ -17,7 +17,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Google Gemini
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyA3cVlS4lqbjxt03YdOwib3d1b9uebJzrY")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 # Available Models per Provider
@@ -29,6 +29,7 @@ AVAILABLE_MODELS = {
             {"id": "meta/llama-3.1-70b-instruct", "name": "Llama 3.1 70B Instruct", "context": 8192},
             {"id": "meta/llama-3.1-405b-instruct", "name": "Llama 3.1 405B Instruct", "context": 8192},
             {"id": "mistralai/mixtral-8x7b-instruct-v0.1", "name": "Mixtral 8x7B", "context": 32768},
+            {"id": "moonshotai/kimi-k2-instruct", "name": "Kimi-2","context":85000},
             {"id": "microsoft/phi-3-mini-128k-instruct", "name": "Phi-3 Mini 128K", "context": 128000},
         ],
         "api_key": NIM_API_KEY,
@@ -51,7 +52,7 @@ AVAILABLE_MODELS = {
         "models": [
             {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "context": 1000000},
             {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "context": 2000000},
-            {"id": "gemini-2.0-flash-exp", "name": "Gemini 2.0 Flash Exp", "context": 1000000},
+            {"id": "gemini-2.5-flash-lite", "name": "Gemini 2.5 Flash Lite", "context": 1000000},
         ],
         "api_key": GEMINI_API_KEY,
         "base_url": GEMINI_BASE_URL,
@@ -60,7 +61,7 @@ AVAILABLE_MODELS = {
 
 # Default model
 DEFAULT_PROVIDER = "nvidia"
-DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
+DEFAULT_MODEL = "meta/llama-3.1-405b-instruct"
 
 SYSTEM_PROMPT = """You are an expert Python Code Generator for OPREL IDE - a notebook environment for data science and ML.
 
@@ -74,23 +75,53 @@ Generate complete, production-ready Python code that runs without errors.
    !pip install pandas numpy matplotlib seaborn scikit-learn -q
    ```
    Add any additional packages needed for the task.
+   - Use -q flag for quiet installation
+   - Install one package per line if there are compatibility issues
+   - For HuggingFace datasets: !pip install datasets -q
 
 2. **Structure notebooks properly:**
    - Cell 1: Package installations (!pip install ... -q)
    - Cell 2: Import statements
-   - Cell 3+: Data loading, processing, analysis, visualization
+   - Cell 3: Data loading/downloading (if using HuggingFace or URLs)
+   - Cell 4+: Data processing, analysis, visualization
 
-3. **Code Quality:**
+3. **HuggingFace Datasets Handling:**
+   - Download and save datasets locally for reusability
+   - Example pattern:
+     ```python
+     from datasets import load_dataset
+     import os
+     
+     # Create data directory
+     os.makedirs('data', exist_ok=True)
+     
+     # Load dataset from HuggingFace
+     dataset = load_dataset('dataset_name', split='train')
+     
+     # Convert to pandas and save locally
+     df = dataset.to_pandas()
+     df.to_csv('data/dataset_name.csv', index=False)
+     print(f"Dataset saved to: {os.path.abspath('data/dataset_name.csv')}")
+     print(f"Shape: {df.shape}")
+     df.head()
+     ```
+   - Always print the absolute path so user can find the file
+   - Use forward slashes in paths (works on all OS)
+
+4. **Code Quality:**
    - Use proper variable names
    - Add comments explaining key steps
    - Handle errors gracefully
-   - Use print() statements to show results
+   - Use print() statements to show results and file paths
    - For visualizations, use plt.show()
+   - Always show data shape and preview after loading
 
-4. **Data Science Best Practices:**
-   - For CSV: pd.read_csv('path/to/file.csv')
+5. **Data Science Best Practices:**
+   - For local CSV: pd.read_csv('data/file.csv')
+   - For URLs: pd.read_csv(url) or use requests
    - For visualizations: import matplotlib.pyplot as plt, seaborn as sns
    - For ML: from sklearn.model_selection import train_test_split
+   - Always check for missing values and data types
 
 **AVAILABLE OPERATIONS:**
 1. add_cell: Add a new cell
@@ -110,46 +141,132 @@ Always respond with:
 1. Brief explanation of what you'll create
 2. JSON operations array in ```operations``` block
 
-Example for "create a data analysis notebook":
-"I'll create a data analysis notebook with package installation and basic analysis.
-```operations
+Example for "create a house price prediction notebook using HuggingFace data":
+"I'll create a house price prediction notebook that downloads data from HuggingFace, saves it locally, and trains a model.
+```json
 [
-  {"type": "add_cell", "params": {"type": "markdown", "content": "# Data Analysis Notebook"}},
-  {"type": "add_cell", "params": {"type": "code", "content": "# Install required packages\n!pip install pandas numpy matplotlib seaborn -q"}},
-  {"type": "add_cell", "params": {"type": "code", "content": "# Import libraries\nimport pandas as pd\nimport numpy as np\nimport matplotlib.pyplot as plt\nimport seaborn as sns\n\n# Configure display\nplt.style.use('seaborn-v0_8-whitegrid')\npd.set_option('display.max_columns', None)"}},
-  {"type": "add_cell", "params": {"type": "code", "content": "# Load data\n# df = pd.read_csv('your_data.csv')\n# df.head()"}}
+  {"type": "create_notebook", "params": {"name": "house_price_prediction.ipynb"}},
+  {"type": "add_cell", "params": {"type": "markdown", "content": "# House Price Prediction\\nUsing HuggingFace Datasets and Linear Regression"}},
+  {"type": "add_cell", "params": {"type": "code", "content": "# Install required packages\\n!pip install pandas numpy matplotlib seaborn scikit-learn -q\\n!pip install datasets -q"}},
+  {"type": "add_cell", "params": {"type": "code", "content": "# Import libraries\\nimport pandas as pd\\nimport numpy as np\\nimport matplotlib.pyplot as plt\\nimport seaborn as sns\\nfrom sklearn.model_selection import train_test_split\\nfrom sklearn.linear_model import LinearRegression\\nfrom sklearn.metrics import mean_squared_error, r2_score\\nimport os"}},
+  {"type": "add_cell", "params": {"type": "code", "content": "# Load dataset from HuggingFace and save locally\\nfrom datasets import load_dataset\\n\\n# Create data directory\\nos.makedirs('data', exist_ok=True)\\n\\n# Load dataset\\ndataset = load_dataset('your_dataset_id', split='train')\\ndf = dataset.to_pandas()\\n\\n# Save to CSV\\ndf.to_csv('data/house_prices.csv', index=False)\\nprint(f'Dataset saved to: {os.path.abspath(\\\"data/house_prices.csv\\\")}')\\nprint(f'Shape: {df.shape}')\\ndf.head()"}},
+  {"type": "add_cell", "params": {"type": "code", "content": "# Data preprocessing\\nprint(df.info())\\nprint(df.describe())"}}
 ]
 ```"
+
 
 **CRITICAL:**
 - Generate COMPLETE, RUNNABLE code
 - ALWAYS include pip install in first code cell
 - Use -q flag for quiet installation"""
 
+RESEARCH_AGENT_PROMPT = """You are the Research Agent for OPREL IDE.
+
+Your job is to analyze the user's problem and suggest appropriate public datasets.
+
+**ANALYSIS PROCESS:**
+1. Understand the problem type (classification, regression, clustering, etc.)
+2. Identify key requirements (features needed, target variable, data size)
+3. Search for suitable HuggingFace datasets or well-known public datasets
+4. Provide 1-2 best options with complete details
+
+**OUTPUT FORMAT:**
+Provide your analysis as conversational text, then output strict JSON:
+
+```json
+{
+  "thinking": "Brief analysis of the problem and why these datasets fit",
+  "dataset": {
+    "name": "Dataset display name",
+    "hf_id": "huggingface/dataset-id or scikit-learn/dataset-name",
+    "task": "classification|regression|clustering|etc",
+    "target": "target_column_name",
+    "features": ["feature1", "feature2", "feature3"],
+    "load_snippet": "from datasets import load_dataset; dataset = load_dataset('hf_id', split='train')",
+    "notes": "License info, size, special considerations"
+  }
+}
+```
+
+**EXAMPLE:**
+For "house price prediction":
+```json
+{
+  "thinking": "This is a regression problem requiring numerical features about houses (size, location, age, etc.) to predict price. The California Housing dataset is perfect - it's well-documented, clean, and specifically designed for regression tasks.",
+  "dataset": {
+    "name": "California Housing Dataset",
+    "hf_id": "scikit-learn/california-housing",
+    "task": "regression",
+    "target": "median_house_value",
+    "features": ["median_income", "housing_median_age", "total_rooms", "total_bedrooms", "population", "households", "latitude", "longitude"],
+    "load_snippet": "from sklearn.datasets import fetch_california_housing; data = fetch_california_housing(as_frame=True)",
+    "notes": "20,640 samples, 8 features, public domain, ideal for learning regression"
+  }
+}
+```
+
+**POPULAR DATASETS:**
+- Classification: iris, wine, breast_cancer, mnist, fashion_mnist
+- Regression: california_housing, boston (deprecated, use california), diabetes
+- NLP: imdb, ag_news, sst2
+- Computer Vision: cifar10, cifar100, imagenet (subset)
+
+**CRITICAL:**
+- Always provide thinking/analysis first
+- Use real, accessible datasets
+- Prefer HuggingFace or scikit-learn datasets
+- Include complete load snippet"""
+
 ERROR_FIX_PROMPT = """You are a Python Error Fixing Agent for OPREL IDE notebooks.
 
-Your job is to analyze Python execution errors and provide fixes.
+Your job is to analyze Python execution errors and provide fixes that WORK.
+
+**CRITICAL ENVIRONMENT INFO:**
+- This is a Jupyter-style notebook environment
+- May be running on Windows (no bash commands like curl, cat, wget)
+- Use Python code for all operations (requests, urllib, pandas.read_csv with URLs)
+- NEVER use shell commands (!curl, !cat, !wget) - they fail on Windows
 
 **ERROR HANDLING RULES:**
 
 1. **ModuleNotFoundError / ImportError**: 
    - Use add_package operation to install missing package
    - This will add "!pip install package_name -q" to Cell 1
-   - Common packages: pandas, numpy, matplotlib, seaborn, scikit-learn, torch, tensorflow
+   - Common packages: pandas, numpy, matplotlib, seaborn, scikit-learn, torch, tensorflow, requests, datasets
 
-2. **NameError (variable/function not defined)**: 
+2. **Command/Shell Errors (curl, cat, wget not recognized)**:
+   - REPLACE shell commands with Python equivalents:
+     * !curl URL -o file.csv → Use requests or urllib
+     * !wget URL → Use requests.get()
+     * !cat file → Use with open() or pd.read_csv()
+   - Example fix:
+     ```python
+     import requests
+     url = "https://example.com/data.csv"
+     response = requests.get(url)
+     with open('data.csv', 'wb') as f:
+         f.write(response.content)
+     df = pd.read_csv('data.csv')
+     ```
+   - Or directly: `df = pd.read_csv(url)`
+
+3. **NameError (variable/function not defined)**: 
    - Check if import is missing
    - Or add the missing definition
+   - Check if variable was defined in a previous cell
 
-3. **SyntaxError**: 
+4. **SyntaxError**: 
    - Fix the syntax in the specific cell
+   - Check for missing colons, parentheses, quotes
 
-4. **TypeError / ValueError**: 
+5. **TypeError / ValueError**: 
    - Fix the function call or data type
+   - Check data format and conversions
 
-5. **FileNotFoundError**:
-   - Check the file path
-   - Suggest correct path format
+6. **FileNotFoundError**:
+   - Check if file exists or needs to be downloaded
+   - Use proper path format (forward slashes work on all OS)
+   - Consider downloading from URL if applicable
 
 **AVAILABLE OPERATIONS:**
 
@@ -161,10 +278,10 @@ Your job is to analyze Python execution errors and provide fixes.
    {"type": "edit_cell", "params": {"cellIndex": 1, "content": "fixed code"}}
 
 **RESPONSE FORMAT:**
-```operations
+```json
 [
   {"type": "add_package", "params": {"packages": ["missing_package"]}},
-  {"type": "edit_cell", "params": {"cellIndex": 3, "content": "# Fixed code\nfixed_code_here"}}
+  {"type": "edit_cell", "params": {"cellIndex": 3, "content": "# Fixed code\\nfixed_code_here"}}
 ]
 ```
 
@@ -174,11 +291,16 @@ Your job is to analyze Python execution errors and provide fixes.
 - "No module named 'cv2'" → add_package: ["opencv-python"]
 - "No module named 'PIL'" → add_package: ["Pillow"]
 - "No module named 'torch'" → add_package: ["torch"]
+- "No module named 'requests'" → add_package: ["requests"]
+- "No module named 'datasets'" → add_package: ["datasets"]
 
 **CRITICAL:**
 - For missing packages, ALWAYS use add_package (NOT edit_cell)
+- For shell command errors, ALWAYS replace with Python code
 - Keep fixes minimal and targeted
-- Preserve existing code logic"""
+- Preserve existing code logic
+- Test your fix mentally - will it actually work?
+- Consider the full notebook context when fixing"""
 
 
 class AIService:
@@ -285,9 +407,8 @@ class AIService:
             return self._clients.get("nvidia")
         return client
     
-    async def generate(self, prompt: str, context: Optional[Dict[str, Any]] = None, 
-                       provider: str = None, model: str = None) -> Dict[str, Any]:
-        """Generate response with potential operations."""
+    async def research_dataset(self, problem_description: str, provider: str = None, model: str = None) -> Dict[str, Any]:
+        """Research and suggest datasets for the given problem."""
         
         # Use specified or current model
         if provider and model:
@@ -296,6 +417,76 @@ class AIService:
                 llm = self.llm
         else:
             llm = self.llm
+        
+        messages = [
+            SystemMessage(content=RESEARCH_AGENT_PROMPT),
+            HumanMessage(content=f"Problem: {problem_description}\n\nAnalyze this problem and suggest the best dataset."),
+        ]
+        
+        try:
+            response = await llm.ainvoke(messages)
+            text = response.content
+            
+            # Extract JSON from response
+            match = re.search(r'```json\s*\n?({[\s\S]*?})\s*\n?```', text)
+            if match:
+                try:
+                    dataset_info = json.loads(match.group(1))
+                    # Clean text (remove JSON block)
+                    clean_text = re.sub(r'```json\s*\n?{[\s\S]*?}\s*\n?```', '', text).strip()
+                    return {
+                        "thinking": dataset_info.get("thinking", ""),
+                        "dataset": dataset_info.get("dataset", {}),
+                        "text": clean_text
+                    }
+                except json.JSONDecodeError:
+                    pass
+            
+            return {
+                "thinking": "Could not parse dataset information",
+                "dataset": {},
+                "text": text
+            }
+            
+        except Exception as e:
+            return {
+                "thinking": f"Error: {str(e)}",
+                "dataset": {},
+                "text": ""
+            }
+    
+    async def generate(self, prompt: str, context: Optional[Dict[str, Any]] = None, 
+                       provider: str = None, model: str = None) -> Dict[str, Any]:
+        """Generate response with potential operations using two-step process."""
+        
+        # Use specified or current model
+        if provider and model:
+            llm = self._get_client(provider, model)
+            if not llm:
+                llm = self.llm
+        else:
+            llm = self.llm
+        
+        # Step 1: Check if this is a data science task that needs dataset research
+        needs_dataset = any(keyword in prompt.lower() for keyword in [
+            'dataset', 'data', 'prediction', 'classification', 'regression', 
+            'machine learning', 'ml', 'train', 'model', 'huggingface'
+        ])
+        
+        dataset_info = None
+        thinking_text = ""
+        
+        if needs_dataset and not context.get("cells"):
+            # This is a new notebook request - do research first
+            research_result = await self.research_dataset(prompt, provider, model)
+            dataset_info = research_result.get("dataset", {})
+            thinking_text = f"**🔍 Dataset Research:**\n{research_result.get('thinking', '')}\n\n"
+            
+            if dataset_info:
+                thinking_text += f"**📊 Selected Dataset:** {dataset_info.get('name', 'Unknown')}\n"
+                thinking_text += f"- Task: {dataset_info.get('task', 'N/A')}\n"
+                thinking_text += f"- Target: {dataset_info.get('target', 'N/A')}\n"
+                thinking_text += f"- Features: {', '.join(dataset_info.get('features', [])[:5])}...\n\n"
         
         # Build context string
         context_str = ""
@@ -307,6 +498,15 @@ class AIService:
                 for i, cell in enumerate(context['cells'], 1):
                     preview = cell['content'][:200] + "..." if len(cell['content']) > 200 else cell['content']
                     context_str += f"\n  Cell {i} ({cell['type']}): {preview}"
+        
+        # Add dataset info to context if available
+        if dataset_info:
+            context_str += f"\n\nDataset to use:\n"
+            context_str += f"- Name: {dataset_info.get('name')}\n"
+            context_str += f"- HF ID: {dataset_info.get('hf_id')}\n"
+            context_str += f"- Task: {dataset_info.get('task')}\n"
+            context_str += f"- Target: {dataset_info.get('target')}\n"
+            context_str += f"- Load snippet: {dataset_info.get('load_snippet')}\n"
         
         full_prompt = prompt
         if context_str:
@@ -325,10 +525,17 @@ class AIService:
             operations = self._extract_operations(text)
             
             # Clean text (remove operations block)
-            clean_text = re.sub(r'```operations\s*\n?\[[\s\S]*?\]\s*\n?```', '', text).strip()
+            clean_text = re.sub(r'```(?:operations|json)?\s*\n?\[[\s\S]*?\]\s*\n?```', '', text).strip()
+            
+            # Add thinking text at the beginning
+            final_text = thinking_text + clean_text
+            
+            # Add completion summary
+            if operations:
+                final_text += f"\n\n**✅ Generated {len(operations)} operations** - Notebook is ready!"
             
             return {
-                "text": clean_text,
+                "text": final_text,
                 "operations": operations,
             }
             
@@ -436,24 +643,65 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
         except Exception as e:
             return f"# Error generating code: {str(e)}"
     
+    def _sanitize_json_string(self, text: str) -> str:
+        """Sanitize JSON string by escaping control characters inside string values."""
+        result = []
+        in_string = False
+        escape = False
+        
+        for char in text:
+            if in_string:
+                if escape:
+                    escape = False
+                    result.append(char)
+                elif char == '\\':
+                    escape = True
+                    result.append(char)
+                elif char == '"':
+                    in_string = False
+                    result.append(char)
+                elif char == '\n':
+                    result.append('\\n')
+                elif char == '\r':
+                    pass
+                elif char == '\t':
+                    result.append('\\t')
+                else:
+                    result.append(char)
+            else:
+                if char == '"':
+                    in_string = True
+                result.append(char)
+                
+        return "".join(result)
+
     def _extract_operations(self, text: str) -> Optional[List[Dict[str, Any]]]:
         """Extract operations JSON from response text."""
         
-        # Look for operations block
-        match = re.search(r'```operations\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
-        if match:
+        def try_parse(json_text: str) -> Optional[List[Dict[str, Any]]]:
             try:
-                return json.loads(match.group(1))
+                return json.loads(json_text)
             except json.JSONDecodeError:
-                pass
+                # Try sanitizing (fixing newlines in strings)
+                try:
+                    sanitized = self._sanitize_json_string(json_text)
+                    return json.loads(sanitized)
+                except json.JSONDecodeError:
+                    return None
+
+        # 1. Look for explicit operations or json block
+        # Supports: ```operations, ```json, or just ```
+        match = re.search(r'```(?:operations|json)?\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
+        if match:
+            result = try_parse(match.group(1))
+            if result: return result
         
-        # Try to find JSON array directly
-        match = re.search(r'\[\s*\{[^}]*"type"[^}]*\}[\s\S]*?\]', text)
+        # 2. Try to find JSON array directly (fallback)
+        # Looks for [ { "type": ... } ] pattern
+        match = re.search(r'\[\s*\{[\s\S]*?"type"[\s\S]*?\}[\s\S]*?\]', text)
         if match:
-            try:
-                return json.loads(match.group(0))
-            except json.JSONDecodeError:
-                pass
+            result = try_parse(match.group(0))
+            if result: return result
         
         return None
 

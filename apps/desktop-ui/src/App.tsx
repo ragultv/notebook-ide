@@ -19,21 +19,21 @@ const AUTO_SAVE_INTERVAL = 30000; // Auto-save every 30 seconds
 
 const App: React.FC = () => {
   const { chatOpen, toggleChat, setKernelStatus, setKernelId } = useUIStore();
-  
+
   // Project state
   const [currentProject, setCurrentProject] = useState<ProjectInfo | null>(null);
   const [currentNotebookPath, setCurrentNotebookPath] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  
+
   // File preview state
   const [previewFile, setPreviewFile] = useState<{ path: string; name: string; isObjectUrl?: boolean } | null>(null);
-  
+
   // Manage Models dialog state
   const [showManageModels, setShowManageModels] = useState(false);
-  
+
   // Toast notification state for Run All completion
   const [runAllToast, setRunAllToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  
+
   // Initialize with a default untitled notebook
   const defaultFileId = useMemo(() => uuidv4(), []);
   const [files, setFiles] = useState<ProjectFile[]>([
@@ -49,10 +49,10 @@ const App: React.FC = () => {
       }]
     }
   ]);
-  
+
   // Track which file is currently active in the editor
   const [activeFileId, setActiveFileId] = useState<string | null>(defaultFileId);
-  
+
   // Ref to track activeFileId synchronously for multiple updates in same event loop
   const activeFileIdRef = useRef<string | null>(activeFileId);
 
@@ -74,12 +74,12 @@ const App: React.FC = () => {
   useEffect(() => {
     const savedProject = localStorage.getItem(STORAGE_KEY_PROJECT);
     const savedNotebook = localStorage.getItem(STORAGE_KEY_NOTEBOOK);
-    
+
     if (savedProject) {
       try {
         const project = JSON.parse(savedProject);
         setCurrentProject(project);
-        
+
         // Try to reload the project
         controllerClient.openProject(project.path, project.name)
           .then(() => console.log('Project restored:', project.name))
@@ -92,7 +92,7 @@ const App: React.FC = () => {
         console.error('Failed to restore project:', e);
       }
     }
-    
+
     if (savedNotebook) {
       try {
         const notebook = JSON.parse(savedNotebook);
@@ -144,7 +144,7 @@ const App: React.FC = () => {
   // Auto-save periodically
   useEffect(() => {
     if (!currentNotebookPath || !hasUnsavedChanges || !activeFile) return;
-    
+
     const timer = setTimeout(async () => {
       try {
         await controllerClient.saveNotebook(currentNotebookPath, {
@@ -163,7 +163,7 @@ const App: React.FC = () => {
         console.error('Auto-save failed:', e);
       }
     }, AUTO_SAVE_INTERVAL);
-    
+
     return () => clearTimeout(timer);
   }, [activeCells, currentNotebookPath, hasUnsavedChanges, activeFile]);
 
@@ -212,31 +212,32 @@ const App: React.FC = () => {
   // --- Run All Cells ---
   const handleRunAll = useCallback(async () => {
     if (!activeFile?.cells || activeFile.cells.length === 0) return;
-    
+
     const codeCells = activeFile.cells.filter(c => c.type === 'code' && c.content.trim());
     if (codeCells.length === 0) return;
 
     setKernelStatus('busy');
     setRunAllToast(null); // Clear any previous toast
-    
+
     const startTime = performance.now();
     let successCount = 0;
     let hasError = false;
-    
+
     for (const cell of codeCells) {
       // Update cell status to running
-      updateActiveNotebookCells(prev => 
+      updateActiveNotebookCells(prev =>
         prev.map(c => c.id === cell.id ? { ...c, status: 'running' as const } : c)
       );
-      
+
       try {
         const result = await controllerClient.runCell({
           cellId: cell.id,
           code: cell.content,
+          notebookId: activeFile?.id || 'default',
         });
-        
+
         // Update cell with result
-        updateActiveNotebookCells(prev => 
+        updateActiveNotebookCells(prev =>
           prev.map(c => c.id === cell.id ? {
             ...c,
             status: result.success ? 'success' as const : 'error' as const,
@@ -244,18 +245,18 @@ const App: React.FC = () => {
             executionCount: result.executionCount,
           } : c)
         );
-        
+
         // Stop on error
         if (!result.success) {
           hasError = true;
           break;
         }
-        
+
         successCount++;
-        
+
       } catch (e) {
         console.error('Execution error:', e);
-        updateActiveNotebookCells(prev => 
+        updateActiveNotebookCells(prev =>
           prev.map(c => c.id === cell.id ? {
             ...c,
             status: 'error' as const,
@@ -266,10 +267,10 @@ const App: React.FC = () => {
         break;
       }
     }
-    
+
     const endTime = performance.now();
     const duration = ((endTime - startTime) / 1000).toFixed(2);
-    
+
     // Show toast with result
     if (hasError) {
       setRunAllToast({
@@ -282,10 +283,10 @@ const App: React.FC = () => {
         type: 'success'
       });
     }
-    
+
     // Auto-hide toast after 5 seconds
     setTimeout(() => setRunAllToast(null), 5000);
-    
+
     setKernelStatus('idle');
   }, [activeFile, setKernelStatus]);
 
@@ -295,7 +296,7 @@ const App: React.FC = () => {
       alert('File System API not supported in this browser');
       return;
     }
-    
+
     try {
       const notebook = await filesystemClient.openNotebook();
       if (notebook) {
@@ -336,7 +337,7 @@ const App: React.FC = () => {
           status: 'idle' as const,
         })),
       };
-      
+
       // Check if already open
       const existing = files.find(f => f.name === result.name);
       if (existing) {
@@ -347,7 +348,7 @@ const App: React.FC = () => {
         setActiveFileId(loadedFile.id);
         activeFileIdRef.current = loadedFile.id;
       }
-      
+
       setCurrentNotebookPath(path);
       setHasUnsavedChanges(false);
     } catch (e: any) {
@@ -376,7 +377,7 @@ const App: React.FC = () => {
 
   const handleSaveFile = useCallback(async () => {
     if (!activeFile) return;
-    
+
     // If we have a path, save to backend
     if (currentNotebookPath) {
       try {
@@ -452,7 +453,7 @@ const App: React.FC = () => {
         status: 'idle'
       }]
     };
-    
+
     setFiles(prev => [...prev, newFile]);
     setActiveFileId(newId);
     activeFileIdRef.current = newId;
@@ -464,10 +465,10 @@ const App: React.FC = () => {
 
     setFiles(prevFiles => prevFiles.map(f => {
       if (f.id === targetId) {
-        const updatedCells = typeof newCellsOrUpdater === 'function' 
+        const updatedCells = typeof newCellsOrUpdater === 'function'
           ? newCellsOrUpdater(f.cells || [])
           : newCellsOrUpdater;
-          
+
         return { ...f, cells: updatedCells };
       }
       return f;
@@ -506,7 +507,7 @@ const App: React.FC = () => {
       const from = fromIndex - 1;
       const to = toIndex - 1;
       if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
-      
+
       const cells = [...prev];
       const [moved] = cells.splice(from, 1);
       cells.splice(to, 0, moved);
@@ -522,9 +523,9 @@ const App: React.FC = () => {
       if (arrayIndex >= 0 && arrayIndex < prev.length) {
         return prev.map((c, i) => {
           if (i === arrayIndex) {
-            return { 
-              ...c, 
-              content, 
+            return {
+              ...c,
+              content,
               type: type || c.type,
               status: 'idle' as const,
               output: undefined, // Clear previous output
@@ -540,16 +541,16 @@ const App: React.FC = () => {
   // Add packages to Cell 1 (accumulative)
   const handleAddPackagesFromAI = (packages: string[]) => {
     if (!activeFileIdRef.current || packages.length === 0) return;
-    
+
     updateActiveNotebookCells(prev => {
       if (prev.length === 0) return prev;
-      
+
       const cell1 = prev[0];
       const existingContent = cell1.content.trim();
-      
+
       // Build pip install commands
       const newInstalls = packages.map(pkg => `!pip install ${pkg} -q`).join('\n');
-      
+
       // Check what's already installed
       const existingInstalls = existingContent.split('\n')
         .filter(line => line.trim().startsWith('!pip install'))
@@ -558,21 +559,21 @@ const App: React.FC = () => {
           return match ? match[1] : '';
         })
         .filter(Boolean);
-      
+
       // Filter out already installed packages
-      const newPackages = packages.filter(pkg => 
+      const newPackages = packages.filter(pkg =>
         !existingInstalls.some(existing => existing.toLowerCase() === pkg.toLowerCase())
       );
-      
+
       if (newPackages.length === 0) return prev; // Nothing new to add
-      
+
       const newInstallLines = newPackages.map(pkg => `!pip install ${pkg} -q`).join('\n');
-      
+
       // Append to cell 1
-      const updatedContent = existingContent 
+      const updatedContent = existingContent
         ? `${existingContent}\n${newInstallLines}`
         : newInstallLines;
-      
+
       return prev.map((c, i) => i === 0 ? { ...c, content: updatedContent, status: 'idle' as const } : c);
     });
   };
@@ -597,7 +598,7 @@ const App: React.FC = () => {
 
   const handleDeleteNotebookFromAI = (name?: string) => {
     let fileIdToDelete = activeFileIdRef.current;
-    
+
     if (name) {
       const file = files.find(f => f.name === name);
       if (file) fileIdToDelete = file.id;
@@ -605,7 +606,7 @@ const App: React.FC = () => {
 
     if (fileIdToDelete) {
       setFiles(prev => prev.filter(f => f.id !== fileIdToDelete));
-      
+
       if (fileIdToDelete === activeFileIdRef.current) {
         const remaining = files.filter(f => f.id !== fileIdToDelete);
         const nextId = remaining.length > 0 ? remaining[0].id : null;
@@ -631,23 +632,57 @@ const App: React.FC = () => {
       });
       console.log('fixError response:', response);
 
+      let fixedCellIndex: number | null = null;
+
       if (response.operations && response.operations.length > 0) {
         for (const op of response.operations) {
           console.log('Executing operation:', op);
           switch (op.type) {
             case 'edit_cell':
               handleEditCellFromAI(op.params.cellIndex, op.params.content, op.params.type);
+              fixedCellIndex = op.params.cellIndex;
               break;
             case 'add_package':
               handleAddPackagesFromAI(op.params.packages || []);
               break;
           }
         }
+
+        // Auto-run the fixed cell after a short delay to allow state to update
+        if (fixedCellIndex !== null) {
+          setTimeout(async () => {
+            const arrayIndex = fixedCellIndex! - 1;
+            const currentCells = activeFile?.cells || [];
+            if (arrayIndex >= 0 && arrayIndex < currentCells.length) {
+              const cellToRun = currentCells[arrayIndex];
+              console.log('Auto-running fixed cell:', cellToRun.id);
+
+              try {
+                const result = await controllerClient.runCell({
+                  cellId: cellToRun.id,
+                  code: cellToRun.content,
+                  notebookId: activeFile?.id || 'default',
+                });
+
+                updateActiveNotebookCells(prev =>
+                  prev.map(c => c.id === cellToRun.id ? {
+                    ...c,
+                    status: result.success ? 'success' as const : 'error' as const,
+                    output: result.output || result.error,
+                    executionCount: result.executionCount,
+                  } : c)
+                );
+              } catch (e) {
+                console.error('Auto-run failed:', e);
+              }
+            }
+          }, 500);
+        }
       }
     } catch (e) {
       console.error('Error fixing:', e);
     }
-  }, [activeFile]);
+  }, [activeFile, handleEditCellFromAI, handleAddPackagesFromAI, updateActiveNotebookCells]);
 
   // --- Sidebar Operations ---
   const handleRenameFile = (id: string, newName: string) => {
@@ -666,8 +701,8 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-sim-bg overflow-hidden text-sim-text">
-      <TopBar 
-        onToggleChat={toggleChat} 
+      <TopBar
+        onToggleChat={toggleChat}
         isChatOpen={chatOpen}
         notebookName={activeFile?.name || 'No Notebook Selected'}
         onNewNotebook={handleNewNotebook}
@@ -678,7 +713,7 @@ const App: React.FC = () => {
         onRunAll={handleRunAll}
       />
       <div className="flex-1 flex overflow-hidden relative">
-        <Sidebar 
+        <Sidebar
           files={files}
           setFiles={setFiles}
           activeFileId={activeFileId}
@@ -690,7 +725,7 @@ const App: React.FC = () => {
               const isNotebook = ext === 'ipynb';
               const isData = ['csv', 'xlsx', 'xls', 'json', 'parquet', 'pkl'].includes(ext);
               const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext);
-              
+
               if (isNotebook) {
                 setActiveFileId(id);
               } else if (isData || isImage || ext === 'txt' || ext === 'py' || ext === 'md') {
@@ -701,10 +736,10 @@ const App: React.FC = () => {
                   setPreviewFile({ path: (file as any).path, name: file.name });
                 } else if (file.file) {
                   // For uploaded files, create object URL
-                  setPreviewFile({ 
-                    path: URL.createObjectURL(file.file), 
+                  setPreviewFile({
+                    path: URL.createObjectURL(file.file),
                     name: file.name,
-                    isObjectUrl: true 
+                    isObjectUrl: true
                   } as any);
                 } else {
                   setPreviewFile({ path: file.name, name: file.name });
@@ -715,7 +750,7 @@ const App: React.FC = () => {
           onDeleteFile={handleDeleteFile}
           onRenameFile={handleRenameFile}
         />
-        
+
         {/* Main Content Area - Show Notebook or File Preview */}
         {previewFile ? (
           <FilePreview
@@ -730,7 +765,8 @@ const App: React.FC = () => {
             }}
           />
         ) : activeFile && activeFile.cells ? (
-          <Notebook 
+          <Notebook
+            notebookId={activeFile.id}
             notebookName={activeFile.name}
             cells={activeCells}
             setCells={updateActiveNotebookCells}
@@ -749,9 +785,9 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <RightSidebar 
-          isOpen={chatOpen} 
-          onClose={toggleChat} 
+        <RightSidebar
+          isOpen={chatOpen}
+          onClose={toggleChat}
           onAddCell={handleAddCellFromAI}
           onDeleteCell={handleDeleteCellFromAI}
           onMoveCell={handleMoveCellFromAI}
@@ -766,20 +802,19 @@ const App: React.FC = () => {
           onOpenManageModels={() => setShowManageModels(true)}
         />
       </div>
-      
+
       {/* Manage Models Dialog */}
-      <ManageModelsDialog 
-        isOpen={showManageModels} 
-        onClose={() => setShowManageModels(false)} 
+      <ManageModelsDialog
+        isOpen={showManageModels}
+        onClose={() => setShowManageModels(false)}
       />
-      
+
       {/* Run All Toast Notification */}
       {runAllToast && (
-        <div className={`fixed bottom-20 left-1/2 transform -translate-x-1/2 z-[200] px-4 py-2.5 rounded-lg shadow-lg border flex items-center gap-2 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-300 ${
-          runAllToast.type === 'success' 
-            ? 'bg-green-500/20 border-green-500/50 text-green-400' 
-            : 'bg-red-500/20 border-red-500/50 text-red-400'
-        }`}>
+        <div className={`fixed bottom-20 left-1/2 transform -translate-x-1/2 z-[200] px-4 py-2.5 rounded-lg shadow-lg border flex items-center gap-2 text-sm font-medium animate-in fade-in slide-in-from-bottom-4 duration-300 ${runAllToast.type === 'success'
+          ? 'bg-green-500/20 border-green-500/50 text-green-400'
+          : 'bg-red-500/20 border-red-500/50 text-red-400'
+          }`}>
           {runAllToast.type === 'success' ? (
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -790,7 +825,7 @@ const App: React.FC = () => {
             </svg>
           )}
           {runAllToast.message}
-          <button 
+          <button
             onClick={() => setRunAllToast(null)}
             className="ml-2 opacity-70 hover:opacity-100"
           >
@@ -800,7 +835,7 @@ const App: React.FC = () => {
           </button>
         </div>
       )}
-      
+
       {/* Footer */}
       <div className="h-6 bg-[#1e1e1e] border-t border-[#333] flex items-center justify-between px-3 text-[11px] text-gray-500 flex-shrink-0">
         <div className="flex items-center gap-4">

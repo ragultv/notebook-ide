@@ -5,6 +5,7 @@ import { AddCellDivider } from './AddCellDivider';
 import { CellData, CellStatus, CellOutput } from '../../types';
 
 interface NotebookProps {
+  notebookId: string;
   notebookName: string;
   cells: CellData[];
   setCells: React.Dispatch<React.SetStateAction<CellData[]>>;
@@ -13,11 +14,12 @@ interface NotebookProps {
   onFixError?: (cellIndex: number, error: string, cellContent: string, allCells: CellData[]) => void;
 }
 
-export const Notebook: React.FC<NotebookProps> = ({ 
+export const Notebook: React.FC<NotebookProps> = ({
+  notebookId,
   notebookName,
-  cells, 
-  setCells, 
-  activeCellId, 
+  cells,
+  setCells,
+  activeCellId,
   setActiveCellId,
   onFixError,
 }) => {
@@ -43,11 +45,11 @@ export const Notebook: React.FC<NotebookProps> = ({
   const updateCellOutput = useCallback((id: string, output: string, status: CellStatus, error?: string, execCount?: number, outputs?: CellOutput[], duration?: number) => {
     setCells(prev => prev.map(c => {
       if (c.id === id) {
-        return { 
-          ...c, 
-          output, 
+        return {
+          ...c,
+          output,
           outputs,
-          status, 
+          status,
           error,
           duration,
           executionCount: execCount !== undefined ? execCount : (status === 'success' || status === 'error' ? executionCounter : c.executionCount)
@@ -88,16 +90,17 @@ export const Notebook: React.FC<NotebookProps> = ({
       <div className="max-w-[900px] mx-auto min-h-full p-4 md:p-8 pb-32">
         {cells.map((cell, index) => (
           <React.Fragment key={cell.id}>
-             {/* Divider before cell */}
-             <AddCellDivider 
-                visible={activeCellId === cell.id} 
-                onAddCode={() => addCell(index, 'code')}
-                onAddText={() => addCell(index, 'markdown')}
-              />
-            
-            <Cell 
+            {/* Divider before cell */}
+            <AddCellDivider
+              visible={activeCellId === cell.id}
+              onAddCode={() => addCell(index, 'code')}
+              onAddText={() => addCell(index, 'markdown')}
+            />
+
+            <Cell
               cell={cell}
               index={index}
+              notebookId={notebookId}
               notebookName={notebookName}
               isActive={activeCellId === cell.id}
               onActivate={() => setActiveCellId(cell.id)}
@@ -113,10 +116,10 @@ export const Notebook: React.FC<NotebookProps> = ({
         ))}
 
         {/* Final Divider */}
-        <AddCellDivider 
-            visible={true}
-            onAddCode={() => addCell(cells.length, 'code')}
-            onAddText={() => addCell(cells.length, 'markdown')}
+        <AddCellDivider
+          visible={true}
+          onAddCode={() => addCell(cells.length, 'code')}
+          onAddText={() => addCell(cells.length, 'markdown')}
         />
       </div>
     </div>

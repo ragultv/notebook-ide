@@ -57,7 +57,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   onOpenManageModels
 }) => {
   const [messages, setMessages] = useState<Message[]>([
-    { id: '1', role: 'ai', text: 'OPREL INTELLIGENCE SYSTEM ONLINE. CONNECTED TO NVIDIA NIM.' }
+    // { id: '1', role: 'ai', text: 'OPREL INTELLIGENCE SYSTEM ONLINE. CONNECTED TO NVIDIA NIM.' }
   ]);
   const [inputValue, setInputValue] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -539,10 +539,6 @@ ${cellContext}
               )}
             </button>
           </div>
-        </div>
-        
-        <div className="text-[10px] text-sim-muted text-center mt-3 font-mono opacity-50">
-           AI generated content may be incorrect.
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-# Kernel Manager - Manages Python kernel lifecycle
+# Kernel Manager - Manages Python kernel lifecycle with notebook isolation
 import asyncio
 import io
 import traceback
@@ -7,11 +7,13 @@ import base64
 import sys
 import subprocess
 import time
-import re
-from typing import Optional, List, Dict, Any, AsyncGenerator
+import hashlib
+from datetime import datetime
+from typing import Optional, List, Dict, Any, AsyncGenerator, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from contextlib import redirect_stdout, redirect_stderr
+from copy import deepcopy
 
 class KernelStatus(str, Enum):
     DISCONNECTED = "disconnected"
@@ -28,11 +30,33 @@ class RichOutput:
     stream: Optional[str] = None  # 'stdout', 'stderr'
 
 @dataclass
+class ExecutionLog:
+    """Audit log for each execution."""
+    timestamp: str
+    notebookId: str
+    cellId: str
+    executionCount: int
+    queueOrder: int
+    codeHash: str
+    duration: float
+    success: bool
+
+@dataclass
+class ExecutionRequest:
+    """Request queued for execution."""
+    notebook_id: str
+    cell_id: str
+    code: str
+    future: asyncio.Future
+    streaming: bool = False
+    output_callback: Optional[Callable] = None
+    submitted_at: float = field(default_factory=time.time)
+
+@dataclass
 class KernelState:
     id: str = ""
     status: KernelStatus = KernelStatus.DISCONNECTED
     execution_count: int = 0
-    globals_dict: dict = field(default_factory=dict)
     
 class StreamCapture:
     """Captures print output and yields it line by line for streaming."""
@@ -44,7 +68,6 @@ class StreamCapture:
     def write(self, text):
         if text:
             self.buffer += text
-            # Yield complete lines immediately
             while '\n' in self.buffer:
                 line, self.buffer = self.buffer.split('\n', 1)
                 if self.callback:
@@ -63,12 +86,31 @@ class StreamCapture:
             ))
             self.buffer = ''
     
+
 class KernelManager:
-    """Manages a single Python kernel process."""
+    """Manages a single Python kernel process with per-notebook isolation."""
     
     def __init__(self):
         self.state = KernelState()
-        self._lock = asyncio.Lock()
+        
+        # Per-notebook isolated namespaces (strict isolation)
+        self.notebook_vars: Dict[str, dict] = {}
+        
+        # Shared registry for explicit exports only
+        self.shared_registry: Dict[str, Any] = {}
+        
+        # Execution queue + single consumer worker
+        self._execution_queue: asyncio.Queue = None
+        self._queue_worker_task: Optional[asyncio.Task] = None
+        self._queue_order: int = 0
+        self._max_queue_size: int = 100  # Backpressure limit
+        
+        # Current execution info (for visibility)
+        self._current_execution: Optional[ExecutionRequest] = None
+        
+        # Execution logs for auditing
+        self.execution_logs: List[ExecutionLog] = []
+        self._max_logs = 1000
     
     @property
     def status(self) -> KernelStatus:
@@ -78,66 +120,365 @@ class KernelManager:
     def execution_count(self) -> int:
         return self.state.execution_count
     
+    def _get_notebook_vars(self, notebook_id: str) -> dict:
+        """Get or create isolated namespace for a notebook."""
+        if notebook_id not in self.notebook_vars:
+            self.notebook_vars[notebook_id] = {"__builtins__": __builtins__}
+        return self.notebook_vars[notebook_id]
+    
+    def _hash_code(self, code: str) -> str:
+        """Generate hash of code for logging."""
+        return hashlib.sha256(code.encode()).hexdigest()[:16]
+    
+    def _log_execution(self, notebook_id: str, cell_id: str, exec_count: int, 
+                       queue_order: int, code: str, duration: float, success: bool):
+        """Log execution for auditing."""
+        log = ExecutionLog(
+            timestamp=datetime.utcnow().isoformat(),
+            notebookId=notebook_id,
+            cellId=cell_id,
+            executionCount=exec_count,
+            queueOrder=queue_order,
+            codeHash=self._hash_code(code),
+            duration=round(duration, 4),
+            success=success
+        )
+        self.execution_logs.append(log)
+        if len(self.execution_logs) > self._max_logs:
+            self.execution_logs = self.execution_logs[-self._max_logs:]
+    
+    async def _queue_worker(self):
+        """Single consumer worker that processes execution requests in order."""
+        print("[Kernel] Queue worker started")
+        while True:
+            try:
+                # Wait for next request
+                request: ExecutionRequest = await self._execution_queue.get()
+                self._current_execution = request
+                
+                # Update state
+                self.state.status = KernelStatus.BUSY
+                self.state.execution_count += 1
+                self._queue_order += 1
+                exec_count = self.state.execution_count
+                queue_order = self._queue_order
+                
+                wait_time = time.time() - request.submitted_at
+                print(f"[Kernel] Processing: {request.cell_id} (waited {wait_time:.2f}s, queue size: {self._execution_queue.qsize()})")
+                
+                try:
+                    if request.streaming:
+                        # For streaming, we collect outputs via callback
+                        result = await self._run_code_streaming_internal(
+                            request.code, 
+                            request.cell_id, 
+                            request.notebook_id,
+                            exec_count,
+                            queue_order,
+                            request.output_callback
+                        )
+                    else:
+                        result = await self._run_code(
+                            request.code, 
+                            request.cell_id, 
+                            request.notebook_id,
+                            exec_count,
+                            queue_order
+                        )
+                    
+                    if not request.future.done():
+                        request.future.set_result(result)
+                        
+                except Exception as e:
+                    if not request.future.done():
+                        request.future.set_exception(e)
+                finally:
+                    self._current_execution = None
+                    self.state.status = KernelStatus.IDLE
+                    self._execution_queue.task_done()
+                    
+            except asyncio.CancelledError:
+                print("[Kernel] Queue worker cancelled")
+                break
+            except Exception as e:
+                print(f"[Kernel] Queue worker error: {e}")
+                traceback.print_exc()
+    
     async def start(self) -> dict:
         """Start the kernel."""
-        async with self._lock:
-            if self.state.status in [KernelStatus.IDLE, KernelStatus.BUSY]:
-                return self._get_info()
-            
-            self.state = KernelState(
-                id=str(uuid.uuid4()),
-                status=KernelStatus.IDLE,
-                execution_count=0,
-                globals_dict={"__builtins__": __builtins__},
-            )
-            
+        if self.state.status in [KernelStatus.IDLE, KernelStatus.BUSY]:
             return self._get_info()
+        
+        self.state = KernelState(
+            id=str(uuid.uuid4()),
+            status=KernelStatus.IDLE,
+            execution_count=0,
+        )
+        self.notebook_vars.clear()
+        self.shared_registry.clear()
+        self._queue_order = 0
+        
+        # Create execution queue
+        self._execution_queue = asyncio.Queue(maxsize=self._max_queue_size)
+        
+        # Start queue worker
+        self._queue_worker_task = asyncio.create_task(self._queue_worker())
+        
+        print(f"[Kernel] Started with ID: {self.state.id}")
+        return self._get_info()
     
     async def stop(self) -> dict:
         """Stop the kernel."""
-        async with self._lock:
-            self.state = KernelState()
-            return {"status": "stopped"}
+        # Cancel queue worker
+        if self._queue_worker_task and not self._queue_worker_task.done():
+            self._queue_worker_task.cancel()
+            try:
+                await self._queue_worker_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Cancel any pending requests
+        if self._execution_queue:
+            while not self._execution_queue.empty():
+                try:
+                    request = self._execution_queue.get_nowait()
+                    if not request.future.done():
+                        request.future.cancel()
+                except asyncio.QueueEmpty:
+                    break
+        
+        self.notebook_vars.clear()
+        self.shared_registry.clear()
+        self._current_execution = None
+        self.state = KernelState()
+        print("[Kernel] Stopped")
+        return {"status": "stopped"}
     
     async def restart(self) -> dict:
-        """Restart the kernel (clears state)."""
+        """Restart the kernel (clears all state)."""
         await self.stop()
         return await self.start()
     
-    async def execute(self, code: str, cell_id: str) -> dict:
-        """Execute code in the kernel (non-streaming)."""
-        if self.state.status == KernelStatus.DISCONNECTED:
-            await self.start()
-        
-        async with self._lock:
-            self.state.status = KernelStatus.BUSY
-            self.state.execution_count += 1
-            exec_count = self.state.execution_count
-        
-        result = await self._run_code(code, cell_id, exec_count)
-        
-        async with self._lock:
-            self.state.status = KernelStatus.IDLE
-        
-        return result
+    # === Queue Visibility APIs ===
     
-    async def execute_streaming(self, code: str, cell_id: str) -> AsyncGenerator[Dict[str, Any], None]:
-        """Execute code with streaming output."""
+    def get_queue_status(self) -> dict:
+        """Get execution queue status for visibility."""
+        return {
+            "queue_size": self._execution_queue.qsize() if self._execution_queue else 0,
+            "max_queue_size": self._max_queue_size,
+            "is_full": self._execution_queue.full() if self._execution_queue else False,
+            "current_execution": {
+                "cell_id": self._current_execution.cell_id,
+                "notebook_id": self._current_execution.notebook_id,
+                "waiting_since": time.time() - self._current_execution.submitted_at
+            } if self._current_execution else None
+        }
+    
+    # === Export/Import APIs ===
+    
+    def export_var(self, notebook_id: str, name: str) -> dict:
+        """Export a variable from a notebook to the shared registry."""
+        if notebook_id not in self.notebook_vars:
+            return {"success": False, "error": f"Notebook {notebook_id} not found"}
+        
+        ns = self.notebook_vars[notebook_id]
+        if name not in ns:
+            return {"success": False, "error": f"Variable '{name}' not found in notebook {notebook_id}"}
+        
+        try:
+            self.shared_registry[name] = deepcopy(ns[name])
+        except Exception:
+            self.shared_registry[name] = ns[name]
+        
+        return {"success": True, "name": name, "exported_from": notebook_id}
+    
+    def import_var(self, notebook_id: str, name: str, source_notebook_id: str = None) -> dict:
+        """Import a variable into a notebook from shared registry or another notebook."""
+        ns = self._get_notebook_vars(notebook_id)
+        
+        if source_notebook_id:
+            if source_notebook_id not in self.notebook_vars:
+                return {"success": False, "error": f"Source notebook {source_notebook_id} not found"}
+            
+            source_ns = self.notebook_vars[source_notebook_id]
+            if name not in source_ns:
+                return {"success": False, "error": f"Variable '{name}' not found in notebook {source_notebook_id}"}
+            
+            try:
+                ns[name] = deepcopy(source_ns[name])
+            except Exception:
+                ns[name] = source_ns[name]
+        else:
+            if name not in self.shared_registry:
+                return {"success": False, "error": f"Variable '{name}' not found in shared registry"}
+            
+            try:
+                ns[name] = deepcopy(self.shared_registry[name])
+            except Exception:
+                ns[name] = self.shared_registry[name]
+        
+        return {"success": True, "name": name, "imported_to": notebook_id}
+    
+    def reset_notebook(self, notebook_id: str) -> dict:
+        """Reset a specific notebook's namespace."""
+        if notebook_id in self.notebook_vars:
+            self.notebook_vars[notebook_id] = {"__builtins__": __builtins__}
+            return {"success": True, "notebook_id": notebook_id, "status": "reset"}
+        return {"success": False, "error": f"Notebook {notebook_id} not found"}
+    
+    def get_shared_registry_keys(self) -> List[str]:
+        return list(self.shared_registry.keys())
+    
+    def get_notebook_vars_keys(self, notebook_id: str) -> List[str]:
+        if notebook_id not in self.notebook_vars:
+            return []
+        ns = self.notebook_vars[notebook_id]
+        return [k for k in ns.keys() if not k.startswith('_')]
+    
+    def get_execution_logs(self, notebook_id: str = None, limit: int = 100) -> List[dict]:
+        logs = self.execution_logs
+        if notebook_id:
+            logs = [l for l in logs if l.notebookId == notebook_id]
+        logs = logs[-limit:]
+        return [
+            {
+                "timestamp": l.timestamp,
+                "notebookId": l.notebookId,
+                "cellId": l.cellId,
+                "executionCount": l.executionCount,
+                "queueOrder": l.queueOrder,
+                "codeHash": l.codeHash,
+                "duration": l.duration,
+                "success": l.success
+            }
+            for l in logs
+        ]
+    
+    # === Execution Methods (queued) ===
+    
+    async def execute(self, code: str, cell_id: str, notebook_id: str = "default") -> dict:
+        """Execute code in the kernel (queued, non-streaming)."""
         if self.state.status == KernelStatus.DISCONNECTED:
             await self.start()
         
-        async with self._lock:
-            self.state.status = KernelStatus.BUSY
-            self.state.execution_count += 1
-            exec_count = self.state.execution_count
+        # Check backpressure
+        if self._execution_queue.full():
+            return {
+                "cellId": cell_id,
+                "notebookId": notebook_id,
+                "success": False,
+                "error": f"Execution queue is full ({self._max_queue_size} pending). Please wait.",
+                "outputs": [],
+                "executionCount": self.state.execution_count,
+            }
         
-        outputs = []
+        # Create future and queue request
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
         
-        async for item in self._run_code_streaming(code, cell_id, exec_count, outputs):
-            yield item
+        request = ExecutionRequest(
+            notebook_id=notebook_id,
+            cell_id=cell_id,
+            code=code,
+            future=future,
+            streaming=False
+        )
         
-        async with self._lock:
-            self.state.status = KernelStatus.IDLE
+        await self._execution_queue.put(request)
+        
+        # Wait for result
+        return await future
+    
+    async def execute_streaming(self, code: str, cell_id: str, notebook_id: str = "default") -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute code with streaming output (queued)."""
+        if self.state.status == KernelStatus.DISCONNECTED:
+            await self.start()
+        
+        # Check backpressure
+        if self._execution_queue.full():
+            yield {
+                "type": "complete",
+                "result": {
+                    "cellId": cell_id,
+                    "notebookId": notebook_id,
+                    "success": False,
+                    "error": f"Execution queue is full ({self._max_queue_size} pending). Please wait.",
+                    "outputs": [],
+                    "executionCount": self.state.execution_count,
+                }
+            }
+            return
+        
+        # Output queue for streaming
+        output_queue: asyncio.Queue = asyncio.Queue()
+        
+        def output_callback(output: RichOutput):
+            try:
+                output_queue.put_nowait(output)
+            except:
+                pass
+        
+        # Create future and queue request
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        
+        request = ExecutionRequest(
+            notebook_id=notebook_id,
+            cell_id=cell_id,
+            code=code,
+            future=future,
+            streaming=True,
+            output_callback=output_callback
+        )
+        
+        await self._execution_queue.put(request)
+        
+        # Stream outputs while waiting for completion
+        done = False
+        while not done:
+            try:
+                output = await asyncio.wait_for(output_queue.get(), timeout=0.1)
+                yield {
+                    "type": "output",
+                    "output": {
+                        "type": output.type,
+                        "data": output.data,
+                        "mimeType": output.mimeType,
+                        "stream": output.stream
+                    }
+                }
+            except asyncio.TimeoutError:
+                if future.done():
+                    done = True
+        
+        # Drain remaining outputs
+        while not output_queue.empty():
+            output = output_queue.get_nowait()
+            yield {
+                "type": "output",
+                "output": {
+                    "type": output.type,
+                    "data": output.data,
+                    "mimeType": output.mimeType,
+                    "stream": output.stream
+                }
+            }
+        
+        # Yield final result
+        try:
+            result = await future
+            yield {"type": "complete", "result": result}
+        except Exception as e:
+            yield {
+                "type": "complete",
+                "result": {
+                    "cellId": cell_id,
+                    "notebookId": notebook_id,
+                    "success": False,
+                    "error": str(e),
+                    "outputs": [],
+                }
+            }
 
     def _capture_figures(self) -> List[RichOutput]:
         """Capture matplotlib figures as base64 PNG images."""
@@ -164,17 +505,22 @@ class KernelManager:
             print(f"Error capturing figure: {e}")
         return figures
 
-    async def _run_code_streaming(self, code: str, cell_id: str, exec_count: int, outputs: list) -> AsyncGenerator[Dict[str, Any], None]:
-        """Run code with streaming output."""
+    async def _run_code_streaming_internal(self, code: str, cell_id: str, notebook_id: str,
+                                           exec_count: int, queue_order: int,
+                                           output_callback: Callable) -> dict:
+        """Internal: Run code with streaming output via callback."""
         loop = asyncio.get_event_loop()
-        output_queue = asyncio.Queue()
         start_time = time.time()
+        outputs = []
+        
+        ns = self._get_notebook_vars(notebook_id)
         
         def on_output(output: RichOutput):
-            loop.call_soon_threadsafe(output_queue.put_nowait, output)
+            outputs.append(output)
+            if output_callback:
+                output_callback(output)
         
         def run_shell_command(cmd: str):
-            """Execute a shell command with streaming output."""
             try:
                 process = subprocess.Popen(
                     cmd,
@@ -202,26 +548,22 @@ class KernelManager:
             old_stderr = sys.stderr
             
             try:
-                # Check for shell commands (lines starting with !)
                 lines = code.strip().split('\n')
-                shell_commands = []
                 python_code = []
                 
                 for line in lines:
                     stripped = line.strip()
                     if stripped.startswith('!'):
-                        # Execute any pending Python code first
                         if python_code:
                             sys.stdout = stdout_capture
                             sys.stderr = stderr_capture
                             try:
-                                exec('\n'.join(python_code), self.state.globals_dict)
+                                exec('\n'.join(python_code), ns)
                             finally:
                                 sys.stdout = old_stdout
                                 sys.stderr = old_stderr
                             python_code = []
                         
-                        # Execute shell command
                         cmd = stripped[1:].strip()
                         error = run_shell_command(cmd)
                         if error:
@@ -229,7 +571,6 @@ class KernelManager:
                     else:
                         python_code.append(line)
                 
-                # Execute remaining Python code
                 if python_code:
                     remaining_code = '\n'.join(python_code)
                     if remaining_code.strip():
@@ -237,7 +578,6 @@ class KernelManager:
                         sys.stderr = stderr_capture
                         
                         try:
-                            # Set matplotlib to non-interactive backend
                             try:
                                 import matplotlib
                                 matplotlib.use('Agg')
@@ -247,10 +587,10 @@ class KernelManager:
                                 pass
                             
                             try:
-                                exec(remaining_code, self.state.globals_dict)
+                                exec(remaining_code, ns)
                             except SyntaxError:
                                 try:
-                                    result = eval(remaining_code, self.state.globals_dict)
+                                    result = eval(remaining_code, ns)
                                     if result is not None:
                                         stdout_capture.write(repr(result) + '\n')
                                 except:
@@ -272,95 +612,56 @@ class KernelManager:
                     sys.stderr = old_stderr
                 return traceback.format_exc()
         
-        # Start execution in thread
-        error_future = loop.run_in_executor(None, run_sync)
-        
-        # Stream outputs while waiting
-        done = False
-        while not done:
-            try:
-                output = await asyncio.wait_for(output_queue.get(), timeout=0.1)
-                outputs.append(output)
-                yield {
-                    "type": "output",
-                    "output": {
-                        "type": output.type,
-                        "data": output.data,
-                        "mimeType": output.mimeType,
-                        "stream": output.stream
-                    }
-                }
-            except asyncio.TimeoutError:
-                if error_future.done():
-                    done = True
-        
-        # Get any remaining outputs
-        while not output_queue.empty():
-            output = output_queue.get_nowait()
-            outputs.append(output)
-            yield {
-                "type": "output", 
-                "output": {
-                    "type": output.type,
-                    "data": output.data,
-                    "mimeType": output.mimeType,
-                    "stream": output.stream
-                }
-            }
-        
-        error = await error_future
+        error = await loop.run_in_executor(None, run_sync)
         duration = time.time() - start_time
         
-        # Capture figures after execution
+        # Capture figures
         figures = self._capture_figures()
         for fig in figures:
             outputs.append(fig)
-            yield {
-                "type": "output",
-                "output": {
-                    "type": fig.type,
-                    "data": fig.data,
-                    "mimeType": fig.mimeType
-                }
-            }
+            if output_callback:
+                output_callback(fig)
+        
+        # Log execution
+        self._log_execution(notebook_id, cell_id, exec_count, queue_order, code, duration, error is None)
         
         if error:
             outputs.append(RichOutput(type='error', data=error))
-            yield {
-                "type": "complete",
-                "result": {
-                    "cellId": cell_id,
-                    "success": False,
-                    "error": error,
-                    "outputs": [{"type": o.type, "data": o.data, "mimeType": o.mimeType, "stream": o.stream} for o in outputs],
-                    "executionCount": exec_count,
-                    "duration": round(duration, 2),
-                }
+            return {
+                "cellId": cell_id,
+                "notebookId": notebook_id,
+                "success": False,
+                "error": error,
+                "outputs": [{"type": o.type, "data": o.data, "mimeType": o.mimeType, "stream": o.stream} for o in outputs],
+                "executionCount": exec_count,
+                "queueOrder": queue_order,
+                "duration": round(duration, 2),
             }
         else:
-            yield {
-                "type": "complete",
-                "result": {
-                    "cellId": cell_id,
-                    "success": True,
-                    "outputs": [{"type": o.type, "data": o.data, "mimeType": o.mimeType, "stream": o.stream} for o in outputs],
-                    "executionCount": exec_count,
-                    "duration": round(duration, 2),
-                }
+            return {
+                "cellId": cell_id,
+                "notebookId": notebook_id,
+                "success": True,
+                "outputs": [{"type": o.type, "data": o.data, "mimeType": o.mimeType, "stream": o.stream} for o in outputs],
+                "executionCount": exec_count,
+                "queueOrder": queue_order,
+                "duration": round(duration, 2),
             }
 
-    async def _run_code(self, code: str, cell_id: str, exec_count: int) -> dict:
+    async def _run_code(self, code: str, cell_id: str, notebook_id: str,
+                         exec_count: int, queue_order: int) -> dict:
         """Run code and capture output (non-streaming)."""
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
         outputs = []
         start_time = time.time()
         
+        ns = self._get_notebook_vars(notebook_id)
+        
         try:
             loop = asyncio.get_event_loop()
             
             def run_shell_command(cmd: str) -> tuple:
-                """Execute shell command, return (stdout, stderr, returncode)."""
                 try:
                     result = subprocess.run(
                         cmd,
@@ -373,7 +674,6 @@ class KernelManager:
                     return "", str(e), 1
             
             def run_sync():
-                # Check for shell commands (lines starting with !)
                 lines = code.strip().split('\n')
                 all_stdout = []
                 all_stderr = []
@@ -390,7 +690,6 @@ class KernelManager:
                         if retcode != 0:
                             raise Exception(f"Command '{cmd}' failed with exit code {retcode}")
                     else:
-                        # Regular Python code
                         if stripped:
                             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
                                 try:
@@ -402,16 +701,15 @@ class KernelManager:
                                     pass
                                 
                                 try:
-                                    exec(stripped, self.state.globals_dict)
+                                    exec(stripped, ns)
                                 except SyntaxError:
                                     try:
-                                        result = eval(stripped, self.state.globals_dict)
+                                        result = eval(stripped, ns)
                                         if result is not None:
                                             print(repr(result))
                                     except:
                                         raise
                 
-                # Add shell command outputs
                 if all_stdout:
                     stdout_buffer.write('\n'.join(all_stdout))
                 if all_stderr:
@@ -428,21 +726,23 @@ class KernelManager:
             if stderr_text:
                 outputs.append(RichOutput(type='stream', data=stderr_text, stream='stderr'))
             
-            # Capture figures
             figures = self._capture_figures()
             outputs.extend(figures)
             
-            # Build combined text output for backward compatibility
             combined_output = stdout_text
             if stderr_text:
                 combined_output = combined_output + stderr_text if combined_output else stderr_text
             
+            self._log_execution(notebook_id, cell_id, exec_count, queue_order, code, duration, True)
+            
             return {
                 "cellId": cell_id,
+                "notebookId": notebook_id,
                 "success": True,
                 "output": combined_output.strip() if combined_output else None,
                 "outputs": [{"type": o.type, "data": o.data, "mimeType": o.mimeType, "stream": o.stream} for o in outputs],
                 "executionCount": exec_count,
+                "queueOrder": queue_order,
                 "duration": round(duration, 2),
             }
             
@@ -450,17 +750,23 @@ class KernelManager:
             duration = time.time() - start_time
             error_msg = traceback.format_exc()
             outputs.append(RichOutput(type='error', data=error_msg))
+            
+            self._log_execution(notebook_id, cell_id, exec_count, queue_order, code, duration, False)
+            
             return {
                 "cellId": cell_id,
+                "notebookId": notebook_id,
                 "success": False,
                 "error": error_msg,
                 "outputs": [{"type": o.type, "data": o.data, "mimeType": o.mimeType, "stream": o.stream} for o in outputs],
                 "executionCount": exec_count,
+                "queueOrder": queue_order,
                 "duration": round(duration, 2),
             }
     
     async def interrupt(self) -> dict:
         """Interrupt current execution."""
+        # TODO: Implement actual interruption via thread signal
         return {"status": "interrupt_sent"}
     
     def _get_info(self) -> dict:
@@ -468,6 +774,9 @@ class KernelManager:
             "id": self.state.id,
             "status": self.state.status.value,
             "executionCount": self.state.execution_count,
+            "notebooks": list(self.notebook_vars.keys()),
+            "sharedVariables": list(self.shared_registry.keys()),
+            "queue": self.get_queue_status(),
         }
     
     def get_info(self) -> dict:

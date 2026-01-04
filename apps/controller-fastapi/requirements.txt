@@ -2,4 +2,4 @@ fastapi
 uvicorn[standard]
 pydantic
 langchain-openai
-langchain-core
+langchain-core# Local kernel package (install with: pip install -e ../kernel-python)
