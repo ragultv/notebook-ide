@@ -569,12 +569,24 @@ class AIService:
             print(f"Model: {self.current_provider}/{self.current_model}")
             print(f"Response: {text[:500]}..." if len(text) > 500 else f"Response: {text}")
             
+            # Check if small model is being used (likely to have issues)
+            model_lower = self.current_model.lower()
+            is_small_model = any(size in model_lower for size in ['1.5b', '1b', '3b', '0.5b'])
+            
+            if is_small_model and ('deepseek' in model_lower or 'qwen' in model_lower):
+                print(f"⚠️  WARNING: Small model detected ({self.current_model})")
+                print(f"    Small models often struggle with structured JSON output.")
+                print(f"    For best results, use larger models like:")
+                print(f"    - qwen2.5-coder:7b or higher")
+                print(f"    - deepseek-r1:7b or higher")
+                print(f"    - llama3.1:8b or higher")
+            
             # Extract operations from response
             operations = self._extract_operations(text)
             
             # Clean text (remove operations block)
             clean_text = re.sub(r'```(?:operations|json)?\s*\n?\[[\s\S]*?\]\s*\n?```', '', text).strip()
-            clean_text = re.sub(r'```json\s*\n?\[[\s\S]*?\]\s*\n?```', '', clean_text).strip()
+            # clean_text = re.sub(r'```json\s*\n?\[[\s\S]*?\]\s*\n?```', '', clean_text).strip()
             # Add thinking text at the beginning
             final_text = thinking_text + clean_text
             
@@ -692,35 +704,128 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
         except Exception as e:
             return f"# Error generating code: {str(e)}"
     
-    def _sanitize_json_string(self, text: str) -> str:
-        """Sanitize JSON string by escaping control characters inside string values."""
-        result = []
-        in_string = False
-        escape = False
+    def _fix_deepseek_json(self, json_str: str) -> str:
+        """Fix common JSON issues from DeepSeek models."""
+        print(f"\n🔧 Applying DeepSeek JSON fixes...")
         
-        for char in text:
-            if in_string:
-                if escape:
-                    escape = False
+        # Strategy: Parse character by character, properly tracking JSON string context
+        # and escape unescaped quotes within string values
+        
+        result = []
+        i = 0
+        in_string = False
+        is_key = False  # Are we in a key or value?
+        escape_next = False
+        brace_depth = 0
+        
+        while i < len(json_str):
+            char = json_str[i]
+            
+            if escape_next:
+                result.append(char)
+                escape_next = False
+                i += 1
+                continue
+            
+            if char == '\\':
+                result.append(char)
+                escape_next = True
+                i += 1
+                continue
+            
+            # Track brace depth (outside strings)
+            if not in_string:
+                if char in '{[':
+                    brace_depth += 1
+                elif char in '}]':
+                    brace_depth -= 1
+            
+            # Handle quotes
+            if char == '"':
+                if not in_string:
+                    # Starting a string
+                    in_string = True
+                    # Check if this is a key (look back for { or ,)
+                    prev_significant = ''.join(result).rstrip()
+                    is_key = prev_significant.endswith('{') or prev_significant.endswith(',')
                     result.append(char)
-                elif char == '\\':
-                    escape = True
-                    result.append(char)
-                elif char == '"':
+                else:
+                    # Potentially ending a string
+                    # Look ahead to see what comes next
+                    lookahead = json_str[i+1:i+10].lstrip()
+                    
+                    # If we're in a value and the next char is not : or , or } or ],
+                    # this might be a nested quote
+                    if not is_key and lookahead and lookahead[0] not in ',:}]':
+                        # This is likely a nested quote - escape it
+                        result.append('\\"')
+                        i += 1
+                        continue
+                    
+                    # Otherwise, close the string
                     in_string = False
                     result.append(char)
-                elif char == '\n':
+            elif in_string:
+                # Inside a string - escape control chars
+                if char == '\n':
                     result.append('\\n')
                 elif char == '\r':
-                    pass
-    def _fix_json_string(self, json_str: str) -> str:
-        """Fix common JSON formatting issues from LLM outputs."""
-        # This is a sophisticated fix for JSON with unescaped newlines and control chars
-        # We need to be careful to only escape newlines inside string values, not structural JSON
+                    result.append('\\r')
+                elif char == '\t':
+                    result.append('\\t')
+                else:
+                    result.append(char)
+            else:
+                result.append(char)
+            
+            i += 1
         
+        json_str = ''.join(result)
+        
+        # Now apply structural fixes
+        
+        # Fix 1: Remove stray closing brackets
+        json_str = re.sub(r'\}\]\s*,\s*\n', '},\n', json_str)
+        
+        # Fix 2: Remove blank lines within arrays
+        lines = json_str.split('\n')
+        fixed_lines = []
+        bracket_depth = 0
+        
+        for line in lines:
+            stripped = line.strip()
+            bracket_depth += stripped.count('[') + stripped.count('{')
+            bracket_depth -= stripped.count(']') + stripped.count('}')
+            
+            # Skip blank lines inside arrays
+            if not stripped and bracket_depth > 0:
+                continue
+            
+            # Fix }], to },
+            if bracket_depth > 0 and re.search(r'\}\]\s*,\s*$', stripped):
+                line = re.sub(r'\}\]\s*,\s*$', '},', line)
+            
+            fixed_lines.append(line)
+        
+        json_str = '\n'.join(fixed_lines)
+        
+        # Fix 3: Remove trailing commas
+        json_str = re.sub(r',(\s*)\]', r'\1]', json_str)
+        json_str = re.sub(r',(\s*)\}', r'\1}', json_str)
+        
+        # Fix 4: Clean up spacing
+        json_str = re.sub(r',\s*\n\s*\n', ',\n', json_str)
+        
+        print(f"✓ DeepSeek JSON fixes applied")
+        print(f"Fixed JSON preview (first 800 chars):\n{json_str[:800]}...")
+        return json_str
+    
+    def _fix_json_string(self, json_str: str) -> str:
+        """Fix common JSON formatting issues from LLM outputs by escaping control characters."""
         result = []
         in_string = False
         escape_next = False
+        string_start_char = None  # Track if string started with " or '
         
         for i, char in enumerate(json_str):
             if escape_next:
@@ -733,9 +838,35 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
                 escape_next = True
                 continue
             
+            # Handle quotes
             if char == '"':
-                in_string = not in_string
-                result.append(char)
+                if not in_string:
+                    # Starting a new string
+                    in_string = True
+                    string_start_char = '"'
+                    result.append(char)
+                elif string_start_char == '"':
+                    # Check if this is actually closing the string or a nested quote
+                    # Look ahead to see if this might be a nested quote
+                    # If next chars suggest we're still in a string, escape it
+                    remaining = json_str[i+1:i+50] if i+1 < len(json_str) else ""
+                    
+                    # Heuristic: if after this quote we see more code-like content before
+                    # seeing a comma or closing brace, it's likely a nested quote
+                    if in_string and remaining and not remaining.lstrip().startswith((',', '}', ']')):
+                        # Check if remaining looks like it's still inside Python code
+                        if any(indicator in remaining[:30] for indicator in ['print', '(', ')', '=', 'f"', "f'"]):
+                            # This is a nested quote, escape it
+                            result.append('\\"')
+                            continue
+                    
+                    # Otherwise, it's closing the string
+                    in_string = False
+                    string_start_char = None
+                    result.append(char)
+                else:
+                    # We're in a single-quoted string, so " is just a char
+                    result.append(char)
                 continue
             
             # If we're inside a string and hit a control character, escape it
@@ -749,46 +880,24 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
                 else:
                     result.append(char)
             else:
-                if char == '"':
-                    in_string = True
                 result.append(char)
-                
-        return "".join(result)
+        
+        return ''.join(result)
 
     def _extract_operations(self, text: str) -> Optional[List[Dict[str, Any]]]:
         """Extract operations JSON from response text."""
         print(f"\n===== EXTRACTING OPERATIONS =====")
-        print(f"AI Response Text:\n{text[:500]}..." if len(text) > 500 else f"AI Response Text:\n{text}\n")
+        # Don't truncate the debug output - show everything
+        print(f"Full AI Response Text ({len(text)} chars):\n{text}\n")
         
-        def try_parse(json_text: str) -> Optional[List[Dict[str, Any]]]:
-            try:
-                return json.loads(json_text)
-            except json.JSONDecodeError:
-                # Try sanitizing (fixing newlines in strings)
-                try:
-                    sanitized = self._sanitize_json_string(json_text)
-                    return json.loads(sanitized)
-                except json.JSONDecodeError:
-                    return None
-
-        # 1. Look for explicit operations or json block
-        # Supports: ```operations, ```json, or just ```
-        match = re.search(r'```(?:operations|json)?\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
-        if match:
-            result = try_parse(match.group(1))
-            if result: return result
+        # Check if using DeepSeek model
+        is_deepseek = 'deepseek' in self.current_model.lower()
         
-        # 2. Try to find JSON array directly (fallback)
-        # Looks for [ { "type": ... } ] pattern
-        match = re.search(r'\[\s*\{[\s\S]*?"type"[\s\S]*?\}[\s\S]*?\]', text)
-        if match:
-            result = try_parse(match.group(0))
-            if result: return result
         # Method 1: Look for ```operations block
         match = re.search(r'```operations\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
         if match:
             try:
-                json_str = self._fix_json_string(match.group(1))
+                json_str = self._fix_deepseek_json(match.group(1)) if is_deepseek else self._fix_json_string(match.group(1))
                 ops = json.loads(json_str)
                 print(f"✓ Extracted {len(ops)} operations from ```operations block")
                 return ops
@@ -799,18 +908,20 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
         match = re.search(r'```json\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
         if match:
             try:
-                json_str = self._fix_json_string(match.group(1))
+                json_str = self._fix_deepseek_json(match.group(1)) if is_deepseek else self._fix_json_string(match.group(1))
                 ops = json.loads(json_str)
                 print(f"✓ Extracted {len(ops)} operations from ```json block")
                 return ops
             except json.JSONDecodeError as e:
                 print(f"✗ Failed to parse json block JSON: {e}")
+                if is_deepseek:
+                    print(f"Fixed JSON attempt:\n{json_str[:500]}...")
         
         # Method 3: Look for any code block with JSON array
         match = re.search(r'```\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
         if match:
             try:
-                json_str = self._fix_json_string(match.group(1))
+                json_str = self._fix_deepseek_json(match.group(1)) if is_deepseek else self._fix_json_string(match.group(1))
                 ops = json.loads(json_str)
                 # Verify it looks like operations
                 if ops and isinstance(ops, list) and len(ops) > 0 and isinstance(ops[0], dict) and 'type' in ops[0]:
@@ -823,18 +934,18 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
         match = re.search(r'\[\s*\{\s*"type"\s*:\s*"[^"]+"\s*,\s*"params"\s*:[\s\S]*?\}\s*\]', text)
         if match:
             try:
-                json_str = self._fix_json_string(match.group(0))
+                json_str = self._fix_deepseek_json(match.group(0)) if is_deepseek else self._fix_json_string(match.group(0))
                 ops = json.loads(json_str)
                 print(f"✓ Extracted {len(ops)} operations from direct JSON")
                 return ops
             except json.JSONDecodeError as e:
                 print(f"✗ Failed to parse direct JSON: {e}")
         
-        # Method 5: Look for any JSON array with "type" field
+        # Method 5: Look for any JSON array with "type" field (most lenient)
         match = re.search(r'\[\s*\{[^}]*"type"[^}]*\}[\s\S]*?\]', text)
         if match:
             try:
-                json_str = self._fix_json_string(match.group(0))
+                json_str = self._fix_deepseek_json(match.group(0)) if is_deepseek else self._fix_json_string(match.group(0))
                 ops = json.loads(json_str)
                 print(f"✓ Extracted {len(ops)} operations from loose JSON match")
                 return ops
