@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any, List
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
+
 # ===== Provider Configuration =====
 
 # NVIDIA NIM
@@ -328,6 +329,21 @@ class AIService:
         if cache_key in self._clients:
             return self._clients[cache_key]
         
+        # Special case for ollama (custom models)
+        if provider == "ollama":
+            try:
+                client = ChatOpenAI(
+                    model=model,
+                    temperature=0.2,
+                    api_key="ollama",  # Ollama doesn't need real API key
+                    base_url="http://localhost:11434/v1",
+                )
+                self._clients[cache_key] = client
+                return client
+            except Exception as e:
+                print(f"Error creating Ollama client for {model}: {e}")
+                return None
+        
         provider_config = AVAILABLE_MODELS.get(provider)
         if not provider_config:
             return None
@@ -349,17 +365,39 @@ class AIService:
             print(f"Error creating client for {provider}/{model}: {e}")
             return None
     
-    def get_available_providers(self) -> Dict[str, Any]:
+    async def get_available_providers(self, model_type: str) -> Dict[str, Any]:
         """Get all available providers and their models."""
         result = {}
-        for provider_id, config in AVAILABLE_MODELS.items():
-            # Check if provider has API key configured
-            has_key = bool(config["api_key"])
-            result[provider_id] = {
-                "name": config["name"],
-                "models": config["models"],
-                "available": has_key,
-            }
+        if(model_type == "default"):
+            for provider_id, config in AVAILABLE_MODELS.items():
+                # Check if provider has API key configured
+                has_key = bool(config["api_key"])
+                result[provider_id] = {
+                    "name": config["name"],
+                    "models": config["models"],
+                    "available": has_key,
+                }
+        else:
+            import httpx
+            url = f"http://localhost:11434/api/tags"
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url)
+                    response.raise_for_status()
+                    data = response.json()
+                    models = [{"id": model["name"], "name": model["name"], "context": 8192} for model in data["models"]]
+                    result["ollama"] = {
+                        "name": "Ollama (Local)",
+                        "models": models,
+                        "available": True if models else False
+                    }
+            except Exception as e:
+                print(f"Error fetching models from local service: {e}")
+                result["ollama"] = {
+                    "name": "Ollama (Local)",
+                    "models": [],
+                    "available": False
+                }
         return result
     
     def set_api_key(self, provider: str, api_key: str) -> bool:
@@ -379,6 +417,12 @@ class AIService:
     
     def set_model(self, provider: str, model: str) -> bool:
         """Set the current provider and model."""
+        # Special case for ollama (custom models)
+        if provider == "ollama":
+            self.current_provider = provider
+            self.current_model = model
+            return True
+        
         if provider not in AVAILABLE_MODELS:
             return False
         
@@ -521,12 +565,16 @@ class AIService:
             response = await llm.ainvoke(messages)
             text = response.content
             
+            print(f"\n===== AI GENERATE RESPONSE =====")
+            print(f"Model: {self.current_provider}/{self.current_model}")
+            print(f"Response: {text[:500]}..." if len(text) > 500 else f"Response: {text}")
+            
             # Extract operations from response
             operations = self._extract_operations(text)
             
             # Clean text (remove operations block)
             clean_text = re.sub(r'```(?:operations|json)?\s*\n?\[[\s\S]*?\]\s*\n?```', '', text).strip()
-            
+            clean_text = re.sub(r'```json\s*\n?\[[\s\S]*?\]\s*\n?```', '', clean_text).strip()
             # Add thinking text at the beginning
             final_text = thinking_text + clean_text
             
@@ -540,6 +588,7 @@ class AIService:
             }
             
         except Exception as e:
+            print(f"\n✗ Error in generate: {e}")
             return {
                 "text": f"Error: {str(e)}",
                 "operations": None,
@@ -664,6 +713,37 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
                     result.append('\\n')
                 elif char == '\r':
                     pass
+    def _fix_json_string(self, json_str: str) -> str:
+        """Fix common JSON formatting issues from LLM outputs."""
+        # This is a sophisticated fix for JSON with unescaped newlines and control chars
+        # We need to be careful to only escape newlines inside string values, not structural JSON
+        
+        result = []
+        in_string = False
+        escape_next = False
+        
+        for i, char in enumerate(json_str):
+            if escape_next:
+                result.append(char)
+                escape_next = False
+                continue
+            
+            if char == '\\':
+                result.append(char)
+                escape_next = True
+                continue
+            
+            if char == '"':
+                in_string = not in_string
+                result.append(char)
+                continue
+            
+            # If we're inside a string and hit a control character, escape it
+            if in_string:
+                if char == '\n':
+                    result.append('\\n')
+                elif char == '\r':
+                    result.append('\\r')
                 elif char == '\t':
                     result.append('\\t')
                 else:
@@ -677,6 +757,8 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
 
     def _extract_operations(self, text: str) -> Optional[List[Dict[str, Any]]]:
         """Extract operations JSON from response text."""
+        print(f"\n===== EXTRACTING OPERATIONS =====")
+        print(f"AI Response Text:\n{text[:500]}..." if len(text) > 500 else f"AI Response Text:\n{text}\n")
         
         def try_parse(json_text: str) -> Optional[List[Dict[str, Any]]]:
             try:
@@ -702,7 +784,64 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
         if match:
             result = try_parse(match.group(0))
             if result: return result
+        # Method 1: Look for ```operations block
+        match = re.search(r'```operations\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
+        if match:
+            try:
+                json_str = self._fix_json_string(match.group(1))
+                ops = json.loads(json_str)
+                print(f"✓ Extracted {len(ops)} operations from ```operations block")
+                return ops
+            except json.JSONDecodeError as e:
+                print(f"✗ Failed to parse operations block JSON: {e}")
         
+        # Method 2: Look for ```json block
+        match = re.search(r'```json\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
+        if match:
+            try:
+                json_str = self._fix_json_string(match.group(1))
+                ops = json.loads(json_str)
+                print(f"✓ Extracted {len(ops)} operations from ```json block")
+                return ops
+            except json.JSONDecodeError as e:
+                print(f"✗ Failed to parse json block JSON: {e}")
+        
+        # Method 3: Look for any code block with JSON array
+        match = re.search(r'```\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
+        if match:
+            try:
+                json_str = self._fix_json_string(match.group(1))
+                ops = json.loads(json_str)
+                # Verify it looks like operations
+                if ops and isinstance(ops, list) and len(ops) > 0 and isinstance(ops[0], dict) and 'type' in ops[0]:
+                    print(f"✓ Extracted {len(ops)} operations from generic code block")
+                    return ops
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                print(f"✗ Failed to parse generic code block: {e}")
+        
+        # Method 4: Try to find JSON array directly (no code fence)
+        match = re.search(r'\[\s*\{\s*"type"\s*:\s*"[^"]+"\s*,\s*"params"\s*:[\s\S]*?\}\s*\]', text)
+        if match:
+            try:
+                json_str = self._fix_json_string(match.group(0))
+                ops = json.loads(json_str)
+                print(f"✓ Extracted {len(ops)} operations from direct JSON")
+                return ops
+            except json.JSONDecodeError as e:
+                print(f"✗ Failed to parse direct JSON: {e}")
+        
+        # Method 5: Look for any JSON array with "type" field
+        match = re.search(r'\[\s*\{[^}]*"type"[^}]*\}[\s\S]*?\]', text)
+        if match:
+            try:
+                json_str = self._fix_json_string(match.group(0))
+                ops = json.loads(json_str)
+                print(f"✓ Extracted {len(ops)} operations from loose JSON match")
+                return ops
+            except json.JSONDecodeError as e:
+                print(f"✗ Failed to parse loose JSON: {e}")
+        
+        print(f"✗ No operations found in response")
         return None
 
 

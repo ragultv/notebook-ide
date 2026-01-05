@@ -334,8 +334,8 @@ export const controllerClient = {
   // ===== AI Model Management API =====
 
   // Get all available AI providers and models
-  async getProviders(): Promise<{ providers: Record<string, ProviderInfo>; current: ModelSelection }> {
-    return request('/ai/models/providers');
+  async getProviders(model_type: string): Promise<{ providers: Record<string, ProviderInfo>; current: ModelSelection }> {
+    return request(`/ai/models/providers?model_type=${encodeURIComponent(model_type)}`);
   },
 
   // Select a model
