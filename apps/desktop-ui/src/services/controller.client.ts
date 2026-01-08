@@ -1,7 +1,7 @@
 // Controller Client - HTTP interface to FastAPI backend
 // Handles execution, kernel management, and AI requests
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = 'http://127.0.0.1:8000';
 
 // Types
 export interface ExecutionRequest {
@@ -32,6 +32,28 @@ export interface KernelInfo {
   id: string;
   status: 'idle' | 'busy' | 'error';
   executionCount: number;
+}
+
+export interface KernelMetrics {
+  notebook_id: string;
+  available: boolean;
+  pid?: number;
+  memory_mb?: number;
+  memory_percent?: number;
+  cpu_percent?: number;
+  status?: string;
+  error?: string;
+}
+
+export interface AllKernelMetrics {
+  kernels: Record<string, {
+    pid?: number;
+    memory_mb?: number;
+    cpu_percent?: number;
+    status: string;
+  }>;
+  total_count: number;
+  running_count: number;
 }
 
 export interface AIRequest {
@@ -100,6 +122,16 @@ export const controllerClient = {
 
   async getKernelStatus(): Promise<KernelInfo> {
     return request('/kernels/status');
+  },
+
+  // Get kernel metrics (PID, memory, CPU) for a specific notebook
+  async getKernelMetrics(notebookId: string): Promise<KernelMetrics> {
+    return request(`/kernels/metrics/${encodeURIComponent(notebookId)}`);
+  },
+
+  // Get metrics for all running kernels
+  async getAllKernelMetrics(): Promise<AllKernelMetrics> {
+    return request('/kernels/metrics');
   },
 
   // Code Execution
@@ -334,8 +366,8 @@ export const controllerClient = {
   // ===== AI Model Management API =====
 
   // Get all available AI providers and models
-  async getProviders(): Promise<{ providers: Record<string, ProviderInfo>; current: ModelSelection }> {
-    return request('/ai/models/providers');
+  async getProviders(model_type: string): Promise<{ providers: Record<string, ProviderInfo>; current: ModelSelection }> {
+    return request(`/ai/models/providers?model_type=${encodeURIComponent(model_type)}`);
   },
 
   // Select a model

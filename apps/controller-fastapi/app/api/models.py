@@ -20,9 +20,9 @@ class ProviderInfo(BaseModel):
 
 
 @router.get("/providers")
-async def get_providers() -> Dict[str, Any]:
+async def get_providers(model_type: str) -> Dict[str, Any]:
     """Get all available AI providers and their models."""
-    providers = ai_service.get_available_providers()
+    providers = await ai_service.get_available_providers(model_type=model_type)
     return {
         "providers": providers,
         "current": ai_service.get_current_model(),
@@ -33,6 +33,7 @@ async def get_providers() -> Dict[str, Any]:
 async def select_model(request: SetModelRequest) -> Dict[str, Any]:
     """Set the current AI model."""
     success = ai_service.set_model(request.provider, request.model)
+    print(ai_service.get_current_model())
     return {
         "success": success,
         "current": ai_service.get_current_model(),

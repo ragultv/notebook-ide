@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Check, Settings, Sparkles } from 'lucide-react';
 import { controllerClient, ProviderInfo, ModelSelection } from '../services/controller.client';
 
+
 interface ModelSelectorProps {
   onOpenManage: () => void;
 }
@@ -11,12 +12,15 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage }) =>
   const [isOpen, setIsOpen] = useState(false);
   const [providers, setProviders] = useState<Record<string, ProviderInfo>>({});
   const [currentModel, setCurrentModel] = useState<ModelSelection>({ provider: 'nvidia', model: 'meta/llama-3.1-8b-instruct' });
+  const [modelType, setModelType] = useState<"default" | "custom">('default');
+  const [isTypeOpen, setIsTypeOpen] = useState(false); // Add this state for modelType dropdown
+
   const [loading, setLoading] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Load providers on mount
   useEffect(() => {
-    loadProviders();
+    loadProviders(modelType);
   }, []);
 
   // Close dropdown when clicking outside
@@ -30,9 +34,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage }) =>
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const loadProviders = async () => {
+  const loadProviders = async (model_type: string) => {
     try {
-      const data = await controllerClient.getProviders();
+      const data = await controllerClient.getProviders(model_type);
       setProviders(data.providers);
       setCurrentModel(data.current);
     } catch (err) {
@@ -84,9 +88,47 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage }) =>
   }
 
   const availableModels = getAvailableModels();
-
+    const modelTypeOptions = [
+    { value: 'default', label: 'Default Models' },
+    { value: 'custom', label: 'Custom Models' },
+  ];
   return (
     <div className="relative" ref={dropdownRef}>
+      <div className="mb-2">
+        <button
+          onClick={() => setIsTypeOpen(!isTypeOpen)}
+          className="flex items-center gap-2 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] rounded text-sm transition-colors border border-[#404040] w-full"
+        >
+          <Sparkles className="w-4 h-4 text-[#e85d04]" />
+          <span className="text-gray-200 max-w-[150px] truncate">
+            {modelTypeOptions.find(opt => opt.value === modelType)?.label}
+          </span>
+          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isTypeOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {isTypeOpen && (
+          <div className="absolute left-0 mt-2 w-64 bg-[#252526] border border-[#404040] rounded shadow-lg z-50 overflow-hidden">
+            {modelTypeOptions.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => {
+                  setModelType(opt.value as "default" | "custom");
+                  setIsTypeOpen(false);
+                  setLoading(true);
+                  loadProviders(opt.value);
+                }}
+                className={`w-full px-3 py-2 text-left flex items-center gap-2 transition-colors ${
+                  modelType === opt.value
+                    ? 'bg-[#e85d04]/20 text-white'
+                    : 'hover:bg-[#2d2d2d] text-gray-300'
+                }`}
+              >
+                <span className="text-sm">{opt.label}</span>
+                {modelType === opt.value && <Check className="w-4 h-4 text-[#e85d04] flex-shrink-0" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {/* Selector Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}

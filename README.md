@@ -1,6 +1,6 @@
 # OPREL Studio — Notebook IDE
 
-A modern, lightweight notebook editor for Python with AI-powered code generation, real-time syntax checking, and notebook isolation.
+A modern, lightweight notebook editor for Python with AI-powered code generation, real-time syntax checking, and true process isolation.
 
 ![OPREL Studio](https://img.shields.io/badge/OPREL-Studio-red?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.12+-blue?style=flat-square)
@@ -9,283 +9,95 @@ A modern, lightweight notebook editor for Python with AI-powered code generation
 
 ---
 
-## 🏗️ Architecture Overview
+## ⚡ What is OPREL Studio?
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           OPREL Studio                                  │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                    Desktop UI (React + Vite)                     │   │
-│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌──────────────┐  │   │
-│  │  │ Notebook  │  │   Cell    │  │  Sidebar  │  │   AI Chat    │  │   │
-│  │  │ Component │  │ Component │  │  (Files)  │  │   Panel      │  │   │
-│  │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └──────┬───────┘  │   │
-│  │        │              │              │               │          │   │
-│  │        └──────────────┴──────────────┴───────────────┘          │   │
-│  │                              │                                   │   │
-│  │                    Controller Client (HTTP/SSE)                  │   │
-│  └──────────────────────────────┼───────────────────────────────────┘   │
-│                                 │                                       │
-│                          HTTP :8000                                     │
-│                                 │                                       │
-│  ┌──────────────────────────────┼───────────────────────────────────┐   │
-│  │              Controller (FastAPI + Python)                       │   │
-│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌──────────────┐  │   │
-│  │  │ Execution │  │  Kernels  │  │ Notebooks │  │      AI      │  │   │
-│  │  │    API    │  │    API    │  │    API    │  │   Service    │  │   │
-│  │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └──────┬───────┘  │   │
-│  │        │              │              │               │          │   │
-│  │        └──────────────┴──────────────┴───────────────┘          │   │
-│  │                              │                                   │   │
-│  │  ┌───────────────────────────┴───────────────────────────────┐  │   │
-│  │  │                   Kernel Manager                           │  │   │
-│  │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐│  │   │
-│  │  │  │ Exec Queue  │  │  Notebook   │  │   Shared Registry   ││  │   │
-│  │  │  │  (asyncio)  │  │  Isolation  │  │  (export/import)    ││  │   │
-│  │  │  └─────────────┘  └─────────────┘  └─────────────────────┘│  │   │
-│  │  └───────────────────────────────────────────────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+OPREL Studio is a monolithic, single-user Notebook IDE designed for **lightning-fast local development**. 
+
+Unlike Jupyter, which spins up heavy kernels and servers for every instance, OPREL Studio runs on a single **Controller Architecture**. It provides the same interactive experience but with tighter integration between the UI, the Execution Engine, and the AI Assistant.
 
 ---
 
-## 🗂️ Project Structure
+## 🏗️ Architecture: The "True" Design
 
-```
-notebook-ide/
-├── apps/
-│   ├── desktop-ui/                 # React Frontend (Vite + TypeScript)
-│   │   ├── src/
-│   │   │   ├── components/
-│   │   │   │   ├── Notebook/       # Notebook & Cell components
-│   │   │   │   ├── Layout/         # Sidebar, Header
-│   │   │   │   └── Chat/           # AI Chat panel
-│   │   │   ├── services/           # API client
-│   │   │   ├── state/              # Zustand stores
-│   │   │   └── types/              # TypeScript types
-│   │   └── index.html
-│   │
-│   └── controller-fastapi/         # Python Backend (FastAPI)
-│       ├── app/
-│       │   ├── api/                # API routes
-│       │   │   ├── execution.py    # Cell execution endpoints
-│       │   │   ├── kernels.py      # Kernel management
-│       │   │   ├── notebooks.py    # Notebook CRUD
-│       │   │   ├── ai.py           # AI generation
-│       │   │   └── files.py        # File operations
-│       │   ├── core/
-│       │   │   ├── kernel_manager.py  # Execution engine
-│       │   │   ├── ai_service.py      # LLM integration
-│       │   │   └── notebook_model.py  # Data models
-│       │   └── main.py             # FastAPI app
-│       └── notebooks/              # Saved notebooks
-│
-└── README.md
-```
+The core philosophy of OPREL Studio is **Process-Level Isolation managed by a Monolith**.
+
+### 1. The Controller (Monolith)
+The FastApi backend acts as the central brain. It manages the HTTP server, the WebSocket connections, and the AI services in a single process. This ensures **zero-latency** state management and instant startup.
+
+### 2. Truly Isolated Kernels
+To prevent one notebook from crashing another, OPREL Studio uses **Process Isolation**:
+*   **Notebook A** runs in `Worker Process 101` (PID: 1234).
+*   **Notebook B** runs in `Worker Process 102` (PID: 5678).
+
+### 3. Isolated Namespaces
+Because they run in different processes, they have completely separate memory spaces.
+*   Defining `x = 10` in Notebook A writes to Process A's memory.
+*   Notebook B cannot see `x` at all.
+*   A "Shared Registry" exists in the Controller to explicitly teleport variables between them if needed.
 
 ---
 
-## 🔧 Core Components
+## 🔄 Workflow: The Tale of Two Notebooks
 
-### 1. Kernel Manager (`kernel_manager.py`)
+Here is exactly how the system handles two active notebooks concurrently:
 
-The heart of the execution system with:
-
-| Feature | Description |
-|---------|-------------|
-| **Notebook Isolation** | Each notebook has its own `globals_dict` - variables don't leak between notebooks |
-| **Execution Queue** | `asyncio.Queue` + single worker ensures serialized, deterministic execution |
-| **Shared Registry** | Explicit `export_var()` / `import_var()` for controlled variable sharing |
-| **Streaming Output** | Real-time stdout/stderr via SSE (Server-Sent Events) |
-| **Execution Logging** | Audit trail with timestamps, queue order, duration, success status |
-
-```python
-# Notebook Isolation
-notebook_vars = {
-    "notebook_A": {"__builtins__": ..., "x": 42},
-    "notebook_B": {"__builtins__": ..., "y": 100}
-}
-# x from notebook_A is NOT visible in notebook_B
+```mermaid
+graph TD
+    User([User])
+    
+    subgraph "Controller (Main Process)"
+        Queue[Global Execution Queue]
+        Manager[Kernel Manager]
+        AI[AI Service]
+    end
+    
+    subgraph "Worker Processes (Truly Isolated)"
+        ProcessA[Process A\n(Notebook 1)]
+        ProcessB[Process B\n(Notebook 2)]
+    end
+    
+    User --"Run Cell in NB1"--> Queue
+    User --"Run Cell in NB2"--> Queue
+    User --"Ask AI"--> AI
+    
+    AI --"Generate Code"--> Queue
+    
+    Queue --"Serialize"--> Manager
+    Manager --"Dispatch"--> ProcessA
+    Manager --"Dispatch"--> ProcessB
+    
+    ProcessA --"Stdout/Stderr"--> Manager
+    ProcessB --"Stdout/Stderr"--> Manager
 ```
 
-### 2. Cell Component (`Cell.tsx`)
-
-Rich code editor with:
-
-- **Line Numbers** - Always visible with proper alignment
-- **Syntax Highlighting** - Prism.js for Python
-- **Real-time Syntax Checking** - Detects errors before execution:
-  - ● Red: Missing colons, unclosed brackets
-  - ⚠ Yellow: Mixed tabs/spaces, odd indentation
-- **Running Indicator** - Yellow ▶ on line 1 during execution
-- **Error Line Highlighting** - Red background on error lines
-
-### 3. AI Service (`ai_service.py`)
-
-Two-step intelligent code generation:
-
-1. **Research Agent** - Analyzes task, suggests HuggingFace datasets
-2. **Code Generator** - Creates complete, runnable notebooks
-
-Supports multiple providers:
-- OpenAI (GPT-4, GPT-3.5)  
-- Google (Gemini)
-- Anthropic (Claude)
-- Groq (Llama, Mixtral)
+### Execution Flow Step-by-Step
+1.  **Request**: You click "Run" in **Notebook 1**.
+2.  **Queue**: The request enters the `Global Execution Queue` in the Controller.
+3.  **Dispatch**: The `Kernel Manager` sees the request belongs to `notebook_id="nb1"`.
+4.  **Routing**: It forwards the code to **Process A**.
+5.  **Execution**: Process A runs the code, captures `stdout`, and streams it back via SSE.
+6.  **Safety**: If Process A enters an infinite loop or crashes (SegFault), **Process B** remains completely unaffected.
 
 ---
 
-## 🔄 Execution Flow
+## 🤖 AI Architecture
 
-```
-┌─────────┐     ┌──────────────┐     ┌─────────────────┐     ┌────────────┐
-│  User   │────▶│  Frontend    │────▶│  Controller     │────▶│   Kernel   │
-│ clicks  │     │  (React)     │     │  (FastAPI)      │     │  Manager   │
-│  Run    │     │              │     │                 │     │            │
-└─────────┘     └──────────────┘     └─────────────────┘     └────────────┘
-                      │                      │                      │
-                      │  POST /run_cell      │                      │
-                      │  {cellId, code,      │                      │
-                      │   notebookId}        │                      │
-                      │─────────────────────▶│                      │
-                      │                      │  queue.put(request)  │
-                      │                      │─────────────────────▶│
-                      │                      │                      │
-                      │      SSE stream      │   exec(code, ns)     │
-                      │◀─────────────────────│◀─────────────────────│
-                      │   {type: "output",   │                      │
-                      │    data: "Hello"}    │                      │
-                      │                      │                      │
-                      │   {type: "complete", │                      │
-                      │    success: true}    │                      │
-                      │◀─────────────────────│◀─────────────────────│
-```
+The AI is not an plugin—it is a core part of the Controller.
 
----
+1.  **Context Injection**: When you ask the AI a question, it reads the *current state* of your active notebook cells.
+2.  **Operations Generation**: The AI doesn't just return text. It generates structured **JSON Operations** (`add_cell`, `edit_cell`, `exec_cell`).
+3.  **Direct Execution**: These operations are fed directly into the `Global Execution Queue`, allowing the AI to write and run code exactly like a human user.
 
-## 🚀 Quick Start
+### Comparison to Other Tools
 
-### Prerequisites
-
-- Python 3.12+
-- Node.js 18+
-- npm or pnpm
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/your-repo/notebook-ide.git
-cd notebook-ide
-
-# Start Backend
-cd apps/controller-fastapi
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# Start Frontend (new terminal)
-cd apps/desktop-ui
-npm install
-npm run dev
-```
-
-Open **http://localhost:3000** in your browser.
-
----
-
-## 📡 API Endpoints
-
-### Execution
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/execution/run_cell` | POST | Execute single cell (non-streaming) |
-| `/execution/run_cell_stream` | POST | Execute with SSE streaming output |
-| `/execution/run_all` | POST | Execute all cells in order |
-| `/execution/queue` | GET | Get execution queue status |
-| `/execution/export` | POST | Export variable to shared registry |
-| `/execution/import` | POST | Import variable from registry |
-| `/execution/reset` | POST | Reset notebook namespace |
-| `/execution/logs` | GET | Get execution audit logs |
-
-### Kernel
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/kernels/start` | POST | Start kernel |
-| `/kernels/stop` | POST | Stop kernel |
-| `/kernels/restart` | POST | Restart kernel (clears all state) |
-| `/kernels/status` | GET | Get kernel info |
-
-### AI
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/ai/generate` | POST | Generate notebook operations |
-| `/ai/fix-error` | POST | Fix code errors with AI |
-| `/ai/providers` | GET | List available AI providers |
-
----
-
-## 🔒 Security Model
-
-> **⚠️ Single-Tenant Trusted Execution**
-
-- Uses Python's `exec()` with full access
-- No sandboxing - code can access filesystem, network, etc.
-- Designed for **local, trusted use only**
-- Not suitable for untrusted code or multi-user deployments
-
----
-
-## 📊 Comparison
-
-| Feature | OPREL Studio | Jupyter | Google Colab |
-|---------|:------------:|:-------:|:------------:|
-| Startup Time | ⚡ Instant | 🐢 Moderate | 🐢 Slow |
-| Notebook Isolation | ✅ Per-notebook | ❌ Per-kernel | ❌ Per-runtime |
-| Streaming Output | ✅ SSE | ✅ ZMQ | ✅ WebSocket |
-| AI Integration | ✅ Built-in | ❌ Extensions | ✅ Limited |
-| Syntax Checking | ✅ Real-time | ❌ None | ❌ None |
-| Error Line Highlight | ✅ Yes | ❌ No | ❌ No |
-| Deployment | 🏠 Local | 🏠/☁️ Both | ☁️ Cloud |
-| Multi-user | ❌ Single | ✅ JupyterHub | ✅ Native |
-
----
-
-## 🛠️ Development
-
-### Running Tests
-
-```bash
-cd apps/controller-fastapi
-pytest -v
-```
-
-### Building for Production
-
-```bash
-cd apps/desktop-ui
-npm run build
-```
+| Feature | Jupyter / Colab | OPREL Studio |
+| :--- | :--- | :--- |
+| **Isolation** | Hard (Separate Kernels) | **Native** (Managed Processes) |
+| **State** | Filesystem Based | **Memory Based** (Shared Registry) |
+| **AI Access** | Extension / Plugin | **System Level** (Control Loop) |
+| **Crash Safety** | High | **High** (Per-Notebook Process) |
 
 ---
 
 ## 📝 License
-
-MIT License - See [LICENSE](LICENSE) for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
-- [React](https://react.dev/) - UI library
-- [Vite](https://vitejs.dev/) - Build tool
-- [Tailwind CSS](https://tailwindcss.com/) - Styling
-- [Prism.js](https://prismjs.com/) - Syntax highlighting
-- [LangChain](https://langchain.com/) - LLM integration
+MIT License
