@@ -2,16 +2,25 @@ import { create } from 'zustand';
 
 export type KernelStatus = 'disconnected' | 'connecting' | 'idle' | 'busy' | 'error';
 
+export interface KernelProcessMetrics {
+  pid: number | null;
+  memoryMb: number | null;
+  cpuPercent: number | null;
+}
+
 interface UIState {
   // Layout
   sidebarOpen: boolean;
   chatOpen: boolean;
-  
+
   // Kernel connection
   kernelStatus: KernelStatus;
   kernelId: string | null;
   executionCount: number;
-  
+
+  // Kernel process metrics
+  kernelMetrics: KernelProcessMetrics;
+
   // Actions
   toggleSidebar: () => void;
   toggleChat: () => void;
@@ -19,6 +28,8 @@ interface UIState {
   setKernelId: (id: string | null) => void;
   incrementExecution: () => number;
   resetExecution: () => void;
+  setKernelMetrics: (metrics: Partial<KernelProcessMetrics>) => void;
+  clearKernelMetrics: () => void;
 }
 
 export const useUIStore = create<UIState>((set, get) => ({
@@ -27,7 +38,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   kernelStatus: 'disconnected',
   kernelId: null,
   executionCount: 0,
-  
+  kernelMetrics: {
+    pid: null,
+    memoryMb: null,
+    cpuPercent: null,
+  },
+
   toggleSidebar: () => set(s => ({ sidebarOpen: !s.sidebarOpen })),
   toggleChat: () => set(s => ({ chatOpen: !s.chatOpen })),
   setKernelStatus: (status) => set({ kernelStatus: status }),
@@ -38,4 +54,11 @@ export const useUIStore = create<UIState>((set, get) => ({
     return next;
   },
   resetExecution: () => set({ executionCount: 0 }),
+  setKernelMetrics: (metrics) => set(s => ({
+    kernelMetrics: { ...s.kernelMetrics, ...metrics }
+  })),
+  clearKernelMetrics: () => set({
+    kernelMetrics: { pid: null, memoryMb: null, cpuPercent: null }
+  }),
 }));
+

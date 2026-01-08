@@ -209,6 +209,40 @@ const App: React.FC = () => {
     }
   }, [setKernelStatus, setKernelId]);
 
+  // --- Kernel Metrics Polling ---
+  const { kernelStatus, setKernelMetrics, clearKernelMetrics } = useUIStore();
+
+  useEffect(() => {
+    // Only poll when kernel is connected and we have an active notebook
+    if ((kernelStatus !== 'idle' && kernelStatus !== 'busy') || !activeFile?.id) {
+      clearKernelMetrics();
+      return;
+    }
+
+    const fetchMetrics = async () => {
+      try {
+        const metrics = await controllerClient.getKernelMetrics(activeFile.id);
+        if (metrics.available && metrics.pid) {
+          setKernelMetrics({
+            pid: metrics.pid,
+            memoryMb: metrics.memory_mb || null,
+            cpuPercent: metrics.cpu_percent || null,
+          });
+        }
+      } catch (e) {
+        // Silently ignore errors - metrics are nice-to-have
+      }
+    };
+
+    // Fetch immediately
+    fetchMetrics();
+
+    // Poll every 2 seconds
+    const interval = setInterval(fetchMetrics, 2000);
+
+    return () => clearInterval(interval);
+  }, [kernelStatus, activeFile?.id, setKernelMetrics, clearKernelMetrics]);
+
   // --- Run All Cells ---
   const handleRunAll = useCallback(async () => {
     if (!activeFile?.cells || activeFile.cells.length === 0) return;

@@ -822,79 +822,168 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
     
     def _fix_json_string(self, json_str: str) -> str:
         """Fix common JSON formatting issues from LLM outputs by escaping control characters."""
+        # First, try a more aggressive approach: escape all unescaped quotes inside string values
+        
+        # Handle raw control characters
+        json_str = json_str.replace('\r\n', '\\n').replace('\r', '\\n')
+        
         result = []
         in_string = False
         escape_next = False
-        string_start_char = None  # Track if string started with " or '
+        i = 0
         
-        for i, char in enumerate(json_str):
+        while i < len(json_str):
+            char = json_str[i]
+            
             if escape_next:
                 result.append(char)
                 escape_next = False
+                i += 1
                 continue
             
             if char == '\\':
                 result.append(char)
                 escape_next = True
+                i += 1
                 continue
             
             # Handle quotes
             if char == '"':
                 if not in_string:
-                    # Starting a new string
                     in_string = True
-                    string_start_char = '"'
-                    result.append(char)
-                elif string_start_char == '"':
-                    # Check if this is actually closing the string or a nested quote
-                    # Look ahead to see if this might be a nested quote
-                    # If next chars suggest we're still in a string, escape it
-                    remaining = json_str[i+1:i+50] if i+1 < len(json_str) else ""
-                    
-                    # Heuristic: if after this quote we see more code-like content before
-                    # seeing a comma or closing brace, it's likely a nested quote
-                    if in_string and remaining and not remaining.lstrip().startswith((',', '}', ']')):
-                        # Check if remaining looks like it's still inside Python code
-                        if any(indicator in remaining[:30] for indicator in ['print', '(', ')', '=', 'f"', "f'"]):
-                            # This is a nested quote, escape it
-                            result.append('\\"')
-                            continue
-                    
-                    # Otherwise, it's closing the string
-                    in_string = False
-                    string_start_char = None
                     result.append(char)
                 else:
-                    # We're in a single-quoted string, so " is just a char
-                    result.append(char)
+                    # Check if this quote ends the string or is a nested quote
+                    # Look ahead for JSON structure indicators
+                    remaining = json_str[i+1:i+50] if i+1 < len(json_str) else ""
+                    remaining_stripped = remaining.lstrip()
+                    
+                    # If next non-whitespace char is a JSON structural character, this closes the string
+                    if remaining_stripped and remaining_stripped[0] in ',}]:':
+                        in_string = False
+                        result.append(char)
+                    # Check for key-value separator pattern like ": "
+                    elif remaining_stripped.startswith(':'):
+                        in_string = False
+                        result.append(char)
+                    else:
+                        # This is likely a nested quote in code - escape it
+                        result.append('\\"')
+                        i += 1
+                        continue
+                i += 1
                 continue
             
-            # If we're inside a string and hit a control character, escape it
+            # Inside a string, handle control characters
             if in_string:
                 if char == '\n':
                     result.append('\\n')
-                elif char == '\r':
-                    result.append('\\r')
                 elif char == '\t':
                     result.append('\\t')
                 else:
                     result.append(char)
             else:
                 result.append(char)
+            
+            i += 1
         
         return ''.join(result)
+
+    def _clean_code_for_json(self, code: str) -> str:
+        """Clean Python code content to be JSON-safe by properly escaping all special chars."""
+        # Escape backslashes first
+        code = code.replace('\\', '\\\\')
+        # Escape quotes
+        code = code.replace('"', '\\"')
+        # Escape newlines
+        code = code.replace('\n', '\\n')
+        code = code.replace('\r', '')
+        # Escape tabs
+        code = code.replace('\t', '\\t')
+        return code
+
+    def _rebuild_operations_json(self, text: str) -> Optional[List[Dict[str, Any]]]:
+        """Try to rebuild operations by extracting structure and cleaning code content."""
+        import re
+        
+        operations = []
+        
+        # Find each operation object pattern
+        # Pattern: {"type": "...", "params": {...}}
+        op_pattern = r'\{\s*"type"\s*:\s*"([^"]+)"\s*,\s*"params"\s*:\s*(\{[^}]*(?:"content"\s*:\s*"([^"]*(?:\\.[^"]*)*)")?[^}]*\})\s*\}'
+        
+        # Simpler approach: find type and params separately
+        type_pattern = r'"type"\s*:\s*"(add_cell|edit_cell|delete_cell|create_notebook|add_package)"'
+        
+        # Look for operation blocks
+        blocks = re.split(r'\}\s*,\s*\{', text)
+        
+        for block in blocks:
+            try:
+                # Add back curly braces if split removed them
+                if not block.strip().startswith('{'):
+                    block = '{' + block
+                if not block.strip().endswith('}'):
+                    block = block + '}'
+                
+                # Try to find type
+                type_match = re.search(type_pattern, block)
+                if not type_match:
+                    continue
+                    
+                op_type = type_match.group(1)
+                
+                # Build a minimal operation
+                if op_type == 'add_cell':
+                    # Find cell type and content
+                    cell_type_match = re.search(r'"type"\s*:\s*"(code|markdown)"', block[type_match.end():])
+                    content_match = re.search(r'"content"\s*:\s*"(.*?)(?:"\s*\}|\"\s*,)', block, re.DOTALL)
+                    
+                    if cell_type_match and content_match:
+                        content = content_match.group(1)
+                        # Unescape for processing then re-escape
+                        content = content.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
+                        
+                        operations.append({
+                            'type': 'add_cell',
+                            'params': {
+                                'type': cell_type_match.group(1),
+                                'content': content
+                            }
+                        })
+                        
+                elif op_type == 'edit_cell':
+                    index_match = re.search(r'"cellIndex"\s*:\s*(\d+)', block)
+                    content_match = re.search(r'"content"\s*:\s*"(.*?)(?:"\s*\}|\"\s*,)', block, re.DOTALL)
+                    
+                    if index_match and content_match:
+                        content = content_match.group(1)
+                        content = content.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
+                        
+                        operations.append({
+                            'type': 'edit_cell',
+                            'params': {
+                                'cellIndex': int(index_match.group(1)),
+                                'content': content
+                            }
+                        })
+                        
+            except Exception as e:
+                print(f"  Block parsing error: {e}")
+                continue
+        
+        return operations if operations else None
 
     def _extract_operations(self, text: str) -> Optional[List[Dict[str, Any]]]:
         """Extract operations JSON from response text."""
         print(f"\n===== EXTRACTING OPERATIONS =====")
-        # Don't truncate the debug output - show everything
         print(f"Full AI Response Text ({len(text)} chars):\n{text}\n")
         
         # Check if using DeepSeek model
         is_deepseek = 'deepseek' in self.current_model.lower()
         
         # Method 1: Look for ```operations block
-        match = re.search(r'```operations\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
+        match = re.search(r'```operations\s*\n?([\[\{][\s\S]*?[\]\}])\s*\n?```', text)
         if match:
             try:
                 json_str = self._fix_deepseek_json(match.group(1)) if is_deepseek else self._fix_json_string(match.group(1))
@@ -905,7 +994,7 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
                 print(f"✗ Failed to parse operations block JSON: {e}")
         
         # Method 2: Look for ```json block
-        match = re.search(r'```json\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
+        match = re.search(r'```json\s*\n?([\[\{][\s\S]*?[\]\}])\s*\n?```', text)
         if match:
             try:
                 json_str = self._fix_deepseek_json(match.group(1)) if is_deepseek else self._fix_json_string(match.group(1))
@@ -914,23 +1003,26 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
                 return ops
             except json.JSONDecodeError as e:
                 print(f"✗ Failed to parse json block JSON: {e}")
-                if is_deepseek:
-                    print(f"Fixed JSON attempt:\n{json_str[:500]}...")
+                # Try the rebuild approach
+                print("  Attempting to rebuild operations from structure...")
+                ops = self._rebuild_operations_json(match.group(1))
+                if ops:
+                    print(f"✓ Rebuilt {len(ops)} operations from structure")
+                    return ops
         
         # Method 3: Look for any code block with JSON array
-        match = re.search(r'```\s*\n?(\[[\s\S]*?\])\s*\n?```', text)
+        match = re.search(r'```\s*\n?([\[\{][\s\S]*?[\]\}])\s*\n?```', text)
         if match:
             try:
                 json_str = self._fix_deepseek_json(match.group(1)) if is_deepseek else self._fix_json_string(match.group(1))
                 ops = json.loads(json_str)
-                # Verify it looks like operations
                 if ops and isinstance(ops, list) and len(ops) > 0 and isinstance(ops[0], dict) and 'type' in ops[0]:
                     print(f"✓ Extracted {len(ops)} operations from generic code block")
                     return ops
             except (json.JSONDecodeError, KeyError, IndexError) as e:
                 print(f"✗ Failed to parse generic code block: {e}")
         
-        # Method 4: Try to find JSON array directly (no code fence)
+        # Method 4: Try to find JSON array directly
         match = re.search(r'\[\s*\{\s*"type"\s*:\s*"[^"]+"\s*,\s*"params"\s*:[\s\S]*?\}\s*\]', text)
         if match:
             try:
@@ -941,16 +1033,12 @@ Return ONLY the code, no explanations. The code should be complete and runnable.
             except json.JSONDecodeError as e:
                 print(f"✗ Failed to parse direct JSON: {e}")
         
-        # Method 5: Look for any JSON array with "type" field (most lenient)
-        match = re.search(r'\[\s*\{[^}]*"type"[^}]*\}[\s\S]*?\]', text)
-        if match:
-            try:
-                json_str = self._fix_deepseek_json(match.group(0)) if is_deepseek else self._fix_json_string(match.group(0))
-                ops = json.loads(json_str)
-                print(f"✓ Extracted {len(ops)} operations from loose JSON match")
-                return ops
-            except json.JSONDecodeError as e:
-                print(f"✗ Failed to parse loose JSON: {e}")
+        # Method 5: Fallback - try to rebuild from structure
+        print("  Attempting fallback structure rebuild...")
+        ops = self._rebuild_operations_json(text)
+        if ops:
+            print(f"✓ Rebuilt {len(ops)} operations from fallback structure parsing")
+            return ops
         
         print(f"✗ No operations found in response")
         return None
