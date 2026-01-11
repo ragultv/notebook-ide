@@ -318,7 +318,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
   return (
     <div className="flex-1 flex flex-col bg-[#1e1e1e] overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 bg-[#252526] border-b border-[#404040] flex items-center justify-between flex-shrink-0">
+      {/* <div className="px-4 py-3 bg-[#252526] border-b border-[#404040] flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           {getIcon()}
           <div>
@@ -333,8 +333,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
           <X className="w-3.5 h-3.5" />
           Close Preview
         </button>
-      </div>
-
+      </div> */}
       {/* Content */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center">

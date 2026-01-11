@@ -1,249 +1,267 @@
-// Manage Models Dialog - Configure AI providers and select models
+// Manage Models Dialog - Manual Code Design style
 import React, { useState, useEffect } from 'react';
-import { X, Check, AlertCircle, Key, ExternalLink, Zap, Sparkles, Cpu, Eye, EyeOff, Loader2 } from 'lucide-react';
-import { controllerClient, ProviderInfo, ModelSelection } from '../services/controller.client';
+import { X, Check, Search, Plus, Trash2, Key, Monitor, Cloud, Cpu, HardDrive, Square, CheckSquare, AlertCircle, ExternalLink, Settings } from 'lucide-react';
+import { controllerClient, ProviderInfo, ModelSelection, SelectedModel } from '../services/controller.client';
 
 interface ManageModelsDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean; // Optional now, treated as always open if rendered
+  onClose?: () => void; // Optional/Unused in tab mode
+  onModelsChanged?: () => void;
 }
 
-export const ManageModelsDialog: React.FC<ManageModelsDialogProps> = ({ isOpen, onClose }) => {
+export const ManageModelsDialog: React.FC<ManageModelsDialogProps> = ({ onModelsChanged }) => {
   const [providers, setProviders] = useState<Record<string, ProviderInfo>>({});
-  const [currentModel, setCurrentModel] = useState<ModelSelection>({ provider: 'nvidia', model: '' });
-  const [selectedProvider, setSelectedProvider] = useState<string>('nvidia');
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<string>('all'); // 'all', 'local', 'cloud'
+  const [searchQuery, setSearchQuery] = useState('');
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
-  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
-  const [connecting, setConnecting] = useState<string | null>(null);
+  const [selectedModels, setSelectedModels] = useState<SelectedModel[]>([]);
 
+  // Load data
   useEffect(() => {
-    if (isOpen) {
-      loadProviders();
-    }
-  }, [isOpen]);
+    loadData();
+  }, []);
 
-  const loadProviders = async () => {
+  const loadData = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
       const data = await controllerClient.getProviders();
       setProviders(data.providers);
-      setCurrentModel(data.current);
-      setSelectedProvider(data.current.provider);
-    } catch (err) {
-      console.error('Failed to load providers:', err);
+      setSelectedModels(data.selectedModels || []);
+    } catch (error) {
+      console.error("Failed to load providers", error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSelectModel = async (provider: string, modelId: string) => {
+  const handleToggleModel = async (providerId: string, modelId: string) => {
+    const isSelected = selectedModels.some(m => m.provider === providerId && m.modelId === modelId);
     try {
-      const result = await controllerClient.selectModel(provider, modelId);
-      if (result.success) {
-        setCurrentModel(result.current);
-      }
-    } catch (err) {
-      console.error('Failed to select model:', err);
+      // Optimistic update
+      const newSelected = isSelected
+        ? selectedModels.filter(m => !(m.provider === providerId && m.modelId === modelId))
+        : [...selectedModels, { provider: providerId, modelId }];
+
+      setSelectedModels(newSelected);
+
+      // API call
+      await controllerClient.toggleModelSelection(providerId, modelId, !isSelected);
+
+      // Notify parent
+      onModelsChanged?.();
+    } catch (e) {
+      // Revert on error
+      console.error(e);
+      loadData();
     }
   };
 
-  const handleConnect = async (providerId: string) => {
+  const handleSaveKey = async (providerId: string) => {
     const key = apiKeys[providerId];
     if (!key) return;
-    
-    setConnecting(providerId);
     try {
-      // Save API key and refresh providers
       await controllerClient.setProviderApiKey(providerId, key);
-      await loadProviders();
-    } catch (err) {
-      console.error('Failed to connect:', err);
-    } finally {
-      setConnecting(null);
+      loadData(); // Reload to update status
+      setApiKeys(prev => ({ ...prev, [providerId]: '' })); // Clear input
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const getProviderIcon = (providerId: string) => {
-    switch (providerId) {
-      case 'nvidia':
-        return <Cpu className="w-4 h-4 text-green-400" />;
-      case 'groq':
-        return <Zap className="w-4 h-4 text-orange-400" />;
-      case 'gemini':
-        return <Sparkles className="w-4 h-4 text-blue-400" />;
-      default:
-        return <Cpu className="w-4 h-4" />;
-    }
-  };
-
-  const getProviderUrl = (providerId: string) => {
-    switch (providerId) {
-      case 'nvidia':
-        return 'https://build.nvidia.com/';
-      case 'groq':
-        return 'https://console.groq.com/keys';
-      case 'gemini':
-        return 'https://aistudio.google.com/apikey';
-      default:
-        return '#';
-    }
-  };
-
-  if (!isOpen) return null;
+  // Flatten models for the table view
+  const allModels = Object.entries(providers).flatMap(([pid, p]) =>
+    p.models.map(m => ({
+      providerId: pid,
+      providerName: p.name,
+      isProviderLocal: p.isLocal,
+      providerAvailable: p.available,
+      ...m
+    }))
+  ).filter(m => {
+    if (activeTab === 'local' && !m.isProviderLocal && !m.isLocal) return false;
+    if (activeTab === 'cloud' && (m.isProviderLocal || m.isLocal)) return false;
+    if (searchQuery && !m.name.toLowerCase().includes(searchQuery.toLowerCase()) && !m.providerName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    return true;
+  });
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100]" onClick={onClose}>
-      <div className="bg-[#1e1e1e] rounded w-[600px] max-h-[70vh] overflow-hidden border border-[#404040]" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="px-4 py-3 bg-[#252526] border-b border-[#404040] flex items-center justify-between">
-          <h2 className="text-sm font-medium text-gray-200">Manage AI Models</h2>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-[#3d3d3d] rounded text-gray-400 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+    <div className="w-full h-full bg-sim-bg flex flex-col overflow-hidden font-mono text-sm">
+      <div
+        className="w-full h-full flex flex-col overflow-hidden"
+      >
+        {/* Header - now part of the tab content just to show title if needed, or remove? 
+            User image shows 'Model Configuration' header inside the window.
+            I will keep a minimal header inside the view.
+        */}
+        <div className="h-10 border-b border-sim-border flex items-center justify-between px-4 bg-sim-surface select-none shrink-0">
+          <div className="flex items-center gap-2 text-sim-text">
+            <Settings className="w-4 h-4 text-sim-muted" />
+            <span className="font-medium">Model Configuration</span>
+          </div>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500" />
-          </div>
-        ) : (
-          <div className="flex h-[400px]">
-            {/* Provider Tabs - Left Side */}
-            <div className="w-40 bg-[#252526] border-r border-[#404040] flex flex-col">
-              {Object.entries(providers).map(([providerId, provider]) => (
-                <button
-                  key={providerId}
-                  onClick={() => setSelectedProvider(providerId)}
-                  className={`px-3 py-2.5 flex items-center gap-2 text-left transition-colors text-sm ${
-                    selectedProvider === providerId
-                      ? 'bg-[#37373d] text-white border-l-2 border-[#e85d04]'
-                      : 'hover:bg-[#2d2d2d] text-gray-400'
-                  }`}
-                >
-                  {getProviderIcon(providerId)}
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate">{provider.name}</div>
-                  </div>
-                  {provider.available && (
-                    <Check className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
-                  )}
-                </button>
-              ))}
+        {/* Content Layout */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Sidebar */}
+          <div className="w-48 border-r border-sim-border bg-[#0c0c0e] flex flex-col">
+            <div className="p-2 space-y-0.5">
+              <button
+                onClick={() => setActiveTab('all')}
+                className={`w-full text-left px-3 py-1.5 rounded text-xs transition-colors flex items-center justify-between group ${activeTab === 'all' ? 'bg-sim-selection text-white' : 'text-sim-muted hover:text-sim-text hover:bg-sim-surface'}`}
+              >
+                <span>All Models</span>
+                <span className="bg-sim-surface px-1.5 rounded-sm text-[10px] opacity-50 group-hover:opacity-100">{Object.values(providers).reduce((acc, p) => acc + p.models.length, 0)}</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('cloud')}
+                className={`w-full text-left px-3 py-1.5 rounded text-xs transition-colors flex items-center justify-between group ${activeTab === 'cloud' ? 'bg-sim-selection text-white' : 'text-sim-muted hover:text-sim-text hover:bg-sim-surface'}`}
+              >
+                <span className="flex items-center gap-2"><Cloud className="w-3 h-3" /> Cloud</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('local')}
+                className={`w-full text-left px-3 py-1.5 rounded text-xs transition-colors flex items-center justify-between group ${activeTab === 'local' ? 'bg-sim-selection text-white' : 'text-sim-muted hover:text-sim-text hover:bg-sim-surface'}`}
+              >
+                <span className="flex items-center gap-2"><HardDrive className="w-3 h-3" /> Local</span>
+              </button>
             </div>
 
-            {/* Model List - Right Side */}
-            <div className="flex-1 overflow-y-auto">
-              {providers[selectedProvider] && (
-                <div className="p-4">
-                  {/* Not Connected - Show API Key Input */}
-                  {!providers[selectedProvider].available ? (
-                    <div className="space-y-4">
-                      <div className="text-center py-6">
-                        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-[#2d2d2d] flex items-center justify-center">
-                          <Key className="w-6 h-6 text-gray-500" />
-                        </div>
-                        <h3 className="text-sm font-medium text-gray-200 mb-1">Connect to {providers[selectedProvider].name}</h3>
-                        <p className="text-xs text-gray-500">Enter your API key to access models</p>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs text-gray-400 mb-1.5">API Key</label>
-                        <div className="flex gap-2">
-                          <div className="flex-1 relative">
-                            <input
-                              type={showKeys[selectedProvider] ? 'text' : 'password'}
-                              value={apiKeys[selectedProvider] || ''}
-                              onChange={(e) => setApiKeys(prev => ({ ...prev, [selectedProvider]: e.target.value }))}
-                              placeholder="Enter API key..."
-                              className="w-full px-3 py-2 bg-[#1e1e1e] border border-[#404040] rounded text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#e85d04]"
-                            />
-                            <button
-                              onClick={() => setShowKeys(prev => ({ ...prev, [selectedProvider]: !prev[selectedProvider] }))}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
-                            >
-                              {showKeys[selectedProvider] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                            </button>
-                          </div>
-                          <button
-                            onClick={() => handleConnect(selectedProvider)}
-                            disabled={!apiKeys[selectedProvider] || connecting === selectedProvider}
-                            className="px-4 py-2 bg-[#e85d04] hover:bg-[#d45203] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm transition-colors flex items-center gap-2"
-                          >
-                            {connecting === selectedProvider ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              'Connect'
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <a
-                        href={getProviderUrl(selectedProvider)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-[#e85d04] hover:text-[#ff6b1a]"
-                      >
-                        Get API Key <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-                  ) : (
-                    /* Connected - Show Models */
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Check className="w-4 h-4 text-green-400" />
-                        <span className="text-sm text-green-400">Connected</span>
-                      </div>
-                      
-                      <div className="space-y-1">
-                        {providers[selectedProvider].models.map(model => {
-                          const isSelected = currentModel.provider === selectedProvider && currentModel.model === model.id;
+            <div className="mt-auto p-4 border-t border-sim-border">
+              <div className="text-[10px] text-sim-muted uppercase tracking-wider font-bold mb-2">Providers Status</div>
+              <div className="space-y-2">
+                {Object.entries(providers).map(([pid, p]) => (
+                  <div key={pid} className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400 truncate max-w-[100px]">{p.name}</span>
+                    {p.available ? (
+                      <span className="flex items-center gap-1 text-green-500 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> Connected
+                      </span>
+                    ) : (
+                      <span className="text-sim-muted">Not Configured</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
 
-                          return (
+          {/* Main Area */}
+          <div className="flex-1 flex flex-col bg-sim-bg">
+            {/* Toolbar */}
+            <div className="h-12 border-b border-sim-border flex items-center px-4 gap-3 bg-sim-bg">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-sim-muted" />
+                <input
+                  type="text"
+                  placeholder="Filter models..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-sim-surface border border-sim-border rounded px-9 py-1.5 text-xs text-sim-text focus:outline-none focus:border-sim-muted transition-colors placeholder-gray-600"
+                />
+              </div>
+            </div>
+
+            {/* Model List / Data Grid */}
+            <div className="flex-1 overflow-y-auto">
+              {loading ? (
+                <div className="flex items-center justify-center h-full text-sim-muted">Loading configuration...</div>
+              ) : allModels.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-sim-muted gap-2">
+                  <AlertCircle className="w-8 h-8 opacity-20" />
+                  <p>No models found matching filters.</p>
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-[#121214] text-gray-500 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-4 py-2 font-medium border-b border-sim-border w-10 text-center">Use</th>
+                      <th className="px-4 py-2 font-medium border-b border-sim-border">Model Name</th>
+                      <th className="px-4 py-2 font-medium border-b border-sim-border">Provider</th>
+                      <th className="px-4 py-2 font-medium border-b border-sim-border w-24">Context</th>
+                      <th className="px-4 py-2 font-medium border-b border-sim-border w-24 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-sim-border text-gray-300">
+                    {allModels.map((m) => {
+                      const isSelected = selectedModels.some(sel => sel.provider === m.providerId && sel.modelId === m.id);
+
+                      // Provider input row if not available
+                      if (!m.providerAvailable && !m.isProviderLocal) {
+                        // We might want to group by provider, but for now lets handling API keys in a cleaner way.
+                        // Actually, lets just show the status and allow clicking to configure.
+                      }
+
+                      return (
+                        <tr key={`${m.providerId}-${m.id}`} className="hover:bg-sim-surface/50 group transition-colors">
+                          <td className="px-4 py-2 text-center">
                             <button
-                              key={model.id}
-                              onClick={() => handleSelectModel(selectedProvider, model.id)}
-                              className={`w-full p-3 border-b border-[#333] text-left transition-colors ${
-                                isSelected
-                                  ? 'bg-[#e85d04]/20 border-l-2 border-l-[#e85d04]'
-                                  : 'hover:bg-[#2d2d2d]'
-                              }`}
+                              onClick={() => m.providerAvailable && handleToggleModel(m.providerId, m.id)}
+                              disabled={!m.providerAvailable}
+                              className={`rounded transition-colors ${!m.providerAvailable ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}
                             >
-                              <div className="flex items-center justify-between">
-                                <div className="flex-1">
-                                  <div className="text-sm text-gray-200 flex items-center gap-2">
-                                    {model.name}
-                                    {isSelected && <Check className="w-4 h-4 text-[#e85d04]" />}
-                                  </div>
-                                  <div className="text-xs text-gray-500 mt-0.5">
-                                    {(model.context / 1000).toFixed(0)}K context
-                                  </div>
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-sim-red" />
+                              ) : (
+                                <Square className="w-4 h-4 text-sim-muted" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="px-4 py-2 font-medium flex-1">
+                            <div className="flex items-center gap-2">
+                              {m.name}
+                              {(m.isLocal || m.isProviderLocal) && (
+                                <span className="px-1.5 py-0.5 rounded-sm bg-green-500/10 text-green-500 text-[10px] font-bold border border-green-500/20">LOCAL</span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-gray-500 font-mono mt-0.5">{m.id}</div>
+                          </td>
+                          <td className="px-4 py-2 text-gray-400 text-xs">
+                            {m.providerName}
+                          </td>
+                          <td className="px-4 py-2 text-gray-400 text-xs font-mono">
+                            {(m.context / 1000).toFixed(0)}k
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            {m.providerAvailable ? (
+                              <span className="text-[10px] text-green-500 bg-green-500/5 px-2 py-0.5 rounded border border-green-500/10">READY</span>
+                            ) : (
+                              // If provider not available, show input for key directly in row or a configure button
+                              <div className="flex flex-col items-end gap-1">
+                                <input
+                                  type="password"
+                                  placeholder="API Key"
+                                  className="bg-black border border-sim-border rounded px-2 py-0.5 text-[10px] w-32 focus:border-sim-muted outline-none"
+                                  value={apiKeys[m.providerId] || ''}
+                                  onChange={(e) => setApiKeys(prev => ({ ...prev, [m.providerId]: e.target.value }))}
+                                  onKeyDown={(e) => e.key === 'Enter' && handleSaveKey(m.providerId)}
+                                />
+                                <div className="flex gap-2 text-[10px]">
+                                  <button
+                                    onClick={() => handleSaveKey(m.providerId)}
+                                    className="text-sim-red hover:underline"
+                                    disabled={!apiKeys[m.providerId]}
+                                  >
+                                    Connect
+                                  </button>
                                 </div>
                               </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               )}
             </div>
-          </div>
-        )}
 
-        {/* Footer */}
-        <div className="px-4 py-2.5 bg-[#252526] border-t border-[#404040] flex items-center justify-end">
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 bg-[#e85d04] hover:bg-[#d45203] text-white rounded text-sm transition-colors"
-          >
-            Close
-          </button>
+            {/* Footer Status */}
+            <div className="h-8 border-t border-sim-border bg-sim-bg flex items-center justify-between px-4 text-[10px] text-sim-muted select-none">
+              <span>{selectedModels.length} models selected for chat</span>
+              <span>Press Escape to close</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

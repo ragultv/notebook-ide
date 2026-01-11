@@ -12,6 +12,8 @@ import { controllerClient, ProjectInfo } from './services/controller.client';
 import { filesystemClient } from './services/filesystem.client';
 import { notebookAgent } from './services/agent.service';
 
+import { TabBar, Tab } from './components/TabBar';
+
 // Local storage keys for persistence
 const STORAGE_KEY_PROJECT = 'notebook-ide-project';
 const STORAGE_KEY_NOTEBOOK = 'notebook-ide-current-notebook';
@@ -25,11 +27,10 @@ const App: React.FC = () => {
   const [currentNotebookPath, setCurrentNotebookPath] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // File preview state
-  const [previewFile, setPreviewFile] = useState<{ path: string; name: string; isObjectUrl?: boolean } | null>(null);
 
-  // Manage Models dialog state
-  const [showManageModels, setShowManageModels] = useState(false);
+
+  // Manage Models refresh trigger
+  const [modelsRefreshTrigger, setModelsRefreshTrigger] = useState(0);
 
   // Toast notification state for Run All completion
   const [runAllToast, setRunAllToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -50,7 +51,13 @@ const App: React.FC = () => {
     }
   ]);
 
-  // Track which file is currently active in the editor
+  // Tab State
+  const [tabs, setTabs] = useState<Tab[]>([
+    { id: defaultFileId, title: 'Untitled.ipynb', type: 'notebook' }
+  ]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(defaultFileId);
+
+  // Track which file is currently active in the editor (derived or synced with tabs)
   const [activeFileId, setActiveFileId] = useState<string | null>(defaultFileId);
 
   // Ref to track activeFileId synchronously for multiple updates in same event loop
@@ -58,12 +65,51 @@ const App: React.FC = () => {
 
   useEffect(() => {
     activeFileIdRef.current = activeFileId;
-  }, [activeFileId]);
+    // When activeFileId changes, ensure corresponding tab is active if it exists
+    if (activeFileId) {
+      if (files.find(f => f.id === activeFileId)) {
+        setActiveTabId(activeFileId);
+      }
+    }
+  }, [activeFileId, files]);
+
+  // Handle Tab Activation
+  const handleActivateTab = (tabId: string) => {
+    setActiveTabId(tabId);
+
+    // Sync activeFileId for sidebar highlighting if the tab corresponds to a file
+    if (files.find(f => f.id === tabId)) {
+      setActiveFileId(tabId);
+    } else {
+      setActiveFileId(null);
+    }
+  };
+
+  const handleCloseTab = (tabId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newTabs = tabs.filter(t => t.id !== tabId);
+    setTabs(newTabs);
+
+    if (activeTabId === tabId) {
+      // Activate last tab if available
+      if (newTabs.length > 0) {
+        handleActivateTab(newTabs[newTabs.length - 1].id);
+      } else {
+        setActiveTabId(null);
+        setActiveFileId(null);
+      }
+    }
+
+    // Do not delete file from project when closing tab
+  };
 
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
 
   // Derived state: Get the active file object
   const activeFile = useMemo(() => files.find(f => f.id === activeFileId), [files, activeFileId]);
+
+  // Derived state: Get the active tab object
+  const activeTab = useMemo(() => tabs.find(t => t.id === activeTabId), [tabs, activeTabId]);
 
   // Derived state: Get the cells of the active file, or empty if no valid notebook selected
   const activeCells = useMemo(() => {
@@ -247,18 +293,29 @@ const App: React.FC = () => {
   const handleRunAll = useCallback(async () => {
     if (!activeFile?.cells || activeFile.cells.length === 0) return;
 
-    const codeCells = activeFile.cells.filter(c => c.type === 'code' && c.content.trim());
+    // Filter code cells - removed .trim() check to assume all code cells should run (like Jupyter)
+    const codeCells = activeFile.cells.filter(c => c.type === 'code');
     if (codeCells.length === 0) return;
 
     setKernelStatus('busy');
-    setRunAllToast(null); // Clear any previous toast
+    setRunAllToast(null);
+
+    // 1. Mark all code cells as 'pending' (Queued)
+    updateActiveNotebookCells(prev =>
+      prev.map(c => codeCells.some(target => target.id === c.id)
+        ? { ...c, status: 'pending' as const, output: c.status === 'error' ? undefined : c.output }
+        : c)
+    );
 
     const startTime = performance.now();
     let successCount = 0;
     let hasError = false;
 
+    // 2. Iterate and execute
     for (const cell of codeCells) {
-      // Update cell status to running
+      // Check if we should stop (e.g. if user edited/deleted cell mid-run? usually we just continue)
+
+      // Update this specific cell to running
       updateActiveNotebookCells(prev =>
         prev.map(c => c.id === cell.id ? { ...c, status: 'running' as const } : c)
       );
@@ -277,6 +334,8 @@ const App: React.FC = () => {
             status: result.success ? 'success' as const : 'error' as const,
             output: result.output || result.error,
             executionCount: result.executionCount,
+            outputs: result.outputs,
+            duration: result.duration
           } : c)
         );
 
@@ -302,6 +361,13 @@ const App: React.FC = () => {
       }
     }
 
+    // 3. Cleanup: If stopped early, reset remaining 'pending' cells to 'idle'
+    if (hasError) {
+      updateActiveNotebookCells(prev =>
+        prev.map(c => c.status === 'pending' ? { ...c, status: 'idle' as const } : c)
+      );
+    }
+
     const endTime = performance.now();
     const duration = ((endTime - startTime) / 1000).toFixed(2);
 
@@ -318,9 +384,7 @@ const App: React.FC = () => {
       });
     }
 
-    // Auto-hide toast after 5 seconds
     setTimeout(() => setRunAllToast(null), 5000);
-
     setKernelStatus('idle');
   }, [activeFile, setKernelStatus]);
 
@@ -348,8 +412,10 @@ const App: React.FC = () => {
           })),
         };
         setFiles(prev => [...prev, newFile]);
+        setTabs(prev => [...prev, { id: notebook.id, title: notebook.name, type: 'notebook' }]);
         setActiveFileId(newFile.id);
         activeFileIdRef.current = newFile.id;
+        setActiveTabId(newFile.id);
       }
     } catch (e) {
       console.error('Failed to open file:', e);
@@ -379,8 +445,10 @@ const App: React.FC = () => {
         activeFileIdRef.current = existing.id;
       } else {
         setFiles(prev => [...prev, loadedFile]);
+        setTabs(prev => [...prev, { id: loadedFile.id, title: loadedFile.name, type: 'notebook' }]);
         setActiveFileId(loadedFile.id);
         activeFileIdRef.current = loadedFile.id;
+        setActiveTabId(loadedFile.id);
       }
 
       setCurrentNotebookPath(path);
@@ -392,14 +460,33 @@ const App: React.FC = () => {
 
   // Handle file selection from file explorer
   const handleFileExplorerSelect = useCallback((path: string, type: 'notebook' | 'data' | 'other') => {
-    if (type === 'notebook') {
+    const fileName = path.split(/[/\\]/).pop() || path;
+    const existingFile = files.find(f => f.name === fileName);
+
+    if (existingFile) {
+      if (!tabs.find(t => t.id === existingFile.id)) {
+        let tabType: any = 'other';
+        if (type === 'notebook') tabType = 'notebook';
+        else if (type === 'data') tabType = 'data';
+        else if (['png', 'jpg', 'jpeg', 'svg'].includes(fileName.split('.').pop()?.toLowerCase() || '')) tabType = 'image';
+
+        setTabs(prev => [...prev, {
+          id: existingFile.id,
+          title: fileName,
+          type: tabType,
+          path: path
+        }]);
+      }
+      handleActivateTab(existingFile.id);
+    } else if (type === 'notebook') {
       handleOpenNotebookFromPath(path);
-    } else if (type === 'data' || type === 'other') {
-      // Open file preview for data files and other files
-      const fileName = path.split(/[/\\]/).pop() || path;
-      setPreviewFile({ path, name: fileName });
     }
-  }, [handleOpenNotebookFromPath]);
+    // For other files not in project/files, we might need to add them to 'files' first or just handle as preview tab?
+    // Current design assumes 'files' tracks open buffers.
+    // If we want to preview a file from explorer without adding to workspace 'files', we'd need to add a tab with no matching file.
+    // But then sidebar won't highlight it.
+    // For now, let's assume valid files are in project or we open notebook.
+  }, [files, tabs, handleOpenNotebookFromPath]);
 
   // Handle project change
   const handleProjectChange = useCallback((project: ProjectInfo | null) => {
@@ -489,8 +576,10 @@ const App: React.FC = () => {
     };
 
     setFiles(prev => [...prev, newFile]);
+    setTabs(prev => [...prev, { id: newId, title: newFile.name, type: 'notebook' }]);
     setActiveFileId(newId);
     activeFileIdRef.current = newId;
+    setActiveTabId(newId);
   };
 
   const updateActiveNotebookCells = (newCellsOrUpdater: CellData[] | ((prev: CellData[]) => CellData[])) => {
@@ -626,8 +715,11 @@ const App: React.FC = () => {
       }]
     };
     setFiles(prev => [...prev, newFile]);
+
+    setTabs(prev => [...prev, { id: newId, title: newFile.name, type: 'notebook' }]);
     setActiveFileId(newId);
     activeFileIdRef.current = newId;
+    setActiveTabId(newId);
   };
 
   const handleDeleteNotebookFromAI = (name?: string) => {
@@ -733,6 +825,48 @@ const App: React.FC = () => {
     }
   };
 
+  const handleImportFiles = (newFiles: ProjectFile[]) => {
+    setFiles(prev => [...prev, ...newFiles]);
+    // Add tabs for all new files
+    const newTabs = newFiles.map(f => {
+      const ext = f.name.split('.').pop()?.toLowerCase();
+      let type: any = 'other';
+      if (ext === 'ipynb') type = 'notebook';
+      else if (['png', 'jpg', 'jpeg', 'svg', 'gif', 'bmp', 'webp'].includes(ext || '')) type = 'image';
+      else if (['csv', 'json', 'xlsx', 'xls', 'parquet'].includes(ext || '')) type = 'data';
+
+      let path = (f as any).path;
+      let isObjectUrl = false;
+      if (f.file && !path) {
+        path = URL.createObjectURL(f.file);
+        isObjectUrl = true;
+      } else if (!path) {
+        path = f.name;
+      }
+
+      return { id: f.id, title: f.name, type, path, data: { isObjectUrl } };
+    });
+
+    setTabs(prev => [...prev, ...newTabs]);
+    if (newTabs.length > 0) {
+      const lastId = newTabs[newTabs.length - 1].id;
+      setActiveTabId(lastId);
+      // Manually set activeFileId because 'files' state update is pending
+      setActiveFileId(lastId);
+      activeFileIdRef.current = lastId;
+    }
+  };
+
+  const handleClearFiles = () => {
+    setFiles([]);
+    setTabs(prev => prev.filter(t => t.type === 'settings')); // Keep settings tab
+    setActiveFileId(null);
+    activeFileIdRef.current = null;
+    if (activeTabId && activeTabId !== 'manage-models') {
+      setActiveTabId(null);
+    }
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-sim-bg overflow-hidden text-sim-text">
       <TopBar
@@ -749,75 +883,81 @@ const App: React.FC = () => {
       <div className="flex-1 flex overflow-hidden relative">
         <Sidebar
           files={files}
-          setFiles={setFiles}
+          onImportFiles={handleImportFiles}
+          onClearFiles={handleClearFiles}
           activeFileId={activeFileId}
           onFileSelect={(id) => {
             const file = files.find(f => f.id === id);
             if (file) {
-              // Check if it's a notebook or data/image file
-              const ext = file.name.split('.').pop()?.toLowerCase() || '';
-              const isNotebook = ext === 'ipynb';
-              const isData = ['csv', 'xlsx', 'xls', 'json', 'parquet', 'pkl'].includes(ext);
-              const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext);
+              if (!tabs.find(t => t.id === id)) {
+                const ext = file.name.split('.').pop()?.toLowerCase();
+                let type: any = 'other';
+                if (ext === 'ipynb') type = 'notebook';
+                else if (['png', 'jpg', 'jpeg', 'svg', 'gif'].includes(ext || '')) type = 'image';
+                else if (['csv', 'json', 'xlsx', 'xls'].includes(ext || '')) type = 'data';
 
-              if (isNotebook) {
-                setActiveFileId(id);
-              } else if (isData || isImage || ext === 'txt' || ext === 'py' || ext === 'md') {
-                // For uploaded files without backend path, use the file object
-                // The path stored is either a backend path (from project explorer) or just the filename (uploaded)
-                const hasBackendPath = (file as any).path && (file as any).path.includes('/');
-                if (hasBackendPath) {
-                  setPreviewFile({ path: (file as any).path, name: file.name });
-                } else if (file.file) {
-                  // For uploaded files, create object URL
-                  setPreviewFile({
-                    path: URL.createObjectURL(file.file),
-                    name: file.name,
-                    isObjectUrl: true
-                  } as any);
-                } else {
-                  setPreviewFile({ path: file.name, name: file.name });
+                let path = (file as any).path;
+                let isObjectUrl = false;
+                if (file.file && !path) {
+                  path = URL.createObjectURL(file.file);
+                  isObjectUrl = true;
+                } else if (!path) {
+                  path = file.name;
                 }
+
+                const newTab = { id, title: file.name, type, path, data: { isObjectUrl } };
+                setTabs(prev => [...prev, newTab]);
               }
+              handleActivateTab(id);
             }
           }}
           onDeleteFile={handleDeleteFile}
           onRenameFile={handleRenameFile}
         />
 
-        {/* Main Content Area - Show Notebook or File Preview */}
-        {previewFile ? (
-          <FilePreview
-            filePath={previewFile.path}
-            fileName={previewFile.name}
-            isObjectUrl={previewFile.isObjectUrl}
-            onClose={() => {
-              if (previewFile.isObjectUrl && previewFile.path.startsWith('blob:')) {
-                URL.revokeObjectURL(previewFile.path);
-              }
-              setPreviewFile(null);
-            }}
+        {/* Main Content Area with Tabs */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-sim-bg">
+          <TabBar
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onActivateTab={handleActivateTab}
+            onCloseTab={handleCloseTab}
           />
-        ) : activeFile && activeFile.cells ? (
-          <Notebook
-            notebookId={activeFile.id}
-            notebookName={activeFile.name}
-            cells={activeCells}
-            setCells={updateActiveNotebookCells}
-            activeCellId={activeCellId}
-            setActiveCellId={setActiveCellId}
-            onFixError={handleFixError}
-          />
-        ) : (
-          <div className="flex-1 flex items-center justify-center bg-sim-bg text-sim-muted font-mono flex-col gap-4">
-            <div className="p-4 rounded-full bg-sim-surface border border-sim-border">
-              <svg className="w-8 h-8 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-              </svg>
-            </div>
-            <p>Select a notebook to edit</p>
+
+          <div className="flex-1 flex overflow-hidden relative">
+            {activeTabId === 'manage-models' ? (
+              <div className="w-full h-full absolute inset-0 z-10 bg-sim-bg">
+                <ManageModelsDialog onModelsChanged={() => setModelsRefreshTrigger(prev => prev + 1)} />
+              </div>
+            ) : (activeTab?.type === 'image' || activeTab?.type === 'data' || activeTab?.type === 'other') ? (
+              <FilePreview
+                filePath={activeTab?.path || ''}
+                fileName={activeTab?.title || ''}
+                isObjectUrl={activeTab?.data?.isObjectUrl}
+                onClose={() => activeTabId && handleCloseTab(activeTabId, { stopPropagation: () => { } } as any)}
+              />
+            ) : activeFile && activeFile.cells ? (
+              <Notebook
+                notebookId={activeFile.id}
+                notebookName={activeFile.name}
+                cells={activeCells}
+                setCells={updateActiveNotebookCells}
+                activeCellId={activeCellId}
+                setActiveCellId={setActiveCellId}
+                onFixError={handleFixError}
+              />
+            ) : (
+              <div className="flex-1 flex items-center justify-center bg-sim-bg text-sim-muted font-mono flex-col gap-4">
+                <div className="p-4 rounded-full bg-sim-surface border border-sim-border">
+                  <svg className="w-8 h-8 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                  </svg>
+                </div>
+                <p>Select a notebook or open a new tab</p>
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         <RightSidebar
           isOpen={chatOpen}
@@ -833,15 +973,16 @@ const App: React.FC = () => {
           notebookName={activeFile?.name || 'Untitled'}
           projectFiles={files}
           activeCellId={activeCellId}
-          onOpenManageModels={() => setShowManageModels(true)}
+          onOpenManageModels={() => {
+            const id = 'manage-models';
+            if (!tabs.find(t => t.id === id)) {
+              setTabs(prev => [...prev, { id, title: 'Language Models', type: 'settings' }]);
+            }
+            handleActivateTab(id);
+          }}
+          modelsRefreshTrigger={modelsRefreshTrigger}
         />
       </div>
-
-      {/* Manage Models Dialog */}
-      <ManageModelsDialog
-        isOpen={showManageModels}
-        onClose={() => setShowManageModels(false)}
-      />
 
       {/* Run All Toast Notification */}
       {runAllToast && (

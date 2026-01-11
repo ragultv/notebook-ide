@@ -21,6 +21,9 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyA3cVlS4lqbjxt03YdOwib3d1b9uebJzrY")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
+# Ollama (Local)
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
 # Available Models per Provider
 AVAILABLE_MODELS = {
     "nvidia": {
@@ -311,6 +314,7 @@ class AIService:
         self.current_provider = DEFAULT_PROVIDER
         self.current_model = DEFAULT_MODEL
         self._clients: Dict[str, ChatOpenAI] = {}
+        self._selected_models: List[Dict[str, str]] = []  # Models selected for chat dropdown
         self._init_default_client()
     
     def _init_default_client(self):
@@ -336,7 +340,7 @@ class AIService:
                     model=model,
                     temperature=0.2,
                     api_key="ollama",  # Ollama doesn't need real API key
-                    base_url="http://localhost:11434/v1",
+                    base_url=f"{OLLAMA_BASE_URL}/v1",
                 )
                 self._clients[cache_key] = client
                 return client
@@ -365,40 +369,81 @@ class AIService:
             print(f"Error creating client for {provider}/{model}: {e}")
             return None
     
-    async def get_available_providers(self, model_type: str) -> Dict[str, Any]:
-        """Get all available providers and their models."""
+    async def get_available_providers(self) -> Dict[str, Any]:
+        """Get all available providers and their models (both cloud and local)."""
         result = {}
-        if(model_type == "default"):
-            for provider_id, config in AVAILABLE_MODELS.items():
-                # Check if provider has API key configured
-                has_key = bool(config["api_key"])
-                result[provider_id] = {
-                    "name": config["name"],
-                    "models": config["models"],
-                    "available": has_key,
-                }
-        else:
-            import httpx
-            url = f"http://localhost:11434/api/tags"
-            try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(url)
-                    response.raise_for_status()
-                    data = response.json()
-                    models = [{"id": model["name"], "name": model["name"], "context": 8192} for model in data["models"]]
-                    result["ollama"] = {
-                        "name": "Ollama (Local)",
-                        "models": models,
-                        "available": True if models else False
-                    }
-            except Exception as e:
-                print(f"Error fetching models from local service: {e}")
+        
+        # Add cloud providers
+        for provider_id, config in AVAILABLE_MODELS.items():
+            # Check if provider has API key configured
+            has_key = bool(config["api_key"])
+            result[provider_id] = {
+                "name": config["name"],
+                "models": config["models"],
+                "available": has_key,
+                "isLocal": False,
+            }
+        
+        # Add local Ollama provider
+        import httpx
+        # Use configurable base URL, strip /v1 if present for the tags endpoint logic
+        base_url = OLLAMA_BASE_URL.replace("/v1", "")
+        if base_url.endswith("/"):
+            base_url = base_url[:-1]
+        url = f"{base_url}/api/tags"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                data = response.json()
+                models = [{
+                    "id": model["name"], 
+                    "name": model["name"], 
+                    "context": 8192,
+                    "isLocal": True
+                } for model in data.get("models", [])]
                 result["ollama"] = {
                     "name": "Ollama (Local)",
-                    "models": [],
-                    "available": False
+                    "models": models,
+                    "available": True if models else False,
+                    "isLocal": True,
                 }
+        except Exception as e:
+            print(f"Error fetching models from Ollama: {e}")
+            result["ollama"] = {
+                "name": "Ollama (Local)",
+                "models": [],
+                "available": False,
+                "isLocal": True,
+            }
+        
         return result
+    
+    def get_selected_models(self) -> List[Dict[str, str]]:
+        """Get the list of models selected for the chat dropdown."""
+        return list(self._selected_models)
+    
+    def toggle_model_selection(self, provider: str, model_id: str, selected: bool) -> List[Dict[str, str]]:
+        """Toggle whether a model is selected for the chat dropdown."""
+        model_key = {"provider": provider, "modelId": model_id}
+        
+        # Check if already in selected list
+        existing_idx = None
+        for i, sm in enumerate(self._selected_models):
+            if sm["provider"] == provider and sm["modelId"] == model_id:
+                existing_idx = i
+                break
+        
+        if selected:
+            # Add to selection if not already present
+            if existing_idx is None:
+                self._selected_models.append(model_key)
+        else:
+            # Remove from selection if present
+            if existing_idx is not None:
+                self._selected_models.pop(existing_idx)
+        
+        return list(self._selected_models)
     
     def set_api_key(self, provider: str, api_key: str) -> bool:
         """Set API key for a provider at runtime."""
