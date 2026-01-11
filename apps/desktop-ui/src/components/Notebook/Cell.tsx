@@ -179,7 +179,6 @@ export const Cell: React.FC<CellProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [isFixing, setIsFixing] = useState(false);
   const [streamingOutputs, setStreamingOutputs] = useState<CellOutput[]>([]);
-  const [currentLine, setCurrentLine] = useState<number | null>(null);
   const cancelStreamRef = useRef<(() => void) | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
@@ -215,15 +214,6 @@ export const Cell: React.FC<CellProps> = ({
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [streamingOutputs, cell.status]);
-
-  // Show running indicator on first line (no animation through lines)
-  useEffect(() => {
-    if (cell.status === 'running') {
-      setCurrentLine(1); // Just show indicator on line 1
-    } else {
-      setCurrentLine(null);
-    }
-  }, [cell.status]);
 
   const runCell = async () => {
     if (cell.type === 'markdown') return;
@@ -328,13 +318,10 @@ export const Cell: React.FC<CellProps> = ({
     return codeLines.map((line, idx) => {
       const lineNum = idx + 1;
       const isErrorLine = errorLine === lineNum && cell.status === 'error';
-      const isCurrentExecLine = currentLine === lineNum && cell.status === 'running';
 
       let lineClass = '';
       if (isErrorLine) {
         lineClass = 'bg-red-500/20 border-l-2 border-red-500';
-      } else if (isCurrentExecLine) {
-        lineClass = 'bg-yellow-500/10';
       }
 
       return (
@@ -377,19 +364,23 @@ export const Cell: React.FC<CellProps> = ({
             <button
               onClick={(e) => { e.stopPropagation(); runCell(); }}
               className={`w-7 h-7 rounded-full flex items-center justify-center transition-all mb-1 z-10
-                ${cell.status === 'running'
+                  ${cell.status === 'running'
                   ? 'bg-yellow-500/20 border border-yellow-500/50'
-                  : cell.status === 'success'
-                    ? 'bg-green-500/20 border border-green-500/50 hover:bg-green-500/30'
-                    : cell.status === 'error'
-                      ? 'bg-red-500/20 border border-red-500/50 hover:bg-red-500/30'
-                      : 'bg-sim-border text-sim-text hover:bg-sim-red hover:text-white'
+                  : cell.status === 'pending'
+                    ? 'bg-gray-500/20 border border-gray-500/50'
+                    : cell.status === 'success'
+                      ? 'bg-green-500/20 border border-green-500/50 hover:bg-green-500/30'
+                      : cell.status === 'error'
+                        ? 'bg-red-500/20 border border-red-500/50 hover:bg-red-500/30'
+                        : 'bg-sim-border text-sim-text hover:bg-sim-red hover:text-white'
                 }
-              `}
-              title={cell.status === 'running' ? 'Running...' : cell.status === 'success' ? 'Run again' : cell.status === 'error' ? 'Run again' : 'Run cell'}
+                `}
+              title={cell.status === 'running' ? 'Running...' : cell.status === 'pending' ? 'Queued' : cell.status === 'success' ? 'Run again' : cell.status === 'error' ? 'Run again' : 'Run cell'}
             >
               {cell.status === 'running' ? (
                 <div className="w-4 h-4 border-2 border-yellow-500/30 border-t-yellow-500 rounded-full animate-spin"></div>
+              ) : cell.status === 'pending' ? (
+                <Clock className="w-3.5 h-3.5 text-gray-400 animate-pulse" />
               ) : cell.status === 'success' ? (
                 <CheckCircle2 className="w-4 h-4 text-green-500" />
               ) : cell.status === 'error' ? (
@@ -445,9 +436,7 @@ export const Cell: React.FC<CellProps> = ({
                       style={{ height: '1.5rem' }}
                       title={issueTooltip || undefined}
                     >
-                      {isRunning && lineNum === 1 && (
-                        <span className="mr-1 text-yellow-400 animate-pulse">▶</span>
-                      )}
+                      {/* Running indicator removed */}
                       {(isErrorLine || hasError) && (
                         <span className="mr-1 text-red-500">●</span>
                       )}

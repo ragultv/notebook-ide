@@ -44,6 +44,7 @@ class ExecutionResult:
     execution_time: float = 0.0
     metrics: ResourceMetrics = field(default_factory=ResourceMetrics)
     namespace_vars: Dict[str, str] = field(default_factory=dict)
+    outputs: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class ResourceMonitor:
@@ -167,10 +168,38 @@ class TrulyIsolatedKernel:
         """Isolated persistent execution loop with proper output capture"""
         
         TrulyIsolatedKernel._set_resource_limits(max_memory_mb)
+
+        def _magic_run(cmd: str):
+            """Helper to run magic commands like !pip"""
+            import subprocess
+            import sys
+            
+            # Special handling for pip to ensure we use the same python environment
+            if cmd.strip().startswith('pip '):
+                cmd = f'"{sys.executable}" -m {cmd}'
+            
+            # Run command and capture output
+            # We use shell=True to support common shell syntax
+            result = subprocess.run(
+                cmd, 
+                shell=True, 
+                capture_output=True, 
+                text=True
+            )
+            
+            # Print output to stdout/stderr so it gets captured by the redirect_stdout context
+            if result.stdout:
+                print(result.stdout, end='')
+            if result.stderr:
+                print(result.stderr, file=sys.stderr, end='')
+                
+            if result.returncode != 0:
+                raise RuntimeError(f"Command failed with exit code {result.returncode}")
         
         local_namespace = {
             "__name__": "__main__",
-            "__builtins__": __builtins__
+            "__builtins__": __builtins__,
+            "_magic_run": _magic_run
         }
         
         def execute_with_capture(code_str: str, namespace: dict):
@@ -178,11 +207,98 @@ class TrulyIsolatedKernel:
             stdout_buffer = io.StringIO()
             stderr_buffer = io.StringIO()
             
+            # Pre-process code to handle magic commands (!)
+            processed_lines = []
+            for line in code_str.splitlines():
+                stripped = line.lstrip()
+                if stripped.startswith('!'):
+                    indent = line[:len(line) - len(stripped)]
+                    cmd = stripped[1:]
+                    # Escape quotes for python string
+                    cmd_esc = cmd.replace("'", "\\'").replace('"', '\\"')
+                    # Replace with _magic_run call
+                    processed_lines.append(f"{indent}_magic_run('{cmd_esc}')")
+                else:
+                    processed_lines.append(line)
+            
+            processed_code = "\n".join(processed_lines)
+            
+            # Try to import matplotlib and set backend to Agg (non-interactive)
+            # This prevents plots from opening in new windows
+            try:
+                import matplotlib
+                matplotlib.use('Agg')
+                import matplotlib.pyplot as plt
+                
+                # Custom figure tracking to capture ALL plots
+                if not hasattr(plt, '_captured_figures'):
+                    plt._captured_figures = []
+                    
+                original_figure = plt.figure
+                def captured_figure(*args, **kwargs):
+                    fig = original_figure(*args, **kwargs)
+                    if fig not in plt._captured_figures:
+                        plt._captured_figures.append(fig)
+                    return fig
+                
+                plt.figure = captured_figure
+                
+                # Patch plt.show to prevent "non-interactive" warnings
+                plt.show = lambda *args, **kwargs: None
+                
+                HAS_MATPLOTLIB = True
+            except ImportError:
+                HAS_MATPLOTLIB = False
+            
+            outputs = []
+            
             try:
                 start_time = time.perf_counter()
                 
                 with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                    exec(code_str, namespace)
+                    exec(processed_code, namespace)
+                
+                # Check for matplotlib plots
+                if HAS_MATPLOTLIB:
+                    try:
+                        import base64
+                        
+                        # Collect all unique figures
+                        figures_to_capture = []
+                        
+                        # Add figures from our custom tracker
+                        if hasattr(plt, '_captured_figures'):
+                            figures_to_capture.extend(plt._captured_figures)
+                        
+                        # Add any other active figures (e.g. from plt.subplots)
+                        for i in plt.get_fignums():
+                            fig = plt.figure(i)
+                            if fig not in figures_to_capture:
+                                figures_to_capture.append(fig)
+                        
+                        # Process all unique figures
+                        for fig in figures_to_capture:
+                            try:
+                                buf = io.BytesIO()
+                                fig.savefig(buf, format='png', bbox_inches='tight')
+                                buf.seek(0)
+                                img_str = base64.b64encode(buf.read()).decode('utf-8')
+                                outputs.append({
+                                    'type': 'image',
+                                    'mimeType': 'image/png',
+                                    'data': img_str
+                                })
+                            except Exception as e:
+                                print(f"Error saving figure: {e}", file=sys.stderr)
+                            finally:
+                                plt.close(fig)
+                        
+                        # Clear our custom tracker for next run
+                        if hasattr(plt, '_captured_figures'):
+                            plt._captured_figures = []
+                            
+                    except Exception as e:
+                        print(f"Error capturing plot: {e}", file=sys.stderr)
                 
                 duration = time.perf_counter() - start_time
                 
@@ -194,7 +310,8 @@ class TrulyIsolatedKernel:
                     'stderr': stderr_buffer.getvalue(),
                     'error_details': None,
                     'duration': duration,
-                    'namespace_vars': ns_summary
+                    'namespace_vars': ns_summary,
+                    'outputs': outputs
                 }
                 
             except MemoryError:
@@ -204,17 +321,21 @@ class TrulyIsolatedKernel:
                     'stderr': stderr_buffer.getvalue(),
                     'error_details': "MemoryError: Process exceeded memory limit",
                     'duration': 0.0,
-                    'namespace_vars': {}
+                    'namespace_vars': {},
+                    'outputs': []
                 }
                 
             except Exception:
+                # Cleaner traceback filtering for magic commands
+                tb = traceback.format_exc()
                 return {
                     'status': 'error',
                     'stdout': stdout_buffer.getvalue(),
                     'stderr': stderr_buffer.getvalue(),
-                    'error_details': traceback.format_exc(),
+                    'error_details': tb,
                     'duration': 0.0,
-                    'namespace_vars': {}
+                    'namespace_vars': {},
+                    'outputs': []
                 }
         
         while True:
@@ -290,7 +411,8 @@ class TrulyIsolatedKernel:
                 error_details=result_data['error_details'],
                 execution_time=result_data['duration'],
                 metrics=metrics,
-                namespace_vars=result_data['namespace_vars']
+                namespace_vars=result_data['namespace_vars'],
+                outputs=result_data.get('outputs', [])
             )
             
         except mp.queues.Empty:

@@ -365,9 +365,9 @@ export const controllerClient = {
 
   // ===== AI Model Management API =====
 
-  // Get all available AI providers and models
-  async getProviders(model_type: string): Promise<{ providers: Record<string, ProviderInfo>; current: ModelSelection }> {
-    return request(`/ai/models/providers?model_type=${encodeURIComponent(model_type)}`);
+  // Get all available AI providers and models (includes both cloud and local)
+  async getProviders(): Promise<{ providers: Record<string, ProviderInfo>; current: ModelSelection; selectedModels: SelectedModel[] }> {
+    return request('/ai/models/providers');
   },
 
   // Select a model
@@ -389,6 +389,19 @@ export const controllerClient = {
       method: 'POST',
       body: JSON.stringify({ provider, apiKey }),
     });
+  },
+
+  // Toggle model selection for chat dropdown
+  async toggleModelSelection(provider: string, modelId: string, selected: boolean): Promise<{ success: boolean; selectedModels: SelectedModel[] }> {
+    return request('/ai/models/toggle-selection', {
+      method: 'POST',
+      body: JSON.stringify({ provider, modelId, selected }),
+    });
+  },
+
+  // Get selected models for chat dropdown
+  async getSelectedModels(): Promise<{ selectedModels: SelectedModel[] }> {
+    return request('/ai/models/selected');
   },
 
   // Preview CSV file
@@ -437,17 +450,24 @@ export interface ModelInfo {
   id: string;
   name: string;
   context: number;
+  isLocal?: boolean;  // True if model is running locally (e.g., Ollama)
 }
 
 export interface ProviderInfo {
   name: string;
   models: ModelInfo[];
   available: boolean;
+  isLocal?: boolean;  // True if provider runs locally (e.g., Ollama)
 }
 
 export interface ModelSelection {
   provider: string;
   model: string;
+}
+
+export interface SelectedModel {
+  provider: string;
+  modelId: string;
 }
 
 export interface TablePreviewData {

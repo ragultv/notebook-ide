@@ -2,7 +2,7 @@ import React from 'react';
 
 export type CellType = 'code' | 'markdown';
 
-export type CellStatus = 'idle' | 'running' | 'success' | 'error';
+export type CellStatus = 'idle' | 'running' | 'success' | 'error' | 'pending';
 
 // Rich output types - like Jupyter
 export type OutputType = 'text' | 'image' | 'html' | 'error' | 'stream';

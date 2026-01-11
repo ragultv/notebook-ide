@@ -19,6 +19,7 @@ interface RightSidebarProps {
   projectFiles: ProjectFile[];
   activeCellId?: string | null;
   onOpenManageModels: () => void;
+  modelsRefreshTrigger?: number;
 }
 
 interface Message {
@@ -40,10 +41,10 @@ interface AttachedFile {
   type: 'file' | 'cell';
 }
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({ 
-  isOpen, 
-  onClose, 
-  onAddCell, 
+export const RightSidebar: React.FC<RightSidebarProps> = ({
+  isOpen,
+  onClose,
+  onAddCell,
   onDeleteCell,
   onMoveCell,
   onEditCell,
@@ -54,7 +55,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   notebookName,
   projectFiles,
   activeCellId,
-  onOpenManageModels
+  onOpenManageModels,
+  modelsRefreshTrigger
 }) => {
   const [messages, setMessages] = useState<Message[]>([
     // { id: '1', role: 'ai', text: 'OPREL INTELLIGENCE SYSTEM ONLINE. CONNECTED TO NVIDIA NIM.' }
@@ -63,7 +65,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -81,14 +83,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const isSuggestedAttached = suggestedCellId && attachedFiles.some(f => f.id === suggestedCellId);
 
   const addActiveCellAttachment = () => {
-      if (activeCell && suggestedCellId && !isSuggestedAttached) {
-          setAttachedFiles(prev => [...prev, {
-              id: suggestedCellId,
-              name: `Cell ${activeCellIndex + 1}`,
-              content: activeCell.content,
-              type: 'cell'
-          }]);
-      }
+    if (activeCell && suggestedCellId && !isSuggestedAttached) {
+      setAttachedFiles(prev => [...prev, {
+        id: suggestedCellId,
+        name: `Cell ${activeCellIndex + 1}`,
+        content: activeCell.content,
+        type: 'cell'
+      }]);
+    }
   };
 
   const generateProjectContext = () => {
@@ -104,7 +106,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       const sizeText = f.file ? `${f.file.size} bytes` : 'Virtual/In-Memory';
       return `- ${f.name} (${f.type}, ${sizeText})`;
     }).join('\n');
-    
+
     return `
 === SYSTEM CONTEXT ===
 The user is currently viewing the file: "${notebookName}". 
@@ -125,23 +127,23 @@ ${cellContext}
 
     // Capture attached files before clearing
     const currentAttachments = [...attachedFiles];
-    
-    const userMsg: Message = { 
-        id: Date.now().toString(), 
-        role: 'user', 
-        text: inputValue, 
-        attachments: currentAttachments 
+
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      text: inputValue,
+      attachments: currentAttachments
     };
-    
+
     setMessages(prev => [...prev, userMsg]);
     setInputValue('');
     setAttachedFiles([]);
-    
+
     setIsLoading(true);
 
     // Build Context
     const projectOverview = generateProjectContext();
-    
+
     const attachmentContext = currentAttachments.map(f => {
       if (f.type === 'cell') {
         return `\n\n=== CELL CONTEXT: ${f.name} ===\nUser has explicitly dragged this cell for context:\n\`\`\`\n${f.content}\n\`\`\`\n`;
@@ -160,7 +162,7 @@ ${cellContext}
           cells: notebookCells.map(c => ({ type: c.type, content: c.content }))
         }
       });
-      
+
       let addedCount = 0;
       let deletedCount = 0;
       let movedCount = 0;
@@ -196,8 +198,8 @@ ${cellContext}
                 role: 'ai',
                 text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
                 pendingConfirmation: {
-                    type: 'delete_notebook',
-                    name: op.params.name
+                  type: 'delete_notebook',
+                  name: op.params.name
                 }
               }]);
               break;
@@ -218,12 +220,12 @@ ${cellContext}
       if (movedCount > 0) actionSummary.push(`Modified ${movedCount} cell(s).`);
       if (deletedCount > 0) actionSummary.push(`Deleted ${deletedCount} cell(s).`);
 
-      const aiMsg: Message = { 
-        id: (Date.now() + 1).toString(), 
-        role: 'ai', 
+      const aiMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'ai',
         text: response.text || (actionSummary.length > 0 ? "Actions executed:\n- " + actionSummary.join("\n- ") : "I couldn't process that request.")
       };
-      
+
       setMessages(prev => [...prev, aiMsg]);
     } catch (error) {
       console.error('AI request failed:', error);
@@ -233,34 +235,34 @@ ${cellContext}
         text: `Error: ${error instanceof Error ? error.message : 'Failed to connect to AI service. Make sure the backend is running.'}`
       }]);
     }
-    
+
     setIsLoading(false);
   };
 
   const handleConfirmation = (messageId: string, accepted: boolean, actionData?: { type: 'delete_notebook', name?: string }) => {
-     setMessages(prev => prev.map(m => {
-        if (m.id === messageId) {
-            return { ...m, isConfirmed: accepted };
-        }
-        return m;
-     }));
+    setMessages(prev => prev.map(m => {
+      if (m.id === messageId) {
+        return { ...m, isConfirmed: accepted };
+      }
+      return m;
+    }));
 
-     if (accepted && actionData) {
-        if (actionData.type === 'delete_notebook') {
-            onDeleteNotebook(actionData.name);
-            setMessages(prev => [...prev, {
-                id: Date.now().toString(),
-                role: 'ai',
-                text: `Notebook "${actionData.name || 'Current'}" deleted successfully.`
-            }]);
-        }
-     } else if (!accepted) {
-         setMessages(prev => [...prev, {
-            id: Date.now().toString(),
-            role: 'ai',
-            text: `Action cancelled.`
+    if (accepted && actionData) {
+      if (actionData.type === 'delete_notebook') {
+        onDeleteNotebook(actionData.name);
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'ai',
+          text: `Notebook "${actionData.name || 'Current'}" deleted successfully.`
         }]);
-     }
+      }
+    } else if (!accepted) {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'ai',
+        text: `Action cancelled.`
+      }]);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -293,7 +295,7 @@ ${cellContext}
         if (data.type === 'cell-drag') {
           const cellId = `cell-${data.index}`;
           if (attachedFiles.some(af => af.id === cellId)) return;
-          
+
           setAttachedFiles(prev => [...prev, {
             id: cellId,
             name: `Cell ${data.index}`,
@@ -306,40 +308,40 @@ ${cellContext}
         // Not JSON or invalid format, continue to other checks
       }
     }
-    
+
     // 2. Check for File Drag Data (Sim ID)
     const simFileId = e.dataTransfer.getData('application/x-sim-file-id');
     if (simFileId) {
-        const file = projectFiles.find(f => f.id === simFileId);
-        if (file) {
-            if (attachedFiles.some(af => af.id === file.id)) return;
-            let content = '';
-            if (file.cells) {
-                content = file.cells.map((c, i) => `[Cell ${i+1}] (${c.type})\n${c.content}`).join('\n\n');
-            } else if (file.file) {
-                try {
-                    if (file.file.size > 1024 * 1024) { 
-                         content = (await file.file.text()).substring(0, 5000) + "\n...(truncated)";
-                    } else {
-                         content = await file.file.text();
-                    }
-                } catch (err) {
-                    content = "[Error reading file content. Binary file?]";
-                }
+      const file = projectFiles.find(f => f.id === simFileId);
+      if (file) {
+        if (attachedFiles.some(af => af.id === file.id)) return;
+        let content = '';
+        if (file.cells) {
+          content = file.cells.map((c, i) => `[Cell ${i + 1}] (${c.type})\n${c.content}`).join('\n\n');
+        } else if (file.file) {
+          try {
+            if (file.file.size > 1024 * 1024) {
+              content = (await file.file.text()).substring(0, 5000) + "\n...(truncated)";
             } else {
-                content = "[Empty or Virtual File]";
+              content = await file.file.text();
             }
-            setAttachedFiles(prev => [...prev, { id: file.id, name: file.name, content: content, type: 'file' }]);
+          } catch (err) {
+            content = "[Error reading file content. Binary file?]";
+          }
+        } else {
+          content = "[Empty or Virtual File]";
         }
-        return;
+        setAttachedFiles(prev => [...prev, { id: file.id, name: file.name, content: content, type: 'file' }]);
+      }
+      return;
     }
 
     // 3. Fallback to Plain Text
     const text = e.dataTransfer.getData('text/plain');
     if (text) {
       setInputValue(prev => {
-         const separator = prev.length > 0 ? ' ' : '';
-         return prev + separator + text;
+        const separator = prev.length > 0 ? ' ' : '';
+        return prev + separator + text;
       });
     }
   };
@@ -349,7 +351,7 @@ ${cellContext}
   };
 
   return (
-    <div 
+    <div
       className={`bg-sim-bg border-l border-sim-border flex flex-col transition-all duration-300 ease-in-out shadow-2xl z-20
         ${isOpen ? 'w-[450px] translate-x-0' : 'w-0 translate-x-full hidden'}
       `}
@@ -369,74 +371,74 @@ ${cellContext}
       <div className="flex-1 overflow-y-auto p-4 bg-black/20 space-y-5 font-mono">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-             <div className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''} w-full`}>
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 border mt-1
+            <div className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''} w-full`}>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 border mt-1
                   ${msg.role === 'ai' ? 'bg-transparent border-transparent' : 'bg-sim-red border-sim-red text-white'}
                 `}>
-                  {msg.role === 'ai' ? (
-                    <Zap className="w-3.5 h-3.5 text-sim-red fill-current" />
-                  ) : (
-                    <User className="w-3.5 h-3.5" />
-                  )}
-                </div>
+                {msg.role === 'ai' ? (
+                  <Zap className="w-3.5 h-3.5 text-sim-red fill-current" />
+                ) : (
+                  <User className="w-3.5 h-3.5" />
+                )}
+              </div>
 
-                <div className={`flex flex-col gap-1 max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  {/* Message Attachments */}
-                  {msg.attachments && msg.attachments.length > 0 && (
-                      <div className={`flex flex-wrap gap-2 mb-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          {msg.attachments.map(file => (
-                              <div key={file.id} className="flex items-center gap-1.5 bg-sim-surface border border-sim-border text-[10px] font-mono text-gray-300 px-2 py-1 rounded select-none shadow-sm">
-                                  {file.type === 'cell' ? <Code className="w-3 h-3 text-sim-red" /> : <FileIcon className="w-3 h-3 text-sim-muted" />}
-                                  <span className="truncate max-w-[150px]">{file.name}</span>
-                              </div>
-                          ))}
+              <div className={`flex flex-col gap-1 max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                {/* Message Attachments */}
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className={`flex flex-wrap gap-2 mb-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {msg.attachments.map(file => (
+                      <div key={file.id} className="flex items-center gap-1.5 bg-sim-surface border border-sim-border text-[10px] font-mono text-gray-300 px-2 py-1 rounded select-none shadow-sm">
+                        {file.type === 'cell' ? <Code className="w-3 h-3 text-sim-red" /> : <FileIcon className="w-3 h-3 text-sim-muted" />}
+                        <span className="truncate max-w-[150px]">{file.name}</span>
                       </div>
-                  )}
-
-                  <div className={`text-sm leading-relaxed w-full
-                    ${msg.role === 'ai' 
-                      ? 'text-gray-300 pl-0' 
-                      : 'bg-[#27272a] text-white border border-sim-border rounded-lg p-3 shadow-sm'}
-                  `}>
-                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                    ))}
                   </div>
-                </div>
-             </div>
+                )}
 
-             {/* Confirmation UI Block */}
-             {msg.pendingConfirmation && msg.isConfirmed === undefined && (
-                 <div className="ml-10 w-[85%] bg-sim-surface/50 border border-sim-red/50 rounded-lg p-3 flex flex-col gap-2">
-                    <div className="flex items-center gap-2 text-sim-red text-xs font-bold uppercase tracking-wider">
-                        <AlertTriangle className="w-4 h-4" />
-                        Confirmation Required
-                    </div>
-                    <p className="text-xs text-sim-muted">
-                        Please confirm you want to proceed with this destructive action.
-                    </p>
-                    <div className="flex gap-2 mt-1">
-                        <button 
-                            onClick={() => handleConfirmation(msg.id, true, msg.pendingConfirmation)}
-                            className="flex-1 flex items-center justify-center gap-1.5 bg-sim-red hover:bg-sim-redHover text-white text-xs font-bold py-1.5 rounded transition-colors"
-                        >
-                            <Check className="w-3.5 h-3.5" /> ACCEPT
-                        </button>
-                        <button 
-                            onClick={() => handleConfirmation(msg.id, false)}
-                            className="flex-1 flex items-center justify-center gap-1.5 bg-sim-surface border border-sim-border hover:bg-sim-border text-sim-muted text-xs font-bold py-1.5 rounded transition-colors"
-                        >
-                            <Ban className="w-3.5 h-3.5" /> REJECT
-                        </button>
-                    </div>
-                 </div>
-             )}
-             
-             {/* Post-Confirmation Status */}
-             {msg.pendingConfirmation && msg.isConfirmed !== undefined && (
-                 <div className={`ml-10 text-xs font-mono font-bold flex items-center gap-2 mt-1 ${msg.isConfirmed ? 'text-green-500' : 'text-sim-muted'}`}>
-                     {msg.isConfirmed ? <Check className="w-3 h-3" /> : <Ban className="w-3 h-3" />}
-                     {msg.isConfirmed ? 'ACTION AUTHORIZED' : 'ACTION REJECTED'}
-                 </div>
-             )}
+                <div className={`text-sm leading-relaxed w-full
+                    ${msg.role === 'ai'
+                    ? 'text-gray-300 pl-0'
+                    : 'bg-[#27272a] text-white border border-sim-border rounded-lg p-3 shadow-sm'}
+                  `}>
+                  <div className="whitespace-pre-wrap">{msg.text}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Confirmation UI Block */}
+            {msg.pendingConfirmation && msg.isConfirmed === undefined && (
+              <div className="ml-10 w-[85%] bg-sim-surface/50 border border-sim-red/50 rounded-lg p-3 flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-sim-red text-xs font-bold uppercase tracking-wider">
+                  <AlertTriangle className="w-4 h-4" />
+                  Confirmation Required
+                </div>
+                <p className="text-xs text-sim-muted">
+                  Please confirm you want to proceed with this destructive action.
+                </p>
+                <div className="flex gap-2 mt-1">
+                  <button
+                    onClick={() => handleConfirmation(msg.id, true, msg.pendingConfirmation)}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-sim-red hover:bg-sim-redHover text-white text-xs font-bold py-1.5 rounded transition-colors"
+                  >
+                    <Check className="w-3.5 h-3.5" /> ACCEPT
+                  </button>
+                  <button
+                    onClick={() => handleConfirmation(msg.id, false)}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-sim-surface border border-sim-border hover:bg-sim-border text-sim-muted text-xs font-bold py-1.5 rounded transition-colors"
+                  >
+                    <Ban className="w-3.5 h-3.5" /> REJECT
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Post-Confirmation Status */}
+            {msg.pendingConfirmation && msg.isConfirmed !== undefined && (
+              <div className={`ml-10 text-xs font-mono font-bold flex items-center gap-2 mt-1 ${msg.isConfirmed ? 'text-green-500' : 'text-sim-muted'}`}>
+                {msg.isConfirmed ? <Check className="w-3 h-3" /> : <Ban className="w-3 h-3" />}
+                {msg.isConfirmed ? 'ACTION AUTHORIZED' : 'ACTION REJECTED'}
+              </div>
+            )}
           </div>
         ))}
         {/* Removed Loading Bubble - Logic handled by input area state now */}
@@ -445,7 +447,7 @@ ${cellContext}
 
       {/* Input Area */}
       <div className="p-4 bg-sim-surface border-t border-sim-border shrink-0">
-        <div 
+        <div
           className={`
             relative flex flex-col gap-0
             bg-[#09090b] border transition-colors rounded-lg
@@ -456,18 +458,18 @@ ${cellContext}
           onDragLeave={!isLoading ? handleDragLeave : undefined}
           onDrop={!isLoading ? handleDrop : undefined}
         >
-           {/* Loading Overlay */}
-           {isLoading && (
-              <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-[1px] rounded-lg">
-                   <div className="flex items-center gap-2 text-sim-muted text-xs font-mono animate-pulse bg-[#09090b] px-3 py-1.5 rounded-full border border-sim-border shadow-lg">
-                       <Loader2 className="w-3.5 h-3.5 animate-spin text-sim-red" />
-                       PROCESSING...
-                   </div>
+          {/* Loading Overlay */}
+          {isLoading && (
+            <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-[1px] rounded-lg">
+              <div className="flex items-center gap-2 text-sim-muted text-xs font-mono animate-pulse bg-[#09090b] px-3 py-1.5 rounded-full border border-sim-border shadow-lg">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-sim-red" />
+                PROCESSING...
               </div>
-           )}
+            </div>
+          )}
 
-           {/* Drag Overlay */}
-           {isDragOver && (
+          {/* Drag Overlay */}
+          {isDragOver && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm text-sim-red font-mono text-sm font-medium rounded-lg">
               <CornerDownLeft className="w-5 h-5 mr-2" />
               DROP TO ATTACH CONTEXT
@@ -477,31 +479,31 @@ ${cellContext}
           {/* Context Chips (Including Suggestion) */}
           {(attachedFiles.length > 0 || (activeCell && !isSuggestedAttached)) && (
             <div className="flex flex-wrap gap-2 p-2 pb-0 pt-2">
-                {/* Active Attachments */}
-                {attachedFiles.map(file => (
-                    <div key={file.id} className="flex items-center gap-1.5 bg-[#27272a] border border-sim-border text-[11px] font-mono text-gray-300 px-2 py-1 rounded cursor-default group hover:border-sim-muted transition-colors select-none">
-                        {file.type === 'cell' ? <Code className="w-3 h-3 text-sim-red" /> : <Paperclip className="w-3 h-3 text-sim-muted" />}
-                        <span className="truncate max-w-[150px]">{file.name}</span>
-                        <button 
-                          onClick={() => removeAttachment(file.id)} 
-                          className="text-sim-muted hover:text-white ml-1"
-                          disabled={isLoading}
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                    </div>
-                ))}
-                
-                {/* Active Cell Suggestion */}
-                {activeCell && !isSuggestedAttached && !isLoading && (
-                    <button 
-                        onClick={addActiveCellAttachment}
-                        className="flex items-center gap-1.5 bg-sim-red/10 border border-sim-red/30 border-dashed text-[11px] font-mono text-sim-red px-2 py-1 rounded cursor-pointer hover:bg-sim-red/20 transition-colors select-none"
-                    >
-                        <Plus className="w-3 h-3" />
-                        <span>Add Cell {activeCellIndex + 1}</span>
-                    </button>
-                )}
+              {/* Active Attachments */}
+              {attachedFiles.map(file => (
+                <div key={file.id} className="flex items-center gap-1.5 bg-[#27272a] border border-sim-border text-[11px] font-mono text-gray-300 px-2 py-1 rounded cursor-default group hover:border-sim-muted transition-colors select-none">
+                  {file.type === 'cell' ? <Code className="w-3 h-3 text-sim-red" /> : <Paperclip className="w-3 h-3 text-sim-muted" />}
+                  <span className="truncate max-w-[150px]">{file.name}</span>
+                  <button
+                    onClick={() => removeAttachment(file.id)}
+                    className="text-sim-muted hover:text-white ml-1"
+                    disabled={isLoading}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+
+              {/* Active Cell Suggestion */}
+              {activeCell && !isSuggestedAttached && !isLoading && (
+                <button
+                  onClick={addActiveCellAttachment}
+                  className="flex items-center gap-1.5 bg-sim-red/10 border border-sim-red/30 border-dashed text-[11px] font-mono text-sim-red px-2 py-1 rounded cursor-pointer hover:bg-sim-red/20 transition-colors select-none"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Add Cell {activeCellIndex + 1}</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -519,23 +521,22 @@ ${cellContext}
 
           {/* Footer Bar */}
           <div className="flex items-center justify-between px-2 pb-2 mt-1 select-none relative">
-             <div className="flex items-center gap-2">
-                 <ModelSelector onOpenManage={onOpenManageModels} />
+            <div className="flex items-center gap-2">
+              <ModelSelector onOpenManage={onOpenManageModels} refreshTrigger={modelsRefreshTrigger} />
             </div>
-            
-            <button 
+
+            <button
               onClick={handleSend}
               disabled={isLoading || (!inputValue.trim() && attachedFiles.length === 0)}
-              className={`p-1.5 rounded transition-all flex items-center justify-center w-7 h-7 ${
-                (inputValue.trim() || attachedFiles.length > 0) && !isLoading
-                    ? 'bg-white text-black hover:bg-gray-200' 
-                    : 'bg-[#27272a] text-sim-muted cursor-not-allowed'
-              }`}
+              className={`p-1.5 rounded transition-all flex items-center justify-center w-7 h-7 ${(inputValue.trim() || attachedFiles.length > 0) && !isLoading
+                  ? 'bg-white text-black hover:bg-gray-200'
+                  : 'bg-[#27272a] text-sim-muted cursor-not-allowed'
+                }`}
             >
               {isLoading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                  <Send className="w-3.5 h-3.5" />
+                <Send className="w-3.5 h-3.5" />
               )}
             </button>
           </div>

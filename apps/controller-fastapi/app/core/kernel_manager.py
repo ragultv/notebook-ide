@@ -565,6 +565,18 @@ class KernelManager:
             outputs.append(output)
             if output_callback:
                 output_callback(output)
+
+        # Process image outputs from the isolated kernel
+        if hasattr(result, 'outputs') and result.outputs:
+            for out_dict in result.outputs:
+                output = RichOutput(
+                    type=out_dict.get('type', 'text'),
+                    data=out_dict.get('data', ''),
+                    mimeType=out_dict.get('mimeType')
+                )
+                outputs.append(output)
+                if output_callback:
+                    output_callback(output)
         
         # Log execution
         success = result.status == 'success'
