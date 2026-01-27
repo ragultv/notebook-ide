@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
-from app.core.ai_service import ai_service
+from app.core.ai import ai_service
 
 router = APIRouter(prefix="/models", tags=["AI Models"])
 

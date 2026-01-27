@@ -73,18 +73,35 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
     const allModels: Array<{ provider: string; providerInfo: ProviderInfo; model: any }> = [];
 
     Object.entries(providers).forEach(([providerId, provider]) => {
-      if (provider.available) {
-        provider.models.forEach(model => {
-          const isSelected = selectedModels.some(
-            sm => sm.provider === providerId && sm.modelId === model.id
-          );
+      // Skip providers that are not available (e.g., Ollama when disconnected)
+      if (!provider.available) {
+        return;
+      }
+      
+      provider.models.forEach(model => {
+        const isSelected = selectedModels.some(
+          sm => sm.provider === providerId && sm.modelId === model.id
+        );
 
-          if (isSelected) {
-            allModels.push({ provider: providerId, providerInfo: provider, model });
-          }
+        if (isSelected) {
+          allModels.push({ provider: providerId, providerInfo: provider, model });
+        }
+      });
+    });
+    
+    // If no models are available (e.g., Ollama disconnected and no models selected),
+    // provide default NVIDIA models as fallback
+    if (allModels.length === 0) {
+      const nvidiaProvider = providers['nvidia'];
+      if (nvidiaProvider && nvidiaProvider.available) {
+        // Add some default NVIDIA models
+        const defaultModels = nvidiaProvider.models.slice(0, 3); // Get first 3 models
+        defaultModels.forEach(model => {
+          allModels.push({ provider: 'nvidia', providerInfo: nvidiaProvider, model });
         });
       }
-    });
+    }
+    
     return allModels;
   };
 

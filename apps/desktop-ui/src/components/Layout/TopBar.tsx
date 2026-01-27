@@ -1,6 +1,6 @@
 import React from 'react';
-import { Zap, Sparkles, Power, RotateCcw, FolderOpen, Save, PlayCircle, Cpu, HardDrive } from 'lucide-react';
-import { useUIStore, KernelStatus } from '../../state/ui.store';
+import { Zap, Sparkles, Power, RotateCcw, FolderOpen, Save, PlayCircle, Cpu, HardDrive, Map } from 'lucide-react';
+import { useUIStore, KernelStatus } from '../../store/ui.store';
 
 interface TopBarProps {
   onToggleChat: () => void;
@@ -12,6 +12,7 @@ interface TopBarProps {
   onConnectKernel?: () => void;
   onRestartKernel?: () => void;
   onRunAll?: () => void;
+  onOpenMemoryMap?: () => void;
 }
 
 const statusColors: Record<KernelStatus, string> = {
@@ -32,6 +33,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onConnectKernel,
   onRestartKernel,
   onRunAll,
+  onOpenMemoryMap,
 }) => {
   const { kernelStatus, kernelMetrics } = useUIStore();
   const isConnected = kernelStatus === 'idle' || kernelStatus === 'busy';
@@ -158,6 +160,18 @@ export const TopBar: React.FC<TopBarProps> = ({
         >
           <span>New Notebook</span>
         </button>
+
+        {/* Memory Map Button */}
+        {onOpenMemoryMap && (
+          <button
+            onClick={onOpenMemoryMap}
+            className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded border border-sim-border text-xs font-mono font-medium text-sim-muted hover:text-cyan-400 hover:border-cyan-400/50 transition-all uppercase tracking-wide"
+            title="Memory Visualization"
+          >
+            <Map className="w-4 h-4" />
+            <span>Memory</span>
+          </button>
+        )}
 
         {/* AI Toggle */}
         <button

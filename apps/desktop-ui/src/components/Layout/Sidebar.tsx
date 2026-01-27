@@ -232,7 +232,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className={`bg-sim-surface transition-all duration-300 ease-in-out flex flex-col overflow-hidden border-r border-sim-border ${isOpen ? 'w-64 opacity-100' : 'w-0 opacity-0 border-r-0'
           }`}
       >
-        <div className="flex items-center justify-between p-4 border-b border-sim-border">
+        <div className="h-14 flex items-center justify-between px-4 border-b border-sim-border shrink-0">
           <span className="uppercase text-xs font-bold text-sim-muted tracking-wider font-mono">Files</span>
           <button onClick={() => setIsOpen(false)} className="text-sim-muted hover:text-white rounded p-1">
             <X className="w-4 h-4" />

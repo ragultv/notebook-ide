@@ -19,7 +19,7 @@ from enum import Enum
 from contextlib import redirect_stdout, redirect_stderr
 from copy import deepcopy
 
-from .isolated_kernel import TrulyIsolatedKernel, ExecutionResult as IsolatedExecutionResult
+from isolated_kernel import TrulyIsolatedKernel, ExecutionResult as IsolatedExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -116,9 +116,6 @@ class KernelManager:
         # Legacy: Per-notebook isolated namespaces (fallback if USE_ISOLATED_KERNELS=false)
         self.notebook_vars: Dict[str, dict] = {}
         
-        # Shared registry for explicit exports only
-        self.shared_registry: Dict[str, Any] = {}
-        
         # Execution queue + single consumer worker
         self._execution_queue: asyncio.Queue = None
         self._queue_worker_task: Optional[asyncio.Task] = None
@@ -133,7 +130,8 @@ class KernelManager:
         self._max_logs = 1000
         
         # Kernel configuration
-        self._kernel_timeout = int(os.getenv('KERNEL_TIMEOUT', '60'))
+        # 0 = no timeout, allows long-running operations like model downloads
+        self._kernel_timeout = int(os.getenv('KERNEL_TIMEOUT', '0'))
         self._kernel_max_memory_mb = int(os.getenv('KERNEL_MAX_MEMORY_MB', '0')) or None
     
     @property
@@ -259,7 +257,6 @@ class KernelManager:
             execution_count=0,
         )
         self.notebook_vars.clear()
-        self.shared_registry.clear()
         self._queue_order = 0
         
         self._execution_queue = asyncio.Queue(maxsize=self._max_queue_size)
@@ -297,7 +294,6 @@ class KernelManager:
         self.notebook_kernels.clear()
         
         self.notebook_vars.clear()
-        self.shared_registry.clear()
         self._current_execution = None
         self.state = KernelState()
         print("[Kernel] Stopped")
@@ -334,50 +330,7 @@ class KernelManager:
             "use_isolated_kernels": USE_ISOLATED_KERNELS,
         }
     
-    # === Export/Import APIs ===
-    
-    def export_var(self, notebook_id: str, name: str) -> dict:
-        """Export a variable from a notebook to the shared registry."""
-        if notebook_id not in self.notebook_vars:
-            return {"success": False, "error": f"Notebook {notebook_id} not found"}
-        
-        ns = self.notebook_vars[notebook_id]
-        if name not in ns:
-            return {"success": False, "error": f"Variable '{name}' not found in notebook {notebook_id}"}
-        
-        try:
-            self.shared_registry[name] = deepcopy(ns[name])
-        except Exception:
-            self.shared_registry[name] = ns[name]
-        
-        return {"success": True, "name": name, "exported_from": notebook_id}
-    
-    def import_var(self, notebook_id: str, name: str, source_notebook_id: str = None) -> dict:
-        """Import a variable into a notebook from shared registry or another notebook."""
-        ns = self._get_notebook_vars(notebook_id)
-        
-        if source_notebook_id:
-            if source_notebook_id not in self.notebook_vars:
-                return {"success": False, "error": f"Source notebook {source_notebook_id} not found"}
-            
-            source_ns = self.notebook_vars[source_notebook_id]
-            if name not in source_ns:
-                return {"success": False, "error": f"Variable '{name}' not found in notebook {source_notebook_id}"}
-            
-            try:
-                ns[name] = deepcopy(source_ns[name])
-            except Exception:
-                ns[name] = source_ns[name]
-        else:
-            if name not in self.shared_registry:
-                return {"success": False, "error": f"Variable '{name}' not found in shared registry"}
-            
-            try:
-                ns[name] = deepcopy(self.shared_registry[name])
-            except Exception:
-                ns[name] = self.shared_registry[name]
-        
-        return {"success": True, "name": name, "imported_to": notebook_id}
+    # === Notebook Management APIs ===
     
     def reset_notebook(self, notebook_id: str) -> dict:
         """Reset a specific notebook's namespace / kernel."""
@@ -391,9 +344,6 @@ class KernelManager:
             self.notebook_vars[notebook_id] = {"__builtins__": __builtins__}
         
         return {"success": True, "notebook_id": notebook_id, "status": "reset"}
-    
-    def get_shared_registry_keys(self) -> List[str]:
-        return list(self.shared_registry.keys())
     
     def get_notebook_vars_keys(self, notebook_id: str) -> List[str]:
         if notebook_id not in self.notebook_vars:
@@ -938,7 +888,6 @@ class KernelManager:
             "status": self.state.status.value,
             "executionCount": self.state.execution_count,
             "notebooks": list(self.notebook_vars.keys()),
-            "sharedVariables": list(self.shared_registry.keys()),
             "queue": self.get_queue_status(),
             "useIsolatedKernels": USE_ISOLATED_KERNELS,
         }

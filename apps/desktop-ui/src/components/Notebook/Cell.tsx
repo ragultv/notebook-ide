@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Play, Square, Trash2, ArrowUp, ArrowDown, MoreHorizontal, Copy, GripVertical, Wrench, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { CellData, CellStatus, CellOutput } from '../../types';
 import { controllerClient, RichOutput } from '../../services/controller.client';
-import { useUIStore } from '../../state/ui.store';
+import { useUIStore } from '../../store/ui.store';
 
 interface CellProps {
   cell: CellData;

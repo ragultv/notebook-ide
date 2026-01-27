@@ -171,25 +171,28 @@ ${cellContext}
       // Execute operations progressively (Streaming Effect)
       if (response.operations && response.operations.length > 0) {
         for (const op of response.operations) {
-          // Artificial delay to simulate streaming
-          await new Promise(resolve => setTimeout(resolve, 400));
-
           switch (op.type) {
             case 'create_notebook':
               onCreateNotebook(op.params.name);
               createdCount++;
+              // Wait longer after creating notebook to ensure state is updated
+              await new Promise(resolve => setTimeout(resolve, 600));
               break;
             case 'add_cell':
               onAddCell(op.params.content, op.params.type);
               addedCount++;
+              // Delay between cells for visual effect
+              await new Promise(resolve => setTimeout(resolve, 400));
               break;
             case 'move_cell':
               onMoveCell(op.params.fromIndex, op.params.toIndex);
               movedCount++;
+              await new Promise(resolve => setTimeout(resolve, 400));
               break;
             case 'delete_cell':
               onDeleteCell(op.params.cellIndex);
               deletedCount++;
+              await new Promise(resolve => setTimeout(resolve, 400));
               break;
             case 'delete_notebook':
               // Don't execute immediately; push a confirmation message
@@ -206,9 +209,11 @@ ${cellContext}
             case 'edit_cell':
               onEditCell(op.params.cellIndex, op.params.content, op.params.type);
               movedCount++; // Reusing for edits
+              await new Promise(resolve => setTimeout(resolve, 400));
               break;
             case 'add_package':
               onAddPackages(op.params.packages || []);
+              await new Promise(resolve => setTimeout(resolve, 400));
               break;
           }
         }
@@ -352,12 +357,12 @@ ${cellContext}
 
   return (
     <div
-      className={`bg-sim-bg border-l border-sim-border flex flex-col transition-all duration-300 ease-in-out shadow-2xl z-20
-        ${isOpen ? 'w-[450px] translate-x-0' : 'w-0 translate-x-full hidden'}
+      className={`bg-sim-bg border-sim-border flex flex-col transition-all duration-300 ease-in-out z-20 shrink-0 relative
+        ${isOpen ? 'w-[450px] border-l' : 'w-0 border-l-0 overflow-hidden'}
       `}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-sim-border bg-sim-surface shrink-0">
+      <div className="h-14 flex items-center justify-between px-4 border-b border-sim-border bg-sim-surface shrink-0">
         <div className="flex items-center gap-2 text-sim-red">
           <Zap className="w-4 h-4 fill-current" />
           <span className="font-mono font-bold tracking-wider text-white text-sm">OPREL AI</span>
@@ -529,8 +534,8 @@ ${cellContext}
               onClick={handleSend}
               disabled={isLoading || (!inputValue.trim() && attachedFiles.length === 0)}
               className={`p-1.5 rounded transition-all flex items-center justify-center w-7 h-7 ${(inputValue.trim() || attachedFiles.length > 0) && !isLoading
-                  ? 'bg-white text-black hover:bg-gray-200'
-                  : 'bg-[#27272a] text-sim-muted cursor-not-allowed'
+                ? 'bg-white text-black hover:bg-gray-200'
+                : 'bg-[#27272a] text-sim-muted cursor-not-allowed'
                 }`}
             >
               {isLoading ? (

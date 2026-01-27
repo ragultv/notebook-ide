@@ -3,7 +3,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import json
-from ..core.kernel_manager import kernel_manager
+import sys
+from pathlib import Path
+
+# Add kernel-python directory to path
+kernel_path = Path(__file__).parent.parent.parent.parent / "kernel-python"
+sys.path.insert(0, str(kernel_path))
+
+from kernel_manager import kernel_manager
 
 router = APIRouter()
 
@@ -15,15 +22,6 @@ class CellExecutionRequest(BaseModel):
 class RunAllRequest(BaseModel):
     notebookId: str = "default"
     cells: List[CellExecutionRequest]
-
-class ExportRequest(BaseModel):
-    notebookId: str
-    name: str
-
-class ImportRequest(BaseModel):
-    notebookId: str
-    name: str
-    sourceNotebookId: Optional[str] = None
 
 class ResetRequest(BaseModel):
     notebookId: str
@@ -100,23 +98,7 @@ async def interrupt():
     """Interrupt current execution."""
     return await kernel_manager.interrupt()
 
-# === Export/Import APIs ===
-
-@router.post('/export')
-async def export_variable(request: ExportRequest):
-    """Export a variable from notebook to shared registry."""
-    result = kernel_manager.export_var(request.notebookId, request.name)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-@router.post('/import')
-async def import_variable(request: ImportRequest):
-    """Import a variable from shared registry or another notebook."""
-    result = kernel_manager.import_var(request.notebookId, request.name, request.sourceNotebookId)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
+# === Notebook Management APIs ===
 
 @router.post('/reset')
 async def reset_notebook(request: ResetRequest):
@@ -132,11 +114,6 @@ async def reset_notebook(request: ResetRequest):
 async def get_execution_logs(notebookId: Optional[str] = None, limit: int = 100):
     """Get execution logs for auditing."""
     return kernel_manager.get_execution_logs(notebookId, limit)
-
-@router.get('/shared')
-async def get_shared_registry():
-    """List all variables in shared registry."""
-    return {"keys": kernel_manager.get_shared_registry_keys()}
 
 @router.get('/notebooks/{notebookId}/vars')
 async def get_notebook_vars(notebookId: str):

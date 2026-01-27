@@ -1,3 +1,5 @@
+import { MemorySnapshot } from '../../../../packages/shared-types/memory';
+
 // Controller Client - HTTP interface to FastAPI backend
 // Handles execution, kernel management, and AI requests
 
@@ -132,6 +134,12 @@ export const controllerClient = {
   // Get metrics for all running kernels
   async getAllKernelMetrics(): Promise<AllKernelMetrics> {
     return request('/kernels/metrics');
+  },
+
+  // Memory Visualization
+  async getMemorySnapshot(kernelId: string, method: 'umap' | 'pca' = 'umap'): Promise<MemorySnapshot> {
+    const params = new URLSearchParams({ kernel_id: kernelId, method });
+    return request(`/api/memory/snapshot?${params.toString()}`);
   },
 
   // Code Execution

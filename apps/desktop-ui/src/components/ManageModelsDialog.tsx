@@ -94,173 +94,164 @@ export const ManageModelsDialog: React.FC<ManageModelsDialogProps> = ({ onModels
             User image shows 'Model Configuration' header inside the window.
             I will keep a minimal header inside the view.
         */}
-        <div className="h-10 border-b border-sim-border flex items-center justify-between px-4 bg-sim-surface select-none shrink-0">
+        {/* <div className="h-10 border-b border-sim-border flex items-center justify-between px-4 bg-sim-surface select-none shrink-0">
           <div className="flex items-center gap-2 text-sim-text">
             <Settings className="w-4 h-4 text-sim-muted" />
             <span className="font-medium">Model Configuration</span>
           </div>
-        </div>
+        </div> */}
 
         {/* Content Layout */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Sidebar */}
-          <div className="w-48 border-r border-sim-border bg-[#0c0c0e] flex flex-col">
-            <div className="p-2 space-y-0.5">
+        <div className="flex-1 flex flex-col bg-sim-bg overflow-hidden">
+          {/* Toolbar */}
+          <div className="h-12 border-b border-sim-border flex items-center px-4 gap-3 bg-sim-bg shrink-0">
+            {/* Filters */}
+            <div className="flex items-center bg-sim-surface rounded  gap-1 border border-sim-border">
               <button
                 onClick={() => setActiveTab('all')}
-                className={`w-full text-left px-3 py-1.5 rounded text-xs transition-colors flex items-center justify-between group ${activeTab === 'all' ? 'bg-sim-selection text-white' : 'text-sim-muted hover:text-sim-text hover:bg-sim-surface'}`}
+                className={`px-3 py-1 rounded text-[10px] font-medium transition-colors ${activeTab === 'all' ? 'bg-sim-selection text-white shadow-sm' : 'text-sim-muted hover:text-sim-text hover:bg-white/5'
+                  }`}
               >
-                <span>All Models</span>
-                <span className="bg-sim-surface px-1.5 rounded-sm text-[10px] opacity-50 group-hover:opacity-100">{Object.values(providers).reduce((acc, p) => acc + p.models.length, 0)}</span>
+                All
               </button>
               <button
                 onClick={() => setActiveTab('cloud')}
-                className={`w-full text-left px-3 py-1.5 rounded text-xs transition-colors flex items-center justify-between group ${activeTab === 'cloud' ? 'bg-sim-selection text-white' : 'text-sim-muted hover:text-sim-text hover:bg-sim-surface'}`}
+                className={`px-3 py-1 rounded text-[10px] font-medium transition-colors flex items-center gap-1.5 ${activeTab === 'cloud' ? 'bg-sim-selection text-white shadow-sm' : 'text-sim-muted hover:text-sim-text hover:bg-white/5'
+                  }`}
               >
-                <span className="flex items-center gap-2"><Cloud className="w-3 h-3" /> Cloud</span>
+                <Cloud className="w-3 h-3" /> Cloud
               </button>
               <button
                 onClick={() => setActiveTab('local')}
-                className={`w-full text-left px-3 py-1.5 rounded text-xs transition-colors flex items-center justify-between group ${activeTab === 'local' ? 'bg-sim-selection text-white' : 'text-sim-muted hover:text-sim-text hover:bg-sim-surface'}`}
+                className={`px-3 py-1 rounded text-[10px] font-medium transition-colors flex items-center gap-1.5 ${activeTab === 'local' ? 'bg-sim-selection text-white shadow-sm' : 'text-sim-muted hover:text-sim-text hover:bg-white/5'
+                  }`}
               >
-                <span className="flex items-center gap-2"><HardDrive className="w-3 h-3" /> Local</span>
+                <HardDrive className="w-3 h-3" /> Local
               </button>
             </div>
 
-            <div className="mt-auto p-4 border-t border-sim-border">
-              <div className="text-[10px] text-sim-muted uppercase tracking-wider font-bold mb-2">Providers Status</div>
-              <div className="space-y-2">
-                {Object.entries(providers).map(([pid, p]) => (
-                  <div key={pid} className="flex items-center justify-between text-xs">
-                    <span className="text-gray-400 truncate max-w-[100px]">{p.name}</span>
-                    {p.available ? (
-                      <span className="flex items-center gap-1 text-green-500 font-medium">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> Connected
-                      </span>
-                    ) : (
-                      <span className="text-sim-muted">Not Configured</span>
-                    )}
-                  </div>
-                ))}
-              </div>
+            <div className="w-[1px] h-6 bg-sim-border mx-1" />
+
+            {/* Search */}
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-sim-muted" />
+              <input
+                type="text"
+                placeholder="Filter models..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-sim-surface border border-sim-border rounded-md px-8 py-1.5 text-xs text-sim-text focus:outline-none focus:border-sim-muted transition-colors placeholder-gray-600"
+              />
+            </div>
+
+            {/* Provider Status Summary (Optional Mini-View) */}
+            <div className="ml-auto flex items-center gap-2">
+              {Object.values(providers).some(p => !p.available) && (
+                <span className="text-[10px] text-sim-muted hidden sm:inline-block">
+                  {Object.values(providers).filter(p => p.available).length} connected
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Main Area */}
-          <div className="flex-1 flex flex-col bg-sim-bg">
-            {/* Toolbar */}
-            <div className="h-12 border-b border-sim-border flex items-center px-4 gap-3 bg-sim-bg">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-sim-muted" />
-                <input
-                  type="text"
-                  placeholder="Filter models..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-sim-surface border border-sim-border rounded px-9 py-1.5 text-xs text-sim-text focus:outline-none focus:border-sim-muted transition-colors placeholder-gray-600"
-                />
+          {/* Model List / Data Grid */}
+          <div className="flex-1 overflow-auto custom-scrollbar bg-sim-bg">
+            {loading ? (
+              <div className="flex items-center justify-center h-full text-sim-muted">Loading configuration...</div>
+            ) : allModels.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-sim-muted gap-2">
+                <AlertCircle className="w-8 h-8 opacity-20" />
+                <p>No models found matching filters.</p>
               </div>
-            </div>
+            ) : (
+              <table className="w-full text-left border-collapse min-w-[600px]">
+                <thead className="bg-[#121214] text-gray-500 sticky top-0 z-10 text-xs uppercase tracking-wider">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold border-b border-sim-border w-10 text-center bg-[#121214]">Use</th>
+                    <th className="px-4 py-3 font-semibold border-b border-sim-border bg-[#121214]">Model Name</th>
+                    <th className="px-4 py-3 font-semibold border-b border-sim-border w-32 bg-[#121214]">Provider</th>
+                    <th className="px-4 py-3 font-semibold border-b border-sim-border w-24 bg-[#121214]">Context</th>
+                    <th className="px-4 py-3 font-semibold border-b border-sim-border w-32 text-right bg-[#121214]">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-sim-border text-gray-300">
+                  {allModels.map((m) => {
+                    const isSelected = selectedModels.some(sel => sel.provider === m.providerId && sel.modelId === m.id);
 
-            {/* Model List / Data Grid */}
-            <div className="flex-1 overflow-y-auto">
-              {loading ? (
-                <div className="flex items-center justify-center h-full text-sim-muted">Loading configuration...</div>
-              ) : allModels.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-sim-muted gap-2">
-                  <AlertCircle className="w-8 h-8 opacity-20" />
-                  <p>No models found matching filters.</p>
-                </div>
-              ) : (
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-[#121214] text-gray-500 sticky top-0 z-10">
-                    <tr>
-                      <th className="px-4 py-2 font-medium border-b border-sim-border w-10 text-center">Use</th>
-                      <th className="px-4 py-2 font-medium border-b border-sim-border">Model Name</th>
-                      <th className="px-4 py-2 font-medium border-b border-sim-border">Provider</th>
-                      <th className="px-4 py-2 font-medium border-b border-sim-border w-24">Context</th>
-                      <th className="px-4 py-2 font-medium border-b border-sim-border w-24 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-sim-border text-gray-300">
-                    {allModels.map((m) => {
-                      const isSelected = selectedModels.some(sel => sel.provider === m.providerId && sel.modelId === m.id);
-
-                      // Provider input row if not available
-                      if (!m.providerAvailable && !m.isProviderLocal) {
-                        // We might want to group by provider, but for now lets handling API keys in a cleaner way.
-                        // Actually, lets just show the status and allow clicking to configure.
-                      }
-
-                      return (
-                        <tr key={`${m.providerId}-${m.id}`} className="hover:bg-sim-surface/50 group transition-colors">
-                          <td className="px-4 py-2 text-center">
-                            <button
-                              onClick={() => m.providerAvailable && handleToggleModel(m.providerId, m.id)}
-                              disabled={!m.providerAvailable}
-                              className={`rounded transition-colors ${!m.providerAvailable ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}
-                            >
-                              {isSelected ? (
-                                <CheckSquare className="w-4 h-4 text-sim-red" />
-                              ) : (
-                                <Square className="w-4 h-4 text-sim-muted" />
-                              )}
-                            </button>
-                          </td>
-                          <td className="px-4 py-2 font-medium flex-1">
-                            <div className="flex items-center gap-2">
-                              {m.name}
-                              {(m.isLocal || m.isProviderLocal) && (
-                                <span className="px-1.5 py-0.5 rounded-sm bg-green-500/10 text-green-500 text-[10px] font-bold border border-green-500/20">LOCAL</span>
-                              )}
-                            </div>
-                            <div className="text-[10px] text-gray-500 font-mono mt-0.5">{m.id}</div>
-                          </td>
-                          <td className="px-4 py-2 text-gray-400 text-xs">
-                            {m.providerName}
-                          </td>
-                          <td className="px-4 py-2 text-gray-400 text-xs font-mono">
-                            {(m.context / 1000).toFixed(0)}k
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            {m.providerAvailable ? (
-                              <span className="text-[10px] text-green-500 bg-green-500/5 px-2 py-0.5 rounded border border-green-500/10">READY</span>
+                    return (
+                      <tr key={`${m.providerId}-${m.id}`} className="hover:bg-sim-surface/50 group transition-colors">
+                        <td className="px-4 py-2 text-center">
+                          <button
+                            onClick={() => m.providerAvailable && handleToggleModel(m.providerId, m.id)}
+                            disabled={!m.providerAvailable}
+                            className={`rounded transition-colors ${!m.providerAvailable ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-sim-red" />
                             ) : (
-                              // If provider not available, show input for key directly in row or a configure button
-                              <div className="flex flex-col items-end gap-1">
-                                <input
-                                  type="password"
-                                  placeholder="API Key"
-                                  className="bg-black border border-sim-border rounded px-2 py-0.5 text-[10px] w-32 focus:border-sim-muted outline-none"
-                                  value={apiKeys[m.providerId] || ''}
-                                  onChange={(e) => setApiKeys(prev => ({ ...prev, [m.providerId]: e.target.value }))}
-                                  onKeyDown={(e) => e.key === 'Enter' && handleSaveKey(m.providerId)}
-                                />
-                                <div className="flex gap-2 text-[10px]">
-                                  <button
-                                    onClick={() => handleSaveKey(m.providerId)}
-                                    className="text-sim-red hover:underline"
-                                    disabled={!apiKeys[m.providerId]}
-                                  >
-                                    Connect
-                                  </button>
-                                </div>
-                              </div>
+                              <Square className="w-4 h-4 text-sim-muted" />
                             )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                          </button>
+                        </td>
+                        <td className="px-4 py-2 font-medium">
+                          <div className="flex items-center gap-2 truncate max-w-[300px]">
+                            <span className="truncate text-sm" title={m.name}>{m.name}</span>
+                            {(m.isLocal || m.isProviderLocal) && (
+                              <span className="px-1.5 py-0.5 rounded-sm bg-green-500/10 text-green-500 text-[10px] font-bold border border-green-500/20 shrink-0">LOCAL</span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-gray-500 font-mono mt-0.5 truncate max-w-[300px]" title={m.id}>{m.id}</div>
+                        </td>
+                        <td className="px-4 py-2 text-gray-400 text-xs">
+                          {m.providerName}
+                        </td>
+                        <td className="px-4 py-2 text-gray-400 text-xs font-mono">
+                          {(m.context / 1000).toFixed(0)}k
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          {m.providerAvailable ? (
+                            <span className="text-[10px] text-green-500 bg-green-500/5 px-2 py-0.5 rounded border border-green-500/10 font-medium tracking-wide">READY</span>
+                          ) : (
+                            <div className="flex flex-col items-end gap-1">
+                              <input
+                                type="password"
+                                placeholder="API Key"
+                                className="bg-black border border-sim-border rounded px-2 py-1 text-[10px] w-32 focus:border-sim-muted outline-none transition-all"
+                                value={apiKeys[m.providerId] || ''}
+                                onChange={(e) => setApiKeys(prev => ({ ...prev, [m.providerId]: e.target.value }))}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSaveKey(m.providerId)}
+                              />
+                              <div className="flex gap-2 text-[10px]">
+                                <button
+                                  onClick={() => handleSaveKey(m.providerId)}
+                                  className="text-sim-red hover:underline font-medium"
+                                  disabled={!apiKeys[m.providerId]}
+                                >
+                                  Connect
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
 
-            {/* Footer Status */}
-            <div className="h-8 border-t border-sim-border bg-sim-bg flex items-center justify-between px-4 text-[10px] text-sim-muted select-none">
-              <span>{selectedModels.length} models selected for chat</span>
-              <span>Press Escape to close</span>
-            </div>
+          {/* Footer Status */}
+          <div className="h-8 border-t border-sim-border bg-sim-bg flex items-center justify-between px-4 text-[10px] text-sim-muted select-none shrink-0">
+            <span>{selectedModels.length} models selected for chat</span>
+            {Object.values(providers).length > 0 && (
+              <span className="opacity-50">
+                {Object.values(providers).filter(p => !p.available).length > 0
+                  ? `${Object.values(providers).filter(p => !p.available).length} providers pending config`
+                  : "All systems operational"
+                }
+              </span>
+            )}
           </div>
         </div>
       </div>

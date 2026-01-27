@@ -4,7 +4,7 @@ import { X, FileCode, Settings, Image as ImageIcon, FileText, Database } from 'l
 export interface Tab {
     id: string;
     title: string;
-    type: 'notebook' | 'settings' | 'image' | 'data' | 'other';
+    type: 'notebook' | 'settings' | 'image' | 'data' | 'other' | 'visualization';
     path?: string;
     data?: any;
     isDirty?: boolean;
@@ -24,6 +24,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onActivateTab
             case 'settings': return <Settings className="w-3.5 h-3.5 text-gray-400" />;
             case 'image': return <ImageIcon className="w-3.5 h-3.5 text-purple-400" />;
             case 'data': return <Database className="w-3.5 h-3.5 text-yellow-400" />;
+            case 'visualization': return <FileCode className="w-3.5 h-3.5 text-cyan-400" />;
             default: return <FileText className="w-3.5 h-3.5 text-gray-400" />;
         }
     };

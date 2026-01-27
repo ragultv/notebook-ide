@@ -1,5 +1,12 @@
 from fastapi import APIRouter, HTTPException
-from ..core.kernel_manager import kernel_manager
+import sys
+from pathlib import Path
+
+# Add kernel-python directory to path
+kernel_path = Path(__file__).parent.parent.parent.parent / "kernel-python"
+sys.path.insert(0, str(kernel_path))
+
+from kernel_manager import kernel_manager
 
 try:
     import psutil
@@ -54,7 +61,7 @@ async def get_notebook_metrics(notebook_id: str):
         
         kernel = kernel_manager.notebook_kernels[notebook_id]
         
-        if not kernel.worker or not kernel.worker.is_alive():
+        if not kernel.worker or not kernel._is_alive():
             return {
                 "notebook_id": notebook_id,
                 "available": False,
@@ -106,7 +113,7 @@ async def get_all_kernel_metrics():
     results = {}
     
     for notebook_id, kernel in kernel_manager.notebook_kernels.items():
-        if kernel.worker and kernel.worker.is_alive():
+        if kernel.worker and kernel._is_alive():
             pid = kernel.worker.pid
             
             if PSUTIL_AVAILABLE:

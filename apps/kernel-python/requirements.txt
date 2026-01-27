@@ -1,0 +1,11 @@
+# Core execution dependencies
+jupyter-client>=7.0.0
+ipykernel>=6.0.0
+
+# Memory visualization dependencies
+umap-learn>=0.5.3
+scikit-learn>=1.0.0
+numpy>=1.21.0
+
+# Optional: For better performance
+numba>=0.56.0  # Speeds up UMAP

@@ -1,8 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from .api import notebooks, execution, kernels, ai, files, models
-from .core.kernel_manager import kernel_manager
+import sys
+from pathlib import Path
+
+# Add kernel-python directory to path
+kernel_path = Path(__file__).parent.parent.parent / "kernel-python"
+sys.path.insert(0, str(kernel_path))
+
+from .api import execution, kernels, ai, files, models, memory
+from kernel_manager import kernel_manager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,12 +29,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(notebooks.router, prefix="/notebooks", tags=["notebooks"])
 app.include_router(execution.router, prefix="/execution", tags=["execution"])
 app.include_router(kernels.router, prefix="/kernels", tags=["kernels"])
 app.include_router(ai.router, prefix="/ai", tags=["ai"])
 app.include_router(files.router, prefix="/files", tags=["files"])
 app.include_router(models.router, prefix="/ai", tags=["ai-models"])
+app.include_router(memory.router, tags=["memory"])
 
 @app.get('/')
 def root():
