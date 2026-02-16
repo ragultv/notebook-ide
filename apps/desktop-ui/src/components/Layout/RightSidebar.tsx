@@ -20,12 +20,16 @@ interface RightSidebarProps {
   activeCellId?: string | null;
   onOpenManageModels: () => void;
   modelsRefreshTrigger?: number;
+  width: number;
+  isResizing: boolean;
+  onStartResizing: () => void;
 }
 
 interface Message {
   id: string;
   role: 'user' | 'ai';
   text: string;
+  tokenInfo?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
   pendingConfirmation?: {
     type: 'delete_notebook';
     name?: string;
@@ -56,7 +60,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   projectFiles,
   activeCellId,
   onOpenManageModels,
-  modelsRefreshTrigger
+  modelsRefreshTrigger,
+  width,
+  isResizing,
+  onStartResizing
 }) => {
   const [messages, setMessages] = useState<Message[]>([
     // { id: '1', role: 'ai', text: 'OPREL INTELLIGENCE SYSTEM ONLINE. CONNECTED TO NVIDIA NIM.' }
@@ -228,7 +235,8 @@ ${cellContext}
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'ai',
-        text: response.text || (actionSummary.length > 0 ? "Actions executed:\n- " + actionSummary.join("\n- ") : "I couldn't process that request.")
+        text: response.text || (actionSummary.length > 0 ? "Actions executed:\n- " + actionSummary.join("\n- ") : "I couldn't process that request."),
+        tokenInfo: response.tokenInfo || null,
       };
 
       setMessages(prev => [...prev, aiMsg]);
@@ -357,23 +365,44 @@ ${cellContext}
 
   return (
     <div
-      className={`bg-sim-bg border-sim-border flex flex-col transition-all duration-300 ease-in-out z-20 shrink-0 relative
-        ${isOpen ? 'w-[450px] border-l' : 'w-0 border-l-0 overflow-hidden'}
+      className={`bg-sim-bg border-sim-border flex flex-col z-20 shrink-0 relative rounded-2xl border border-sim-border overflow-hidden shadow-lg
+        ${isResizing ? '' : 'transition-all duration-300 ease-in-out'}
+        ${isOpen ? '' : 'w-0 border-l-0 overflow-hidden'}
       `}
+      style={{ width: isOpen ? `${width}px` : '0px' }}
     >
       {/* Header */}
-      <div className="h-14 flex items-center justify-between px-4 border-b border-sim-border bg-sim-surface shrink-0">
-        <div className="flex items-center gap-2 text-sim-red">
-          <Zap className="w-4 h-4 fill-current" />
-          <span className="font-mono font-bold tracking-wider text-white text-sm">OPREL AI</span>
-        </div>
-        <button onClick={onClose} className="text-sim-muted hover:text-white rounded p-1 transition-colors">
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+
 
       {/* Chat Area */}
       <div className="flex-1 overflow-y-auto p-4 bg-black/20 space-y-5 font-mono">
+        {messages.length === 0 && (
+          <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-60">
+            <div className="w-16 h-16 rounded-full bg-sim-red/10 flex items-center justify-center mb-6 animate-pulse">
+              <Zap className="w-8 h-8 text-sim-red fill-current" />
+            </div>
+            <h3 className="text-white font-bold text-lg mb-2">OPREL INTELLIGENCE</h3>
+            <p className="text-gray-400 text-xs leading-relaxed max-w-[280px]">
+              Drag cells or files here to attach context, or ask me to perform operations on your notebook.
+            </p>
+            <div className="mt-8 grid grid-cols-1 gap-2 w-full max-w-[280px]">
+              {[
+                { icon: Plus, text: "Add a visualization cell" },
+                { icon: Wrench, text: "How to fix the syntax error?" },
+                { icon: Code, text: "Convert this to a pivot table" }
+              ].map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => setInputValue(s.text)}
+                  className="flex items-center gap-3 bg-white/5 border border-white/5 hover:bg-white/10 p-3 rounded-xl text-[11px] text-left transition-all hover:translate-x-1"
+                >
+                  <s.icon className="w-3.5 h-3.5 text-sim-red" />
+                  <span className="text-gray-300 truncate">{s.text}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {messages.map((msg) => (
           <div key={msg.id} className={`flex flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''} w-full`}>
@@ -407,6 +436,12 @@ ${cellContext}
                   `}>
                   <div className="whitespace-pre-wrap">{msg.text}</div>
                 </div>
+                {/* Token info */}
+                {msg.tokenInfo && (
+                  <div className={`text-[11px] font-mono mt-1 ${msg.role === 'user' ? 'text-sim-muted text-right' : 'text-sim-muted text-left'}`}>
+                    Tokens: {msg.tokenInfo.total_tokens ?? msg.tokenInfo.prompt_tokens ?? 0}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -450,14 +485,14 @@ ${cellContext}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className="p-4 bg-sim-surface border-t border-sim-border shrink-0">
+      {/* Redesigned Prompt Area */}
+      <div className="p-4 bg-transparent shrink-0">
         <div
           className={`
             relative flex flex-col gap-0
-            bg-[#09090b] border transition-colors rounded-lg
-            ${isDragOver ? 'border-sim-red bg-sim-red/5' : ''}
-            ${isLoading ? 'border-sim-border opacity-70 cursor-not-allowed' : 'border-sim-border focus-within:border-sim-muted'}
+            bg-[#1a1a1c]/80 backdrop-blur-xl border border-white/5 rounded-2xl transition-all duration-300 shadow-2xl
+            ${isDragOver ? 'ring-2 ring-sim-red/50 bg-sim-red/5' : ''}
+            ${isLoading ? 'opacity-70 cursor-not-allowed' : 'focus-within:border-white/20 focus-within:bg-[#1a1a1c]'}
           `}
           onDragOver={!isLoading ? handleDragOver : undefined}
           onDragLeave={!isLoading ? handleDragLeave : undefined}
@@ -465,36 +500,36 @@ ${cellContext}
         >
           {/* Loading Overlay */}
           {isLoading && (
-            <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-[1px] rounded-lg">
-              <div className="flex items-center gap-2 text-sim-muted text-xs font-mono animate-pulse bg-[#09090b] px-3 py-1.5 rounded-full border border-sim-border shadow-lg">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-sim-red" />
-                PROCESSING...
+            <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 backdrop-blur-[2px] rounded-2xl">
+              <div className="flex items-center gap-3 text-white text-xs font-bold tracking-tighter animate-pulse bg-sim-red/90 px-4 py-2 rounded-full shadow-lg shadow-sim-red/20 uppercase">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Processing Response
               </div>
             </div>
           )}
 
           {/* Drag Overlay */}
           {isDragOver && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm text-sim-red font-mono text-sm font-medium rounded-lg">
-              <CornerDownLeft className="w-5 h-5 mr-2" />
-              DROP TO ATTACH CONTEXT
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-sim-red/20 backdrop-blur-md text-white font-bold text-sm rounded-2xl border-2 border-dashed border-sim-red/50 animate-in fade-in zoom-in duration-200">
+              <Paperclip className="w-8 h-8 mb-2 animate-bounce" />
+              ATTACH CONTEXT
             </div>
           )}
 
-          {/* Context Chips (Including Suggestion) */}
+          {/* Context Chips */}
           {(attachedFiles.length > 0 || (activeCell && !isSuggestedAttached)) && (
-            <div className="flex flex-wrap gap-2 p-2 pb-0 pt-2">
+            <div className="flex flex-wrap gap-2 p-3 pb-0">
               {/* Active Attachments */}
               {attachedFiles.map(file => (
-                <div key={file.id} className="flex items-center gap-1.5 bg-[#27272a] border border-sim-border text-[11px] font-mono text-gray-300 px-2 py-1 rounded cursor-default group hover:border-sim-muted transition-colors select-none">
-                  {file.type === 'cell' ? <Code className="w-3 h-3 text-sim-red" /> : <Paperclip className="w-3 h-3 text-sim-muted" />}
-                  <span className="truncate max-w-[150px]">{file.name}</span>
+                <div key={file.id} className="flex items-center gap-2 bg-white/5 border border-white/10 text-[10px] font-bold text-gray-300 px-2.5 py-1.5 rounded-lg cursor-default group hover:bg-white/10 transition-all select-none shadow-sm">
+                  {file.type === 'cell' ? <Code className="w-3.5 h-3.5 text-sim-red" /> : <Paperclip className="w-3.5 h-3.5 text-sim-muted" />}
+                  <span className="truncate max-w-[120px]">{file.name}</span>
                   <button
                     onClick={() => removeAttachment(file.id)}
-                    className="text-sim-muted hover:text-white ml-1"
+                    className="text-sim-muted hover:text-white transition-colors"
                     disabled={isLoading}
                   >
-                    <X className="w-3 h-3" />
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ))}
@@ -503,49 +538,59 @@ ${cellContext}
               {activeCell && !isSuggestedAttached && !isLoading && (
                 <button
                   onClick={addActiveCellAttachment}
-                  className="flex items-center gap-1.5 bg-sim-red/10 border border-sim-red/30 border-dashed text-[11px] font-mono text-sim-red px-2 py-1 rounded cursor-pointer hover:bg-sim-red/20 transition-colors select-none"
+                  className="flex items-center gap-2 bg-sim-red/10 border border-sim-red/20 border-dashed text-[10px] font-bold text-sim-red px-2.5 py-1.5 rounded-lg cursor-pointer hover:bg-sim-red/20 transition-all select-none hover:border-sim-red/40"
                 >
-                  <Plus className="w-3 h-3" />
-                  <span>Add Cell {activeCellIndex + 1}</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Attach Cell {activeCellIndex + 1}</span>
                 </button>
               )}
             </div>
           )}
 
-          {/* Text Input */}
-          <textarea
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isLoading}
-            placeholder={attachedFiles.length === 0 ? "Ask a question or drag files/cells for context..." : "Ask a question about these items..."}
-            className={`w-full bg-transparent border-none text-gray-200 text-sm font-mono p-3 focus:ring-0 resize-none placeholder-sim-muted/50 outline-none ${isLoading ? 'text-gray-500' : ''}`}
-            rows={Math.max(2, inputValue.split('\n').length)}
-            style={{ scrollbarWidth: 'none' }}
-          />
+          {/* Text Input Area */}
+          <div className="relative">
+            <textarea
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isLoading}
+              placeholder={attachedFiles.length === 0 ? "Ask OPREL anything..." : "Ask about your data..."}
+              className={`w-full bg-transparent border-none text-white text-[13px] leading-relaxed p-4 focus:ring-0 resize-none placeholder-white/20 outline-none min-h-[60px] max-h-[200px] overflow-y-auto no-scrollbar ${isLoading ? 'opacity-50' : ''}`}
+              rows={1}
+              style={{ height: 'auto' }}
+            />
+          </div>
 
-          {/* Footer Bar */}
-          <div className="flex items-center justify-between px-2 pb-2 mt-1 select-none relative">
-            <div className="flex items-center gap-2">
+          {/* Action Bar */}
+          <div className="flex items-center justify-between px-3 pb-3 select-none">
+            <div className="flex items-center gap-1">
               <ModelSelector onOpenManage={onOpenManageModels} refreshTrigger={modelsRefreshTrigger} />
+              <div className="h-4 w-[1px] bg-white/5 mx-1" />
+              <button className="p-1.5 text-white/30 hover:text-white/60 transition-colors" title="Voice query (Coming Soon)">
+                {/* Placeholder icon or future feature */}
+              </button>
             </div>
 
             <button
               onClick={handleSend}
               disabled={isLoading || (!inputValue.trim() && attachedFiles.length === 0)}
-              className={`p-1.5 rounded transition-all flex items-center justify-center w-7 h-7 ${(inputValue.trim() || attachedFiles.length > 0) && !isLoading
-                ? 'bg-white text-black hover:bg-gray-200'
-                : 'bg-[#27272a] text-sim-muted cursor-not-allowed'
-                }`}
+              className={`flex items-center justify-center p-2 rounded-xl transition-all duration-300
+                ${(inputValue.trim() || attachedFiles.length > 0) && !isLoading
+                  ? 'bg-sim-red text-white shadow-lg shadow-sim-red/20 hover:scale-105 active:scale-95'
+                  : 'bg-white/5 text-white/10 cursor-not-allowed'}
+              `}
             >
               {isLoading ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <Send className="w-3.5 h-3.5" />
+                <Send className="w-4 h-4" />
               )}
             </button>
           </div>
         </div>
+        <p className="mt-3 text-[10px] text-center text-white/20 font-medium tracking-tight">
+          AI generated content may contain inaccuracies.
+        </p>
       </div>
     </div>
   );

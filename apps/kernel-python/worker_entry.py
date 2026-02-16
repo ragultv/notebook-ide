@@ -293,6 +293,108 @@ def summarize_namespace(namespace: dict) -> dict:
     return summary
 
 
+def get_memory_snapshot(namespace: dict) -> dict:
+    """Collect detailed memory information for variables in the namespace"""
+    import inspect
+    import types
+    import random
+    
+    variables = []
+    coordinates = []
+    total_size = 0
+    now = time.time()
+    
+    # Simple mapping of Python types to frontend categories
+    def categorize(obj):
+        # AI/ML Specifics
+        if hasattr(obj, '__module__'):
+            mod = obj.__module__
+            if mod.startswith('torch') or mod.startswith('tensorflow'):
+                return 'tensor'
+            if mod.startswith('pandas') or mod.startswith('numpy'):
+                return 'array'
+            if 'sklearn' in mod or 'transformers' in mod:
+                return 'model'
+        
+        if isinstance(obj, (int, float, str, bool, complex)) or obj is None:
+            return 'scalar'
+        if isinstance(obj, (list, tuple, dict, set)):
+            return 'collection'
+        if isinstance(obj, (types.FunctionType, types.MethodType, types.BuiltinFunctionType)):
+            return 'function'
+        if isinstance(obj, types.ModuleType):
+            return 'module'
+        if isinstance(obj, types.GeneratorType):
+            return 'generator'
+        return 'object'
+
+    def get_size(obj):
+        try:
+            # Handle numpy/torch tensors specifically for accurate size
+            if hasattr(obj, 'nbytes'):
+                return int(obj.nbytes)
+            if hasattr(obj, 'element_size') and hasattr(obj, 'nelement'):
+                return int(obj.element_size() * obj.nelement())
+            return sys.getsizeof(obj)
+        except:
+            return 0
+
+    def get_shape(obj):
+        if hasattr(obj, 'shape'):
+            try:
+                s = obj.shape
+                if hasattr(s, 'tolist'):
+                    return s.tolist()
+                return list(s)
+            except:
+                pass
+        return None
+
+    for name, value in namespace.items():
+        if name.startswith('__') or name == '_magic_run':
+            continue
+            
+        size = get_size(value)
+        total_size += size
+        category = categorize(value)
+        
+        # Metadata
+        var_data = {
+            "name": name,
+            "type_name": type(value).__name__,
+            "type_category": category,
+            "size_bytes": size,
+            "ref_count": sys.getrefcount(value) - 1, # -1 for the ref in this loop
+            "creation_time": now, # Stub: true creation time not available
+            "last_access_time": now, # Stub
+            "is_mutable": not isinstance(value, (int, float, str, bool, tuple, frozenset, type(None))),
+            "shape": get_shape(value),
+            "dependencies": [] # For future: static/dynamic analysis of refs
+        }
+        
+        variables.append(var_data)
+        
+        # Mock coordinates using a simple organic distribution
+        # In a real app, this would use UMAP/PCA on variable features
+        angle = random.uniform(0, 2 * 3.14159)
+        dist = random.uniform(1, 100)
+        if category == 'tensor': dist *= 0.5 # Clusters
+        elif category == 'scalar': dist *= 1.5 # Scattered
+        
+        coordinates.append([
+            dist * (0.5 + random.random()) * 0.1, # Small scale for visualization
+            dist * (0.5 + random.random()) * 0.1
+        ])
+
+    return {
+        "timestamp": now,
+        "variables": variables,
+        "coordinates_2d": coordinates,
+        "total_memory_bytes": total_size,
+        "algorithm": 'umap' # Mocked
+    }
+
+
 def set_resource_limits(max_memory_mb: int):
     """Set resource limits for the worker process (Unix only)"""
     if max_memory_mb and sys.platform != 'win32':
@@ -349,6 +451,10 @@ def worker_main():
                 
                 # Write result to stderr as JSON
                 _write_response(result)
+
+            if request.get("command") == "SNAPSHOT":
+                snapshot = get_memory_snapshot(local_namespace)
+                _write_response(snapshot)
             
         except Exception as e:
             error_result = {

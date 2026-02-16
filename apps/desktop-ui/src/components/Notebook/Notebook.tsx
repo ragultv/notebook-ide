@@ -11,7 +11,7 @@ interface NotebookProps {
   setCells: React.Dispatch<React.SetStateAction<CellData[]>>;
   activeCellId: string | null;
   setActiveCellId: (id: string | null) => void;
-  onFixError?: (cellIndex: number, error: string, cellContent: string, allCells: CellData[]) => void;
+  onFixError?: (cellIndex: number, error: string, cellContent: string, allCells: CellData[], cellId: string) => void;
 }
 
 export const Notebook: React.FC<NotebookProps> = ({
@@ -85,8 +85,22 @@ export const Notebook: React.FC<NotebookProps> = ({
     }
   }, [cells, setCells]);
 
+  // Handle Drag and Drop Reordering
+  const moveCellToIndex = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    const newCells = [...cells];
+    // Remove from old position
+    const [movedCell] = newCells.splice(fromIndex, 1);
+    // Insert at new position
+    newCells.splice(toIndex, 0, movedCell);
+    setCells(newCells);
+  }, [cells, setCells]);
+
   return (
-    <div className="flex-1 overflow-y-auto bg-sim-bg w-full relative custom-scrollbar">
+    <div
+      className="flex-1 overflow-y-auto bg-sim-bg w-full relative custom-scrollbar"
+      onClick={() => setActiveCellId(null)}
+    >
       <div className="max-w-[900px] mx-auto min-h-full p-4 md:p-8 pb-32">
         {cells.map((cell, index) => (
           <React.Fragment key={cell.id}>
@@ -104,12 +118,14 @@ export const Notebook: React.FC<NotebookProps> = ({
               notebookName={notebookName}
               isActive={activeCellId === cell.id}
               onActivate={() => setActiveCellId(cell.id)}
+              onDeactivate={() => setActiveCellId(null)}
               onUpdate={updateCell}
               onOutputUpdate={updateCellOutput}
               onDelete={deleteCell}
               onMoveUp={(id) => moveCell(id, 'up')}
               onMoveDown={(id) => moveCell(id, 'down')}
-              onFixError={onFixError ? async (idx, err, content) => await onFixError(idx, err, content, cells) : undefined}
+              onMove={moveCellToIndex}
+              onFixError={onFixError ? async (idx, err, content) => await onFixError(idx, err, content, cells, cell.id) : undefined}
               allCells={cells}
             />
           </React.Fragment>

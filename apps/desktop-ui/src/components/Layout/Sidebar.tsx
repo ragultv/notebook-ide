@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Folder, Upload, RefreshCw, FileCode, File, Image as ImageIcon, X, Trash2, Edit2, Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { Folder, Upload, Trash2, Edit2, Download, X, MoreVertical, File, Image as ImageIcon, FileCode } from 'lucide-react';
 import { ProjectFile, CellData } from '../../types';
 
 interface SidebarProps {
@@ -23,17 +23,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRenameFile
 }) => {
   const [isOpen, setIsOpen] = useState(true);
-  const [showOpenFiles, setShowOpenFiles] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; fileId: string } | null>(null);
-
-  // Rename State
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
 
-  // Close context menu on global click
   useEffect(() => {
     const handleClick = () => setContextMenu(null);
     window.addEventListener('click', handleClick);
@@ -118,23 +112,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (e.target.value) e.target.value = '';
   };
 
-  // ... context menu logic ...
-  // Re-declare methods not changed to satisfy structure or rely on existing? 
-  // replace_file_content replaces specific block.
-  // I need to be careful with preserving handleContextMenu and others if I replace a large chunk.
-  // The chunk ends at handleFileChange end.
-  // I see handleContextMenu starts at line 123.
-  // My replacement covers up to handleFileChange and calls to onImportFiles.
-
-  // I must include lines up to handleFileChange end.
-  // AND I must update lines for Clear button which is later in render.
-
-  // Let's split into 2 replacements? 
-  // Or just update the component definition and handleFileChange.
-  // And the Render part separately.
-
-
-
   const handleContextMenu = (e: React.MouseEvent, fileId: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -168,7 +145,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     let blob: Blob;
 
     if (file.name.endsWith('.ipynb') && file.cells) {
-      // Reconstruct valid .ipynb JSON
       const notebookContent = {
         metadata: {
           kernelspec: {
@@ -191,7 +167,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         cells: file.cells.map(cell => ({
           cell_type: cell.type,
           metadata: {},
-          // Split content into lines for better git compatibility/standard format
           source: cell.content.split('\n').map((line, i, arr) => i === arr.length - 1 ? line : line + '\n'),
           outputs: cell.output ? [{
             name: "stdout",
@@ -221,106 +196,106 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <div className="flex h-full bg-sim-bg border-r border-sim-border z-10 shrink-0 relative">
+    <div className="flex h-full bg-[#09090b] z-10 shrink-0 relative rounded-2xl border border-sim-border overflow-hidden shadow-lg transition-all duration-300">
       {/* Icon Strip */}
-      <div className="w-12 flex flex-col items-center py-4 bg-sim-bg border-r border-sim-border gap-6 z-20">
+      <div className="w-14 h-full flex flex-col items-center py-4 bg-[#09090b] gap-6 z-20 shrink-0 border-r border-sim-border/50">
         <SidebarIcon icon={Folder} isActive={isOpen} onClick={() => setIsOpen(!isOpen)} label="Files" />
       </div>
 
       {/* Drawer */}
       <div
-        className={`bg-sim-surface transition-all duration-300 ease-in-out flex flex-col overflow-hidden border-r border-sim-border ${isOpen ? 'w-64 opacity-100' : 'w-0 opacity-0 border-r-0'
-          }`}
+        className={`bg-[#1e1e20] transition-all duration-300 ease-in-out flex flex-col overflow-hidden h-full
+          ${isOpen ? 'w-64 opacity-100' : 'w-0 opacity-0'}
+        `}
       >
-        <div className="h-14 flex items-center justify-between px-4 border-b border-sim-border shrink-0">
-          <span className="uppercase text-xs font-bold text-sim-muted tracking-wider font-mono">Files</span>
-          <button onClick={() => setIsOpen(false)} className="text-sim-muted hover:text-white rounded p-1">
+        <div className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-sim-border/30">
+          <span className="text-sm font-semibold text-gray-200 tracking-wide">Files</span>
+          <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-white rounded p-1">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Open Files Section */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <button
-            onClick={() => setShowOpenFiles(!showOpenFiles)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-sim-muted hover:text-white uppercase tracking-wide border-b border-sim-border"
-          >
-            {showOpenFiles ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            <FileCode className="w-3 h-3" />
-            Open Files ({files.length})
-          </button>
+        {/* Content */}
+        <div className="flex-1 flex flex-col overflow-hidden px-2 py-2">
+          {/* File Actions */}
+          <div className="flex items-center gap-1 mb-2 px-1">
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              onChange={handleFileChange}
+              multiple
+              accept=".ipynb,.py,.csv,.json,.txt,.png,.jpg,.jpeg,.svg"
+            />
+            <button
+              onClick={handleUploadClick}
+              className="flex-1 flex items-center justify-center gap-2 bg-[#2b2b2e] hover:bg-[#3a3a3c] text-xs font-medium text-gray-300 py-1.5 rounded-lg transition-colors"
+            >
+              <Upload className="w-3.5 h-3.5" /> Upload
+            </button>
+            <button
+              onClick={onClearFiles}
+              className="flex items-center justify-center p-1.5 bg-[#2b2b2e] hover:bg-sim-red/20 text-gray-400 hover:text-sim-red rounded-lg transition-colors"
+              title="Clear All"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-          {showOpenFiles && (
-            <>
-              {/* Toolbar */}
-              <div className="flex items-center gap-1 p-2 border-b border-sim-border bg-sim-bg/50">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  className="hidden"
-                  onChange={handleFileChange}
-                  multiple
-                  accept=".ipynb,.py,.csv,.json,.txt,.png,.jpg,.jpeg,.svg"
-                />
-                <ToolbarButton icon={Upload} label="Upload" onClick={handleUploadClick} />
-                <ToolbarButton icon={RefreshCw} label="Refresh" onClick={() => { }} />
-                <div className="flex-1"></div>
-                <ToolbarButton icon={Trash2} label="Clear" onClick={onClearFiles} />
-              </div>
-
-              {/* File Tree */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 text-sm text-sim-text font-mono relative">
-                {files.length === 0 && (
-                  <div className="text-xs text-sim-muted italic text-center mt-4 opacity-50">
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="space-y-0.5">
+              {files.length === 0 && (
+                <div className="flex flex-col items-center justify-center pt-10 text-center px-4 opacity-50">
+                  <Folder className="w-8 h-8 text-gray-600 mb-2" />
+                  <span className="text-xs text-gray-500">
                     No files open.
-                    <br />Open from explorer or upload .ipynb
-                  </div>
-                )}
+                  </span>
+                </div>
+              )}
 
-                {files.map((file) => (
-                  <FileTreeItem
-                    key={file.id}
-                    id={file.id}
-                    name={file.name}
-                    fileType={file.type}
-                    isActive={file.id === activeFileId}
-                    onClick={() => onFileSelect(file.id)}
-                    onContextMenu={(e) => handleContextMenu(e, file.id)}
-                    isEditing={editingFileId === file.id}
-                    editValue={editName}
-                    onEditChange={setEditName}
-                    onEditSubmit={finishRenaming}
-                  />
-                ))}
-              </div>
-            </>
-          )}
+              {files.map((file) => (
+                <FileTreeItem
+                  key={file.id}
+                  id={file.id}
+                  name={file.name}
+                  fileType={file.type}
+                  isActive={file.id === activeFileId}
+                  onClick={() => onFileSelect(file.id)}
+                  onContextMenu={(e) => handleContextMenu(e, file.id)}
+                  isEditing={editingFileId === file.id}
+                  editValue={editName}
+                  onEditChange={setEditName}
+                  onEditSubmit={finishRenaming}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Context Menu Portal */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-[#18181b] border border-[#27272a] shadow-xl rounded-md py-1 w-32 flex flex-col animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-50 bg-[#27272a] border border-[#3a3a3c] shadow-xl rounded-lg py-1 w-36 flex flex-col animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
           <button
             onClick={(e) => startRenaming(e, contextMenu.fileId, files.find(f => f.id === contextMenu.fileId)?.name || '')}
-            className="flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-[#27272a] hover:text-white text-left"
+            className="flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-[#3a3a3c] hover:text-white text-left transition-colors"
           >
             <Edit2 className="w-3.5 h-3.5" /> Rename
           </button>
           <button
             onClick={() => handleDownload(contextMenu.fileId)}
-            className="flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-[#27272a] hover:text-white text-left"
+            className="flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-[#3a3a3c] hover:text-white text-left transition-colors"
           >
             <Download className="w-3.5 h-3.5" /> Download
           </button>
-          <div className="h-[1px] bg-[#27272a] my-1"></div>
+          <div className="h-[1px] bg-[#3a3a3c] my-1"></div>
           <button
             onClick={(e) => requestDelete(e, contextMenu.fileId)}
-            className="flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-[#27272a] hover:text-red-300 text-left"
+            className="flex items-center gap-2 px-3 py-2 text-xs text-sim-red hover:bg-sim-red/10 hover:text-sim-redHover text-left transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete
           </button>
@@ -339,20 +314,10 @@ const SidebarIcon: React.FC<{ icon: React.ComponentType<any>; isActive: boolean;
   <button
     onClick={onClick}
     title={label}
-    className={`p-2 rounded-lg transition-all ${isActive ? 'text-white bg-sim-surface border border-sim-border' : 'text-sim-muted hover:text-white hover:bg-sim-surface'
+    className={`p-2.5 rounded-xl transition-all ${isActive ? 'text-sim-red bg-[#1e1e20]' : 'text-gray-500 hover:text-gray-300 hover:bg-[#1e1e20]/50'
       }`}
   >
     <Icon className="w-5 h-5" />
-  </button>
-);
-
-const ToolbarButton: React.FC<{ icon: React.ComponentType<any>; label: string; onClick: () => void }> = ({ icon: Icon, label, onClick }) => (
-  <button
-    title={label}
-    onClick={onClick}
-    className="p-1.5 text-sim-muted hover:text-white hover:bg-sim-surface rounded transition-colors"
-  >
-    <Icon className="w-3.5 h-3.5" />
   </button>
 );
 
@@ -368,13 +333,13 @@ const FileTreeItem: React.FC<{
   onEditChange: (val: string) => void;
   onEditSubmit: () => void;
 }> = ({ id, name, fileType, isActive, onClick, onContextMenu, isEditing, editValue, onEditChange, onEditSubmit }) => {
-  let FileIcon = File;
+  let RenderIcon = File;
   if (fileType?.startsWith('image/') || name.match(/\.(png|jpg|jpeg|gif|svg)$/i)) {
-    FileIcon = ImageIcon;
+    RenderIcon = ImageIcon;
   } else if (name.endsWith('.csv') || name.endsWith('.json')) {
-    FileIcon = File;
+    RenderIcon = File;
   } else if (name.endsWith('.py') || name.endsWith('.ipynb') || name.endsWith('.js') || name.endsWith('.ts') || name.endsWith('.tsx')) {
-    FileIcon = FileCode;
+    RenderIcon = FileCode;
   }
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -383,19 +348,20 @@ const FileTreeItem: React.FC<{
   };
 
   return (
-    <div className="select-none mb-1">
+    <div className="select-none mb-0.5">
       <div
         onClick={!isEditing ? onClick : undefined}
         onContextMenu={!isEditing ? onContextMenu : undefined}
         draggable={!isEditing}
         onDragStart={handleDragStart}
-        className={`flex items-center gap-2 py-1 px-2 rounded cursor-pointer group transition-colors hover:bg-sim-selection/50
+        className={`flex items-center gap-2 py-1.5 px-3 rounded-lg cursor-pointer group transition-all duration-200
           ${isActive
-            ? 'bg-sim-selection text-white border-l-2 border-sim-red'
-            : 'text-sim-muted hover:text-gray-200 border-l-2 border-transparent'}
+            ? 'bg-[#2b2b2e] text-sim-red shadow-sm'
+            : 'text-gray-400 hover:text-gray-200 hover:bg-[#2b2b2e]/50'}
         `}
       >
-        <FileIcon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? 'text-sim-red' : 'text-sim-muted group-hover:text-gray-300'}`} />
+        <RenderIcon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? 'text-sim-red' : 'text-gray-500 group-hover:text-gray-400'
+          }`} />
 
         {isEditing ? (
           <input
@@ -410,7 +376,15 @@ const FileTreeItem: React.FC<{
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className="truncate">{name}</span>
+          <span className="truncate text-xs font-medium">{name}</span>
+        )}
+
+        {!isEditing && (
+          <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onContextMenu} className="p-0.5 hover:text-white rounded">
+              <MoreVertical className="w-3 h-3" />
+            </button>
+          </div>
         )}
       </div>
     </div>

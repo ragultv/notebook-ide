@@ -1,6 +1,8 @@
 import React from 'react';
-import { Zap, Sparkles, Power, RotateCcw, FolderOpen, Save, PlayCircle, Cpu, HardDrive, Map } from 'lucide-react';
+import { Zap, Sparkles, Power, RotateCcw, FolderOpen, Save, PlayCircle, Cpu, HardDrive, Map, FilePlus } from 'lucide-react';
 import { useUIStore, KernelStatus } from '../../store/ui.store';
+import { Tab } from '../../types';
+import { TabBar } from '../TabBar';
 
 interface TopBarProps {
   onToggleChat: () => void;
@@ -13,27 +15,52 @@ interface TopBarProps {
   onRestartKernel?: () => void;
   onRunAll?: () => void;
   onOpenMemoryMap?: () => void;
+  tabs: Tab[];
+  activeTabId: string | null;
+  onActivateTab: (id: string) => void;
+  onCloseTab: (id: string, e: React.MouseEvent) => void;
 }
 
 const statusColors: Record<KernelStatus, string> = {
   disconnected: 'bg-gray-500',
-  connecting: 'bg-yellow-500 animate-pulse',
+  connecting: 'bg-sim-red animate-pulse',
   idle: 'bg-green-500',
-  busy: 'bg-yellow-500 animate-pulse',
-  error: 'bg-red-500',
+  busy: 'bg-sim-red animate-pulse',
+  error: 'bg-red-600',
 };
+
+const TopBarButton: React.FC<{ onClick?: () => void; icon: any; title: string; disabled?: boolean; isActive?: boolean; color?: string }> = ({ onClick, icon: Icon, title, disabled, isActive, color }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    title={title}
+    className={`w-9 h-9 flex items-center justify-center rounded-md transition-all duration-200
+      ${isActive ? 'bg-sim-red/10 text-sim-red ring-1 ring-sim-red/50' : 'text-sim-muted hover:text-white hover:bg-[#27272a]'}
+      ${disabled ? 'opacity-30 cursor-not-allowed hover:bg-transparent' : ''}
+      ${color ? color : ''}
+    `}
+  >
+    <Icon className="w-4 h-4" />
+  </button>
+);
+
+const Divider = () => <div className="h-4 w-[1px] bg-[#27272a] mx-1" />;
 
 export const TopBar: React.FC<TopBarProps> = ({
   onToggleChat,
   isChatOpen,
   notebookName,
-  onNewNotebook,
+  onNewNotebook, // Potentially unused
   onOpenFile,
   onSaveFile,
   onConnectKernel,
   onRestartKernel,
   onRunAll,
   onOpenMemoryMap,
+  tabs,
+  activeTabId,
+  onActivateTab,
+  onCloseTab,
 }) => {
   const { kernelStatus, kernelMetrics } = useUIStore();
   const isConnected = kernelStatus === 'idle' || kernelStatus === 'busy';
@@ -52,139 +79,95 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <div className="h-14 bg-sim-bg border-b border-sim-border flex items-center justify-between px-4 z-20 relative select-none">
+    <div className="h-12 bg-[#09090b] border-b border-[#27272a] flex items-center justify-between px-3 z-20 relative select-none shadow-sm">
 
-      {/* Left: Branding & File Actions */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Zap className="w-5 h-5 text-sim-red fill-current" />
-          <div className="font-mono font-bold tracking-wider text-lg">
-            <span className="text-white">OPREL</span> <span className="text-sim-muted">STUDIO</span>
+      {/* Left: Branding & Core File Actions */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mr-4 px-2">
+          <Zap className="w-4 h-4 text-sim-red fill-current" />
+          <div className="font-mono font-bold tracking-wider text-base">
+            <span className="text-white">OPREL</span>
           </div>
         </div>
 
-        {/* File Actions */}
-        <div className="hidden sm:flex items-center gap-1 ml-4 border-l border-sim-border pl-4">
-          <button
-            onClick={onOpenFile}
-            className="p-2 text-sim-muted hover:text-white hover:bg-sim-surface rounded transition-colors"
-            title="Open File"
-          >
-            <FolderOpen className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onSaveFile}
-            className="p-2 text-sim-muted hover:text-white hover:bg-sim-surface rounded transition-colors"
-            title="Save File"
-          >
-            <Save className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onRunAll}
-            disabled={kernelStatus !== 'idle'}
-            className={`p-2 rounded transition-colors flex items-center gap-1.5 ${kernelStatus === 'idle'
-                ? 'text-green-400 hover:text-green-300 hover:bg-sim-surface'
-                : 'text-sim-muted/50 cursor-not-allowed'
-              }`}
-            title="Run All Cells"
-          >
-            <PlayCircle className="w-4 h-4" />
-            <span className="text-xs font-mono">Run All</span>
-          </button>
-        </div>
+        {/* File Group */}
+        <TopBarButton onClick={onOpenFile} icon={FolderOpen} title="Open File" />
+        <TopBarButton onClick={onSaveFile} icon={Save} title="Save File" />
+
+        <Divider />
+
+        {/* Run Group */}
+        <TopBarButton
+          onClick={onRunAll}
+          icon={PlayCircle}
+          title="Run All Cells"
+          disabled={kernelStatus !== 'idle'}
+          isActive={kernelStatus === 'busy'}
+        />
+
       </div>
 
-      {/* Center: Notebook Name (Subtle) */}
-      <div className="hidden md:block absolute left-1/2 transform -translate-x-1/2">
-        <span className="text-xs font-mono text-sim-muted uppercase tracking-widest opacity-50">{notebookName}</span>
+      {/* Center: Tabs Container (Flexible) */}
+      <div className="flex-1 mx-4 hidden md:flex items-center h-8 bg-[#1e1e20] border border-white/5 rounded-xl px-1 overflow-hidden">
+        <TabBar
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onActivateTab={onActivateTab}
+          onCloseTab={onCloseTab}
+        />
       </div>
 
-      {/* Right: Actions */}
-      <div className="flex items-center gap-3">
+      {/* Right: Tools & Metrics */}
+      <div className="flex items-center gap-2">
 
-        {/* Kernel Metrics Display */}
-        {isConnected && kernelMetrics.pid && (
-          <div className="hidden lg:flex items-center gap-3 px-3 py-1 rounded bg-sim-surface/50 border border-sim-border/50">
-            {/* PID */}
-            <div className="flex items-center gap-1.5" title="Process ID">
-              <span className="text-xs font-mono text-sim-muted">PID:</span>
-              <span className="text-xs font-mono text-cyan-400">{kernelMetrics.pid}</span>
+        {/* Kernel Controls */}
+        {!isConnected ? (
+          <button
+            onClick={onConnectKernel}
+            className="flex items-center gap-2 px-3 h-8 bg-sim-red/10 hover:bg-sim-red/20 text-sim-red border border-sim-red/20 rounded-xl text-xs font-medium transition-all mr-2"
+          >
+            <Power className="w-3.5 h-3.5" />
+            <span>Connect</span>
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 mr-2">
+            {/* Metrics (Only visible on large screens) */}
+            {kernelMetrics.pid && (
+              <div className="hidden lg:flex items-center gap-3 px-3 py-1 rounded bg-[#1e1e20] border border-[#27272a] text-[10px] font-mono text-gray-500">
+                <span>PID: {kernelMetrics.pid}</span>
+                {kernelMetrics.memoryMb && <span>MEM: {formatMemory(kernelMetrics.memoryMb)}</span>}
+                {kernelMetrics.cpuPercent && <span>CPU: {formatCpu(kernelMetrics.cpuPercent)}</span>}
+              </div>
+            )}
+
+            {/* Status Pill */}
+            <div className="flex items-center gap-2 px-2.5 h-8 bg-[#1e1e20] border border-[#27272a] rounded text-[10px] font-mono text-gray-400">
+              <div className={`w-1.5 h-1.5 rounded-full ${statusColors[kernelStatus]}`} />
+              <span className="uppercase">{kernelStatus}</span>
             </div>
-
-            {/* Memory */}
-            {kernelMetrics.memoryMb !== null && (
-              <div className="flex items-center gap-1.5" title="Memory Usage">
-                <HardDrive className="w-3 h-3 text-sim-muted" />
-                <span className="text-xs font-mono text-emerald-400">{formatMemory(kernelMetrics.memoryMb)}</span>
-              </div>
-            )}
-
-            {/* CPU */}
-            {kernelMetrics.cpuPercent !== null && (
-              <div className="flex items-center gap-1.5" title="CPU Usage">
-                <Cpu className="w-3 h-3 text-sim-muted" />
-                <span className="text-xs font-mono text-orange-400">{formatCpu(kernelMetrics.cpuPercent)}</span>
-              </div>
-            )}
           </div>
         )}
 
-        {/* Kernel Status & Controls */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded border border-sim-border">
-          <div className={`w-2 h-2 rounded-full ${statusColors[kernelStatus]}`} />
-          <span className="text-xs font-mono text-sim-muted capitalize">{kernelStatus}</span>
+        <TopBarButton
+          onClick={onRestartKernel}
+          icon={RotateCcw}
+          title="Restart Kernel"
+          disabled={!isConnected}
+        />
 
-          {!isConnected ? (
-            <button
-              onClick={onConnectKernel}
-              className="ml-2 p-1 text-sim-muted hover:text-green-400 transition-colors"
-              title="Connect Kernel"
-            >
-              <Power className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              onClick={onRestartKernel}
-              className="ml-2 p-1 text-sim-muted hover:text-yellow-400 transition-colors"
-              title="Restart Kernel"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+        <Divider />
 
-        {/* New Simulation Button */}
-        <button
-          onClick={onNewNotebook}
-          className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded border border-sim-border text-xs font-mono font-medium text-sim-muted hover:text-white hover:border-sim-text transition-all uppercase tracking-wide"
-        >
-          <span>New Notebook</span>
-        </button>
-
-        {/* Memory Map Button */}
+        {/* Tools */}
         {onOpenMemoryMap && (
-          <button
-            onClick={onOpenMemoryMap}
-            className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded border border-sim-border text-xs font-mono font-medium text-sim-muted hover:text-cyan-400 hover:border-cyan-400/50 transition-all uppercase tracking-wide"
-            title="Memory Visualization"
-          >
-            <Map className="w-4 h-4" />
-            <span>Memory</span>
-          </button>
+          <TopBarButton onClick={onOpenMemoryMap} icon={Map} title="Memory Visualization" />
         )}
 
-        {/* AI Toggle */}
-        <button
+        <TopBarButton
           onClick={onToggleChat}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded border text-xs font-mono font-medium transition-all uppercase tracking-wide
-             ${isChatOpen
-              ? 'bg-sim-red/10 text-sim-red border-sim-red'
-              : 'bg-transparent text-sim-muted border-sim-border hover:border-sim-text hover:text-white'}
-           `}
-        >
-          <Sparkles className="w-4 h-4" />
-          <span className="hidden sm:inline">AI Agent</span>
-        </button>
+          icon={Sparkles}
+          title="AI Assistant"
+          isActive={isChatOpen}
+        />
       </div>
     </div>
   );

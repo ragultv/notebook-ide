@@ -1,0 +1,107 @@
+import { FastifyInstance } from 'fastify';
+import { KernelManager } from '../core/KernelManager.js';
+
+const kernelManager = KernelManager.getInstance();
+
+interface ExecuteBody {
+    cellId: string;
+    code: string;
+    notebookId?: string;
+}
+
+function transformResult(cellId: string, notebookId: string, result: any) {
+    return {
+        cellId,
+        notebookId,
+        success: result.status === 'success',
+        output: result.stdout || null,
+        outputs: result.outputs || [],
+        error: result.status === 'error' ? (result.error_details || result.stderr || 'Execution failed') : null,
+        executionCount: result.execution_count || 0,
+        duration: result.execution_time || 0,
+    };
+}
+
+export async function executionRoutes(fastify: FastifyInstance) {
+    fastify.post('/run_cell', async (request, reply) => {
+        try {
+            const { cellId, code, notebookId } = request.body as ExecuteBody;
+            const id = notebookId || 'default';
+
+            const result = await kernelManager.executeCode(id, code);
+
+            // Transform result to match frontend expectations
+            return transformResult(cellId, id, result);
+        } catch (error: any) {
+            reply.code(500).send({ error: error.message });
+        }
+    });
+
+    // Streaming execution
+    fastify.post('/run_cell_stream', async (request, reply) => {
+        const { cellId, code, notebookId } = request.body as ExecuteBody;
+        const id = notebookId || 'default';
+
+        // Set CORS headers for SSE (required for cross-origin requests)
+        reply.raw.setHeader('Access-Control-Allow-Origin', '*');
+        reply.raw.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        reply.raw.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+        // Set headers for streaming
+        reply.raw.setHeader('Content-Type', 'text/event-stream');
+        reply.raw.setHeader('Cache-Control', 'no-cache');
+        reply.raw.setHeader('Connection', 'keep-alive');
+        reply.raw.flushHeaders();
+
+        try {
+            // Start kernel if not running
+            const status = kernelManager.getKernelStatus(id);
+            if (!status) {
+                await kernelManager.startKernel(id);
+            }
+
+            const result = await kernelManager.executeCode(id, code);
+
+            // Send output
+            if (result.stdout) {
+                const outputData = {
+                    type: 'output',
+                    output: {
+                        type: 'stream',
+                        stream: 'stdout',
+                        data: result.stdout
+                    }
+                };
+                reply.raw.write(`data: ${JSON.stringify(outputData)}\n\n`);
+            }
+
+            if (result.stderr) {
+                const outputData = {
+                    type: 'output',
+                    output: {
+                        type: 'stream',
+                        stream: 'stderr',
+                        data: result.stderr
+                    }
+                };
+                reply.raw.write(`data: ${JSON.stringify(outputData)}\n\n`);
+            }
+
+            // Send complete with transformed result
+            const completeData = {
+                type: 'complete',
+                result: transformResult(cellId, id, result)
+            };
+            reply.raw.write(`data: ${JSON.stringify(completeData)}\n\n`);
+
+        } catch (error: any) {
+            const errorData = {
+                type: 'error',
+                error: error.message
+            };
+            reply.raw.write(`data: ${JSON.stringify(errorData)}\n\n`);
+        } finally {
+            reply.raw.end();
+        }
+    });
+}

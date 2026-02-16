@@ -31,6 +31,7 @@ class AIOperation(BaseModel):
 class AIResponse(BaseModel):
     text: str
     operations: Optional[List[AIOperation]] = None
+    tokenInfo: Optional[Dict[str, int]] = None
 
 @router.post('/assist', response_model=AIResponse)
 async def assist(request: AIRequest):

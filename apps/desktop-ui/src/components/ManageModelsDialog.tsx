@@ -90,17 +90,6 @@ export const ManageModelsDialog: React.FC<ManageModelsDialogProps> = ({ onModels
       <div
         className="w-full h-full flex flex-col overflow-hidden"
       >
-        {/* Header - now part of the tab content just to show title if needed, or remove? 
-            User image shows 'Model Configuration' header inside the window.
-            I will keep a minimal header inside the view.
-        */}
-        {/* <div className="h-10 border-b border-sim-border flex items-center justify-between px-4 bg-sim-surface select-none shrink-0">
-          <div className="flex items-center gap-2 text-sim-text">
-            <Settings className="w-4 h-4 text-sim-muted" />
-            <span className="font-medium">Model Configuration</span>
-          </div>
-        </div> */}
-
         {/* Content Layout */}
         <div className="flex-1 flex flex-col bg-sim-bg overflow-hidden">
           {/* Toolbar */}
@@ -197,7 +186,7 @@ export const ManageModelsDialog: React.FC<ManageModelsDialogProps> = ({ onModels
                           <div className="flex items-center gap-2 truncate max-w-[300px]">
                             <span className="truncate text-sm" title={m.name}>{m.name}</span>
                             {(m.isLocal || m.isProviderLocal) && (
-                              <span className="px-1.5 py-0.5 rounded-sm bg-green-500/10 text-green-500 text-[10px] font-bold border border-green-500/20 shrink-0">LOCAL</span>
+                              <span className="px-1.5 py-0.5 rounded-sm bg-sim-red/10 text-sim-red text-[10px] font-bold border border-sim-red/20 shrink-0">LOCAL</span>
                             )}
                           </div>
                           <div className="text-[10px] text-gray-500 font-mono mt-0.5 truncate max-w-[300px]" title={m.id}>{m.id}</div>
@@ -210,7 +199,7 @@ export const ManageModelsDialog: React.FC<ManageModelsDialogProps> = ({ onModels
                         </td>
                         <td className="px-4 py-2 text-right">
                           {m.providerAvailable ? (
-                            <span className="text-[10px] text-green-500 bg-green-500/5 px-2 py-0.5 rounded border border-green-500/10 font-medium tracking-wide">READY</span>
+                            <span className="text-[10px] text-sim-red bg-sim-red/5 px-2 py-0.5 rounded border border-sim-red/10 font-medium tracking-wide">READY</span>
                           ) : (
                             <div className="flex flex-col items-end gap-1">
                               <input
@@ -258,5 +247,3 @@ export const ManageModelsDialog: React.FC<ManageModelsDialogProps> = ({ onModels
     </div>
   );
 };
-
-export default ManageModelsDialog;

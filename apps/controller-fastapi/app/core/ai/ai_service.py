@@ -52,11 +52,37 @@ class AIService:
         if provider in ["ollama", "oprel"]:
             try:
                 base_url = OPREL_BASE_URL if provider == "oprel" else OLLAMA_BASE_URL
+                # Normalize base
+                base = base_url.replace("/v1", "")
+                if base.endswith("/"):
+                    base = base[:-1]
+
+                # Probe whether the local server supports the OpenAI-compatible `/v1` prefix.
+                # If it does, use `<base>/v1` as the ChatOpenAI `base_url`, otherwise use the root base.
+                probe_v1 = False
+                try:
+                    import httpx
+                    with httpx.Client(timeout=1.0) as probe_client:
+                        # Try a couple of likely OpenAI endpoints
+                        for path in ["/v1/models", "/v1/chat/completions"]:
+                            try:
+                                r = probe_client.get(f"{base}{path}")
+                                if r.status_code == 200:
+                                    probe_v1 = True
+                                    break
+                            except Exception:
+                                continue
+                except Exception:
+                    # If probing fails, fall back to assuming `/v1` is available (safer for many local adapters)
+                    probe_v1 = True
+
+                client_base = f"{base}/v1" if probe_v1 else base
+
                 client = ChatOpenAI(
                     model=model,
                     temperature=0.2,
                     api_key="local",  # Local servers don't need real API key
-                    base_url=f"{base_url}/v1",
+                    base_url=client_base,
                 )
                 self._clients[cache_key] = client
                 return client
@@ -165,6 +191,21 @@ class AIService:
             }
         
         return result
+
+    def _estimate_tokens(self, text: str, model: str = "gpt-3.5-turbo") -> int:
+        """Estimate token count for given text. Prefer tiktoken if available, otherwise fallback to simple heuristic."""
+        try:
+            import tiktoken
+            try:
+                enc = tiktoken.encoding_for_model(model)
+            except Exception:
+                enc = tiktoken.get_encoding("cl100k_base")
+            return len(enc.encode(text))
+        except Exception:
+            # Fallback: approximate tokens by splitting on whitespace and punctuation
+            import re
+            tokens = re.findall(r"\w+|[^\s\w]", text)
+            return max(1, len(tokens) // 1)
     
     def get_selected_models(self) -> List[Dict[str, str]]:
         """Get the list of models selected for the chat dropdown."""
@@ -385,9 +426,23 @@ class AIService:
             if operations:
                 final_text += f"\n\n**✅ Generated {len(operations)} operations** - Notebook is ready!"
             
+            # Token accounting (estimate input and output tokens)
+            try:
+                prompt_tokens = self._estimate_tokens(full_prompt, self.current_model)
+                completion_tokens = self._estimate_tokens(text, self.current_model)
+                total_tokens = prompt_tokens + completion_tokens
+                token_info = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                }
+            except Exception:
+                token_info = None
+
             return {
                 "text": final_text,
                 "operations": operations,
+                "tokenInfo": token_info,
             }
             
         except Exception as e:
@@ -395,6 +450,7 @@ class AIService:
             return {
                 "text": f"Error: {str(e)}",
                 "operations": None,
+                "tokenInfo": None,
             }
     
     async def fix_error(self, error_info: Dict[str, Any], context: Optional[Dict[str, Any]] = None,
@@ -446,19 +502,32 @@ Analyze the error and provide the fix.
         try:
             response = await llm.ainvoke(messages)
             text = response.content
-            
+
             operations = extract_operations(text, self.current_model)
             clean_text = re.sub(r'```operations\s*\n?\[[\s\S]*?\]\s*\n?```', '', text).strip()
-            
+
+            try:
+                prompt_tokens = self._estimate_tokens(error_prompt, self.current_model)
+                completion_tokens = self._estimate_tokens(text, self.current_model)
+                token_info = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                }
+            except Exception:
+                token_info = None
+
             return {
                 "text": clean_text,
                 "operations": operations,
+                "tokenInfo": token_info,
             }
-            
+
         except Exception as e:
             return {
                 "text": f"Error analyzing: {str(e)}",
                 "operations": None,
+                "tokenInfo": None,
             }
     
     async def generate_code(self, prompt: str, context: Optional[Dict[str, Any]] = None,

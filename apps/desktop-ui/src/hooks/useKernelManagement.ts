@@ -12,7 +12,8 @@ interface UseKernelManagementReturn {
 export const useKernelManagement = (activeFileId: string | null): UseKernelManagementReturn => {
   const { setKernelStatus, setKernelId, setKernelMetrics, clearKernelMetrics } = useUIStore();
 
-  // Kernel metrics polling
+  // Kernel  // Metrics polling - COMMENTED OUT to reduce noise
+  /*
   useEffect(() => {
     if (!activeFileId) {
       clearKernelMetrics();
@@ -29,11 +30,14 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
       }
     };
 
+    // Poll immediately
     pollMetrics();
-    const interval = setInterval(pollMetrics, 2000);
 
+    // Then every 2 seconds
+    const interval = setInterval(pollMetrics, 2000);
     return () => clearInterval(interval);
   }, [activeFileId, setKernelMetrics, clearKernelMetrics]);
+  */
 
   const handleConnectKernel = useCallback(async () => {
     try {
@@ -60,7 +64,7 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
 
   const handleRunAll = useCallback(async (cells: CellData[], updateCells: (cells: CellData[]) => void) => {
     const codeCells = cells.filter(c => c.type === 'code' && c.content.trim());
-    
+
     if (codeCells.length === 0) return;
 
     const notebookId = activeFileId || 'default';
@@ -79,7 +83,7 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
           code: cell.content,
           notebookId,
         });
-        
+
         updatedCells[cellIndex] = {
           ...updatedCells[cellIndex],
           status: result.success ? 'success' as const : 'error' as const,

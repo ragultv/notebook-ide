@@ -8,40 +8,33 @@ import { Tab, ProjectFile, CellData } from '../types';
 
 interface MainContentProps {
   files: ProjectFile[];
-  tabs: Tab[];
-  activeTabId: string | null;
   activeTab: Tab | undefined;
   activeFile: ProjectFile | undefined;
   activeCells: CellData[];
   activeCellId: string | null;
+  activeTabId: string | null;
   handleActivateTab: (id: string) => void;
   handleCloseTab: (id: string) => void;
   updateCells: React.Dispatch<React.SetStateAction<CellData[]>>;
   setActiveCellId: React.Dispatch<React.SetStateAction<string | null>>;
+  onModelsChanged?: () => void;
 }
 
 export const MainContent: React.FC<MainContentProps> = ({
   files,
-  tabs,
-  activeTabId,
   activeTab,
   activeFile,
   activeCells,
   activeCellId,
+  activeTabId,
   handleActivateTab,
   handleCloseTab,
   updateCells,
   setActiveCellId,
+  onModelsChanged,
 }) => {
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-sim-bg">
-      <TabBar
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onActivateTab={handleActivateTab}
-        onCloseTab={handleCloseTab}
-      />
-
+    <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-sim-bg rounded-2xl border border-sim-border shadow-lg">
       <div className="flex-1 flex overflow-hidden relative">
         {activeTabId === 'memory-map' ? (
           <div className="w-full h-full bg-sim-bg">
@@ -53,7 +46,7 @@ export const MainContent: React.FC<MainContentProps> = ({
           </div>
         ) : activeTabId === 'manage-models' ? (
           <div className="w-full h-full bg-sim-bg">
-            <ManageModelsDialog onModelsChanged={() => {}} />
+            <ManageModelsDialog onModelsChanged={onModelsChanged} />
           </div>
         ) : activeTab?.type === 'image' || activeTab?.type === 'data' || activeTab?.type === 'other' ? (
           <FilePreview
@@ -70,7 +63,7 @@ export const MainContent: React.FC<MainContentProps> = ({
             setCells={updateCells}
             activeCellId={activeCellId}
             setActiveCellId={setActiveCellId}
-            onFixError={() => {}}
+            onFixError={() => { }}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center bg-sim-bg text-sim-muted font-mono">

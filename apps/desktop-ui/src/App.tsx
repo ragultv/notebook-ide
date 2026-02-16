@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { TopBar, Sidebar, RightSidebar } from './components/Layout';
 import { MainContent } from './components/MainContent';
 import { useUIStore } from './store/ui.store';
@@ -13,6 +13,46 @@ import {
 const App: React.FC = () => {
   const defaultFileId = useMemo(() => crypto.randomUUID(), []);
   const { chatOpen, toggleChat } = useUIStore();
+
+  const [modelsRefreshTrigger, setModelsRefreshTrigger] = useState(0);
+
+  // Resize Logic for RightSidebar
+  const [chatWidth, setChatWidth] = useState(380);
+  const [isResizing, setIsResizing] = useState(false);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      requestAnimationFrame(() => {
+        const newWidth = window.innerWidth - e.clientX;
+        if (newWidth > 280 && newWidth < 800) {
+          setChatWidth(newWidth);
+        }
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.body.style.cursor = 'default';
+    };
+
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none'; // Prevent text selection
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.userSelect = ''; // Restore selection
+    };
+  }, [isResizing]);
+
+  const handleStartResizing = useCallback(() => {
+    setIsResizing(true);
+  }, []);
 
   const notebook = useNotebookManagement(defaultFileId);
   const tabs = useTabManagement(notebook.files, notebook.activeFileId, notebook.setActiveFileId);
@@ -50,9 +90,13 @@ const App: React.FC = () => {
           notebook.setActiveFileId(null);
           tabs.setActiveTabId('memory-map');
         }}
+        tabs={tabs.tabs}
+        activeTabId={tabs.activeTabId}
+        onActivateTab={tabs.handleActivateTab}
+        onCloseTab={tabs.handleCloseTab}
       />
 
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex overflow-hidden relative p-2 gap-2">
         <Sidebar
           files={notebook.files}
           onImportFiles={fileExplorer.handleImportFiles}
@@ -65,17 +109,29 @@ const App: React.FC = () => {
 
         <MainContent
           files={notebook.files}
-          tabs={tabs.tabs}
-          activeTabId={tabs.activeTabId}
           activeTab={tabs.activeTab}
           activeFile={notebook.activeFile}
           activeCells={notebook.activeCells}
           activeCellId={cells.activeCellId}
+          activeTabId={tabs.activeTabId}
           handleActivateTab={tabs.handleActivateTab}
           handleCloseTab={tabs.handleCloseTab}
           updateCells={notebook.updateActiveNotebookCells}
           setActiveCellId={cells.setActiveCellId}
+          onModelsChanged={() => setModelsRefreshTrigger(prev => prev + 1)}
         />
+
+        {/* Resizer Handle (Professional Minimalist Divider) */}
+        {chatOpen && (
+          <div
+            onMouseDown={handleStartResizing}
+            className="group relative w-1 h-full cursor-col-resize z-50 flex-shrink-0"
+          >
+            <div className={`absolute inset-y-0 left-1/2 -translate-x-1/2 w-[1px] transition-colors
+              ${isResizing ? 'bg-sim-red' : 'bg-white/5 group-hover:bg-sim-red/50'}
+            `} />
+          </div>
+        )}
 
         <RightSidebar
           isOpen={chatOpen}
@@ -84,9 +140,9 @@ const App: React.FC = () => {
           onDeleteCell={cells.handleDeleteCellFromAI}
           onMoveCell={cells.handleMoveCellFromAI}
           onEditCell={cells.handleEditCellFromAI}
-          onAddPackages={() => {}}
+          onAddPackages={() => { }}
           onCreateNotebook={notebook.handleNewNotebook}
-          onDeleteNotebook={() => {}}
+          onDeleteNotebook={() => { }}
           notebookCells={notebook.activeCells}
           notebookName={notebook.activeFile?.name || 'Untitled'}
           projectFiles={notebook.files}
@@ -101,6 +157,10 @@ const App: React.FC = () => {
             // Set the active tab ID directly
             tabs.setActiveTabId('manage-models');
           }}
+          modelsRefreshTrigger={modelsRefreshTrigger}
+          width={chatWidth}
+          isResizing={isResizing}
+          onStartResizing={handleStartResizing}
         />
       </div>
     </div>

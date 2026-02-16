@@ -16,6 +16,7 @@ export interface Tab {
   title: string;
   type: FileType;
   path?: string;
+  isDirty?: boolean;
   data?: {
     isObjectUrl?: boolean;
   };

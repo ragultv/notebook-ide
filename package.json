@@ -1,5 +1,11 @@
 {
   "name": "notebook-ide",
   "private": true,
-  "version": "0.0.0"
+  "version": "0.0.0",
+  "scripts": {
+    "controller:install": "cd apps/controller-node && npm install",
+    "controller:build": "cd apps/controller-node && npm run build",
+    "controller:start": "cd apps/controller-node && npm run start",
+    "controller:dev": "cd apps/controller-node && npm run dev"
+  }
 }

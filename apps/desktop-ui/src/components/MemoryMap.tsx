@@ -35,15 +35,15 @@ interface MemoryMapVisualizationProps {
 }
 
 const TYPE_COLORS: Record<TypeCategory, string> = {
-  tensor: '#FF6B6B',
-  array: '#4ECDC4',
-  model: '#9B59B6',
-  scalar: '#95E1D3',
-  collection: '#FFD93D',
-  function: '#6C5CE7',
-  object: '#A8DADC',
-  module: '#F78FB3',
-  generator: '#FCA311',
+  tensor: '#EF4444',       // Red-500
+  array: '#F97316',        // Orange-500
+  model: '#F59E0B',        // Amber-500
+  scalar: '#FB923C',       // Orange-400
+  collection: '#D97706',   // Amber-600
+  function: '#EA580C',     // Orange-600
+  object: '#FECACA',       // Red-200
+  module: '#7C2D12',       // Red-900
+  generator: '#B45309',    // Amber-700
 };
 
 export const MemoryMapVisualization: React.FC<MemoryMapVisualizationProps> = ({
@@ -75,12 +75,14 @@ export const MemoryMapVisualization: React.FC<MemoryMapVisualizationProps> = ({
 
   // Convert snapshot to renderable points
   const points: MemoryPoint[] = useMemo(() => {
-    if (!snapshot) return [];
+    if (!snapshot || !Array.isArray(snapshot.variables)) return [];
 
     const now = Date.now() / 1000;
+    const coords = snapshot.coordinates_2d || [];
+
     return snapshot.variables
       .map((v, idx) => {
-        const [x, y] = snapshot.coordinates_2d[idx] || [0, 0];
+        const [x, y] = coords[idx] || [0, 0];
         const radius = Math.max(3, Math.min(20, Math.log10(v.size_bytes + 1) * 2));
         const age = now - v.last_access_time;
         const opacity = filters.recent_only
@@ -301,7 +303,7 @@ export const MemoryMapVisualization: React.FC<MemoryMapVisualizationProps> = ({
   };
 
   return (
-    <div className="w-full h-full bg-sim-bg flex flex-col overflow-hidden">
+    <div className="w-full h-full bg-[#09090b] flex flex-col overflow-hidden">
       {/* Toolbar */}
       <div className="h-12 border-b border-sim-border flex items-center px-4 gap-3 bg-sim-surface shrink-0">
         <Search className="w-4 h-4 text-sim-muted" />
@@ -323,7 +325,7 @@ export const MemoryMapVisualization: React.FC<MemoryMapVisualizationProps> = ({
             <RotateCcw className="w-4 h-4 text-sim-muted" />
           </button>
         </div>
-        <button onClick={onRefresh} className="px-3 py-1.5 bg-sim-red text-white text-xs rounded hover:bg-sim-red/80">
+        <button onClick={onRefresh} className="px-3 py-1.5 bg-sim-red text-white text-xs rounded hover:bg-sim-redHover">
           Refresh
         </button>
       </div>
@@ -346,14 +348,14 @@ export const MemoryMapVisualization: React.FC<MemoryMapVisualizationProps> = ({
         {/* Tooltip */}
         {hoveredPoint && mousePos && (
           <div
-            className="absolute bg-gray-900/95 border-2 border-cyan-500/50 rounded-lg p-3 pointer-events-none z-50 text-xs font-mono shadow-xl backdrop-blur-sm"
+            className="absolute bg-gray-900/95 border-2 border-sim-red/50 rounded-lg p-3 pointer-events-none z-50 text-xs font-mono shadow-xl backdrop-blur-sm"
             style={{
               left: Math.min(mousePos.x + 15, viewport.width - 250),
               top: Math.min(mousePos.y + 15, viewport.height - 200),
               maxWidth: '250px',
             }}
           >
-            <div className="font-bold text-cyan-400 mb-2 text-sm">{hoveredPoint.metadata.name}</div>
+            <div className="font-bold text-sim-red mb-2 text-sm">{hoveredPoint.metadata.name}</div>
             <div className="text-gray-300 space-y-1">
               <div className="flex justify-between">
                 <span className="text-gray-500">Type:</span>
@@ -388,7 +390,7 @@ export const MemoryMapVisualization: React.FC<MemoryMapVisualizationProps> = ({
               {hoveredPoint.metadata.dependencies && hoveredPoint.metadata.dependencies.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-gray-700">
                   <div className="text-gray-500 mb-1">Dependencies:</div>
-                  <div className="text-cyan-300 text-xs">
+                  <div className="text-sim-red text-xs">
                     {hoveredPoint.metadata.dependencies.slice(0, 5).join(', ')}
                     {hoveredPoint.metadata.dependencies.length > 5 && ` (+${hoveredPoint.metadata.dependencies.length - 5} more)`}
                   </div>
@@ -415,9 +417,9 @@ export const MemoryMapVisualization: React.FC<MemoryMapVisualizationProps> = ({
         {snapshot && (
           <div className="absolute bottom-4 left-4 bg-black/80 border border-sim-border rounded-lg p-3 text-[10px] font-mono">
             <div className="text-white space-y-1">
-              <div>Variables: {points.length} / {snapshot.variables.length}</div>
-              <div>Total Memory: {formatBytes(snapshot.total_memory_bytes)}</div>
-              <div>Algorithm: {snapshot.algorithm.toUpperCase()}</div>
+              <div>Variables: {points.length} / {snapshot.variables?.length || 0}</div>
+              <div>Total Memory: {formatBytes(snapshot.total_memory_bytes || 0)}</div>
+              <div>Algorithm: {(snapshot.algorithm || 'unknown').toUpperCase()}</div>
             </div>
           </div>
         )}
@@ -554,7 +556,7 @@ const MemoryMap: React.FC<MemoryMapProps> = ({ notebooks, initialNotebookId, onO
                   </div>
                   <button
                     onClick={() => handleSelectNotebook(notebook.id)}
-                    className="px-3 py-1.5 text-xs font-medium rounded bg-sim-blue text-white hover:bg-sim-blue/80"
+                    className="px-3 py-1.5 text-xs font-medium rounded bg-sim-red text-white hover:bg-sim-redHover"
                   >
                     View Memory
                   </button>
@@ -609,7 +611,7 @@ const MemoryMap: React.FC<MemoryMapProps> = ({ notebooks, initialNotebookId, onO
         </button>
         <button
           onClick={handleRefresh}
-          className="px-3 py-1.5 text-xs font-medium rounded bg-sim-blue text-white hover:bg-sim-blue/80"
+          className="px-3 py-1.5 text-xs font-medium rounded bg-sim-red text-white hover:bg-sim-redHover"
         >
           Refresh Snapshot
         </button>
@@ -628,7 +630,7 @@ const MemoryMap: React.FC<MemoryMapProps> = ({ notebooks, initialNotebookId, onO
             <span className="text-sm max-w-sm">{error}</span>
             <button
               onClick={handleRefresh}
-              className="px-3 py-1.5 text-xs font-medium rounded bg-sim-blue text-white hover:bg-sim-blue/80"
+              className="px-3 py-1.5 text-xs font-medium rounded bg-sim-red text-white hover:bg-sim-redHover"
             >
               Try Again
             </button>

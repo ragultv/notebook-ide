@@ -3,7 +3,7 @@ import { MemorySnapshot } from '../../../../packages/shared-types/memory';
 // Controller Client - HTTP interface to FastAPI backend
 // Handles execution, kernel management, and AI requests
 
-const BASE_URL = 'http://127.0.0.1:8000';
+const BASE_URL = 'http://127.0.0.1:3001';
 
 // Types
 export interface ExecutionRequest {
@@ -82,6 +82,11 @@ export interface AIResponse {
     type: string;
     params: Record<string, any>;
   }>;
+  tokenInfo?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 // HTTP helper
@@ -137,8 +142,8 @@ export const controllerClient = {
   },
 
   // Memory Visualization
-  async getMemorySnapshot(kernelId: string, method: 'umap' | 'pca' = 'umap'): Promise<MemorySnapshot> {
-    const params = new URLSearchParams({ kernel_id: kernelId, method });
+  async getMemorySnapshot(notebookId: string, method: 'umap' | 'pca' = 'umap'): Promise<MemorySnapshot> {
+    const params = new URLSearchParams({ notebookId, method });
     return request(`/api/memory/snapshot?${params.toString()}`);
   },
 

@@ -85,7 +85,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
       }
       return;
     }
-    
+
     // Try backend API first
     try {
       const data = await controllerClient.previewCSV(filePath, 500);
@@ -108,7 +108,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
 
   const parseCSVContent = (content: string) => {
     const lines = content.split('\n').filter(line => line.trim());
-    
+
     if (lines.length === 0) {
       setTableData({ headers: [], rows: [], totalRows: 0 });
       return;
@@ -118,7 +118,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
       const result: string[] = [];
       let current = '';
       let inQuotes = false;
-      
+
       for (let i = 0; i < line.length; i++) {
         const char = line[i];
         if (char === '"') {
@@ -149,7 +149,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
       setError('Excel preview requires files to be in the project folder. Use pandas.read_excel() in a code cell.');
       return;
     }
-    
+
     try {
       const data = await controllerClient.previewExcel(filePath, sheet, 500);
       setTableData({
@@ -188,7 +188,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
       }
       return;
     }
-    
+
     const { content } = await controllerClient.readFile(filePath);
     setContent(content);
   };
@@ -196,13 +196,13 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
   const getIcon = () => {
     switch (fileType) {
       case 'csv':
-        return <Table className="w-5 h-5 text-green-400" />;
+        return <Table className="w-5 h-5 text-sim-red" />;
       case 'xlsx':
-        return <FileSpreadsheet className="w-5 h-5 text-green-500" />;
+        return <FileSpreadsheet className="w-5 h-5 text-sim-red" />;
       case 'image':
-        return <Image className="w-5 h-5 text-purple-400" />;
+        return <Image className="w-5 h-5 text-sim-red" />;
       default:
-        return <FileText className="w-5 h-5 text-blue-400" />;
+        return <FileText className="w-5 h-5 text-sim-red" />;
     }
   };
 
@@ -318,26 +318,10 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
   return (
     <div className="flex-1 flex flex-col bg-[#1e1e1e] overflow-hidden">
       {/* Header */}
-      {/* <div className="px-4 py-3 bg-[#252526] border-b border-[#404040] flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          {getIcon()}
-          <div>
-            <h3 className="font-medium text-white text-sm">{fileName}</h3>
-            <p className="text-xs text-gray-500 truncate max-w-[400px]">{isObjectUrl ? 'Uploaded file' : filePath}</p>
-          </div>
-        </div>
-        <button
-          onClick={onClose}
-          className="px-3 py-1.5 text-xs bg-[#333] hover:bg-[#444] rounded text-gray-300 hover:text-white transition-colors flex items-center gap-1.5"
-        >
-          <X className="w-3.5 h-3.5" />
-          Close Preview
-        </button>
-      </div> */}
       {/* Content */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-[#e85d04]" />
+          <Loader2 className="w-8 h-8 animate-spin text-sim-red" />
         </div>
       ) : error ? (
         <div className="flex-1 flex items-center justify-center p-8">

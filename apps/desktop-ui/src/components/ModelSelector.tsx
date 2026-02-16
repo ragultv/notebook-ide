@@ -77,7 +77,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
       if (!provider.available) {
         return;
       }
-      
+
       provider.models.forEach(model => {
         const isSelected = selectedModels.some(
           sm => sm.provider === providerId && sm.modelId === model.id
@@ -88,7 +88,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
         }
       });
     });
-    
+
     // If no models are available (e.g., Ollama disconnected and no models selected),
     // provide default NVIDIA models as fallback
     if (allModels.length === 0) {
@@ -101,7 +101,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
         });
       }
     }
-    
+
     return allModels;
   };
 
@@ -118,7 +118,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
         onClick={() => hasNoSelectedModels ? onOpenManage() : setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-2 py-1 hover:bg-sim-surface rounded transition-colors text-xs text-sim-muted hover:text-sim-text group"
       >
-        <span className={`transition-colors ${currentIsLocal ? 'text-green-400' : ''}`}>
+        <span className={`transition-colors ${currentIsLocal ? 'text-sim-red' : ''}`}>
           {currentName}
         </span>
         <ChevronUp className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''} text-sim-muted group-hover:text-sim-text`} />
@@ -151,15 +151,15 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
                       key={`${provider}-${model.id}`}
                       onClick={() => handleSelectModel(provider, model.id)}
                       className={`w-full px-3 py-1.5 text-left flex items-center gap-2 transition-colors ${isSelected
-                          ? 'bg-sim-border/50 text-white'
-                          : 'hover:bg-sim-border/30 text-gray-400 hover:text-gray-200'
+                        ? 'bg-sim-border/50 text-white'
+                        : 'hover:bg-sim-border/30 text-gray-400 hover:text-gray-200'
                         }`}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-xs truncate flex items-center gap-2">
                           {model.name}
                           {isLocal && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500" title="Local" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-sim-red" title="Local" />
                           )}
                         </div>
                       </div>

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Play, Square, Trash2, ArrowUp, ArrowDown, MoreHorizontal, Copy, GripVertical, Wrench, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Play, Trash2, ArrowUp, ArrowDown, MoreHorizontal, Wrench, CheckCircle2, XCircle, Clock, GripVertical, Loader2, Zap, ChevronDown } from 'lucide-react';
 import { CellData, CellStatus, CellOutput } from '../../types';
 import { controllerClient, RichOutput } from '../../services/controller.client';
 import { useUIStore } from '../../store/ui.store';
+import { TextCell } from './TextCell';
 
 interface CellProps {
   cell: CellData;
@@ -11,154 +12,34 @@ interface CellProps {
   notebookName: string;
   isActive: boolean;
   onActivate: () => void;
+  onDeactivate?: () => void;
   onUpdate: (id: string, content: string) => void;
   onOutputUpdate: (id: string, output: string, status: CellStatus, error?: string, execCount?: number, outputs?: CellOutput[], duration?: number) => void;
   onDelete: (id: string) => void;
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
-  onFixError?: (cellIndex: number, error: string, cellContent: string) => void;
+  onMove?: (from: number, to: number) => void;
+  onFixError?: (cellIndex: number, error: string, cellContent: string, cellId: string) => void;
   allCells?: CellData[];
 }
 
 // Parse error message to extract line number from cell code
 const parseErrorLine = (error: string | undefined): number | null => {
   if (!error) return null;
-
-  // Priority order: Look for cell code line first, then fallback to other patterns
-  // The cell code appears as '<string>' in Python tracebacks
-  const patterns = [
-    /File "<string>", line (\d+)/,     // Cell code in traceback (highest priority)
-    /File "<module>", line (\d+)/,     // Module level
-    /<string>:(\d+):/,                 // Alternative format
-  ];
-
-  for (const pattern of patterns) {
-    const match = error.match(pattern);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
-  }
-
-  // Fallback: Find last occurrence of "line X" that's NOT from a real file path
-  // This avoids picking up kernel_manager.py line numbers
-  const lines = error.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    // Skip lines that reference actual Python files
-    if (line.includes('.py') || line.includes('kernel_manager')) continue;
-
-    const match = line.match(/line (\d+)/i);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
-  }
-
-  return null;
+  const match = error.match(/line (\d+)/i);
+  return match ? parseInt(match[1], 10) : null;
 };
 
-// Detect syntax/indentation errors in Python code
-interface SyntaxIssue {
-  line: number;
-  message: string;
-  type: 'error' | 'warning';
-}
-
-const detectSyntaxIssues = (code: string): SyntaxIssue[] => {
-  const issues: SyntaxIssue[] = [];
-  const lines = code.split('\n');
-
-  let expectedIndent = 0;
-  const indentStack: number[] = [0];
-  const bracketStack: { char: string; line: number }[] = [];
-  const bracketPairs: { [key: string]: string } = { '(': ')', '[': ']', '{': '}' };
-
-  lines.forEach((line, idx) => {
-    const lineNum = idx + 1;
-    const trimmed = line.trim();
-
-    // Skip empty lines and comments
-    if (!trimmed || trimmed.startsWith('#')) return;
-
-    // Count leading spaces
-    const leadingSpaces = line.match(/^(\s*)/)?.[1].length || 0;
-
-    // Check for tabs mixed with spaces
-    if (line.includes('\t') && line.includes(' ') && line.match(/^\s/)) {
-      issues.push({
-        line: lineNum,
-        message: 'Mixed tabs and spaces in indentation',
-        type: 'warning'
-      });
-    }
-
-    // Check indentation consistency (should be multiple of 4 or 2)
-    if (leadingSpaces > 0 && leadingSpaces % 2 !== 0 && leadingSpaces % 4 !== 0) {
-      issues.push({
-        line: lineNum,
-        message: 'Inconsistent indentation',
-        type: 'warning'
-      });
-    }
-
-    // Track bracket balance
-    for (const char of line) {
-      if ('([{'.includes(char)) {
-        bracketStack.push({ char, line: lineNum });
-      } else if (')]}'.includes(char)) {
-        const last = bracketStack.pop();
-        if (last && bracketPairs[last.char] !== char) {
-          issues.push({
-            line: lineNum,
-            message: `Mismatched bracket: expected '${bracketPairs[last.char]}' but found '${char}'`,
-            type: 'error'
-          });
-        } else if (!last) {
-          issues.push({
-            line: lineNum,
-            message: `Unexpected closing bracket '${char}'`,
-            type: 'error'
-          });
-        }
-      }
-    }
-
-    // Check for common syntax issues
-    if (trimmed.endsWith(':') && !['if', 'elif', 'else', 'for', 'while', 'def', 'class', 'try', 'except', 'finally', 'with', 'async', 'match', 'case'].some(kw =>
-      trimmed.startsWith(kw + ' ') || trimmed.startsWith(kw + ':') || trimmed === kw + ':'
-    )) {
-      // Check for lambda or dict comprehension - those are valid
-      if (!trimmed.includes('lambda') && !trimmed.includes('{')) {
-        issues.push({
-          line: lineNum,
-          message: 'Unexpected colon at end of line',
-          type: 'warning'
-        });
-      }
-    }
-
-    // Check for missing colon after if/for/while/def/class
-    const blockKeywords = ['if', 'elif', 'for', 'while', 'def', 'class', 'try', 'except', 'with'];
-    for (const kw of blockKeywords) {
-      if ((trimmed.startsWith(kw + ' ') || trimmed === kw) && !trimmed.endsWith(':') && !trimmed.includes(':')) {
-        issues.push({
-          line: lineNum,
-          message: `Missing ':' after '${kw}' statement`,
-          type: 'error'
-        });
-      }
-    }
-  });
-
-  // Check for unclosed brackets
-  bracketStack.forEach(({ char, line }) => {
-    issues.push({
-      line,
-      message: `Unclosed bracket '${char}'`,
-      type: 'error'
-    });
-  });
-
-  return issues;
+// Simple Fallback Highlighter if Prism is missing (For Code Cells)
+const simpleFallbackHighlight = (code: string) => {
+  let html = code
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  html = html.replace(/\b(def|class|return|if|else|elif|while|for|in|import|from|as|try|except|finally|with|lambda|async|await)\b/g, '<span style="color: #c678dd;">$1</span>');
+  html = html.replace(/\b(print|len|range|str|int|float|list|dict|set|tuple|type|isinstance)\b/g, '<span style="color: #61afef;">$1</span>');
+  html = html.replace(/\b(\d+)\b/g, '<span style="color: #d19a66;">$1</span>');
+  html = html.replace(/('.*?'|".*?")/g, '<span style="color: #98c379;">$1</span>');
+  html = html.replace(/(#.*)/g, '<span style="color: #5c6370; font-style: italic;">$1</span>');
+  return html;
 };
 
 export const Cell: React.FC<CellProps> = ({
@@ -168,47 +49,39 @@ export const Cell: React.FC<CellProps> = ({
   notebookName,
   isActive,
   onActivate,
+  onDeactivate,
   onUpdate,
   onOutputUpdate,
   onDelete,
   onMoveUp,
   onMoveDown,
+  onMove,
   onFixError,
   allCells,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isFixing, setIsFixing] = useState(false);
   const [streamingOutputs, setStreamingOutputs] = useState<CellOutput[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [showFixPopover, setShowFixPopover] = useState(false);
+
   const cancelStreamRef = useRef<(() => void) | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const { kernelStatus, setKernelStatus } = useUIStore();
 
-  // Parse error line from cell error
   const errorLine = useMemo(() => parseErrorLine(cell.error), [cell.error]);
-
-  // Get lines array for rendering
   const codeLines = useMemo(() => cell.content.split('\n'), [cell.content]);
+  const isCode = cell.type === 'code';
 
-  // Detect syntax issues in real-time (only for code cells)
-  const syntaxIssues = useMemo(() => {
-    if (cell.type !== 'code') return [];
-    return detectSyntaxIssues(cell.content);
-  }, [cell.content, cell.type]);
-
-  // Get issues for a specific line
-  const getLineIssues = (lineNum: number) => syntaxIssues.filter(i => i.line === lineNum);
-
-  // Auto-resize textarea and sync with pre
   useEffect(() => {
-    if (textareaRef.current) {
+    if (textareaRef.current && isCode) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+      textareaRef.current.style.height = Math.max(24, textareaRef.current.scrollHeight) + 'px';
     }
-  }, [cell.content]);
+  }, [cell.content, isCode]);
 
-  // Auto-scroll output to bottom during streaming
   useEffect(() => {
     if (outputRef.current && cell.status === 'running') {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -219,23 +92,15 @@ export const Cell: React.FC<CellProps> = ({
     if (cell.type === 'markdown') return;
     if (!cell.content.trim()) return;
 
-    // Cancel any existing stream
-    if (cancelStreamRef.current) {
-      cancelStreamRef.current();
-    }
+    if (cancelStreamRef.current) cancelStreamRef.current();
 
     setStreamingOutputs([]);
     onOutputUpdate(cell.id, '', 'running', undefined, undefined, [], undefined);
     setKernelStatus('busy');
 
-    // Use streaming execution
     const cancel = controllerClient.runCellStream(
       { cellId: cell.id, code: cell.content, notebookId: notebookId },
-      // On each output chunk
-      (output: RichOutput) => {
-        setStreamingOutputs(prev => [...prev, output as CellOutput]);
-      },
-      // On complete
+      (output: RichOutput) => setStreamingOutputs(prev => [...prev, output as CellOutput]),
       (result) => {
         const outputs = result.outputs || [];
         if (result.success) {
@@ -247,7 +112,6 @@ export const Cell: React.FC<CellProps> = ({
         setStreamingOutputs([]);
         cancelStreamRef.current = null;
       },
-      // On error
       (error) => {
         onOutputUpdate(cell.id, '', 'error', error);
         setKernelStatus('error');
@@ -255,77 +119,129 @@ export const Cell: React.FC<CellProps> = ({
         cancelStreamRef.current = null;
       }
     );
-
     cancelStreamRef.current = cancel;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Shift+Enter: Run cell
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       runCell();
     }
   };
 
-  const handleFixError = async () => {
+  const handleFixError = async (mode: 'chat' | 'auto') => {
     if (!onFixError || !cell.error) return;
-    setIsFixing(true);
-    try {
-      await onFixError(index + 1, cell.error, cell.content);
-    } finally {
-      setIsFixing(false);
+
+    if (mode === 'chat') {
+      setShowFixPopover(false);
+      onFixError(index + 1, cell.error, cell.content, cell.id);
+    } else {
+      setIsFixing(true);
+      setShowFixPopover(false);
+      try {
+        // Call AI Service to fix error
+        const response = await controllerClient.fixError({
+          cellIndex: index + 1,
+          error: cell.error,
+          cellContent: cell.content,
+          context: {
+            notebookName: notebookName,
+          }
+        });
+
+        // Extract code from response
+        let fixedCode = response.text;
+        // Check for markdown code blocks
+        const codeBlockRegex = /```(?:python)?\s*([\s\S]*?)\s*```/;
+        const match = fixedCode.match(codeBlockRegex);
+        if (match && match[1]) {
+          fixedCode = match[1].trim();
+        }
+
+        // Update cell content directly
+        onUpdate(cell.id, fixedCode);
+
+      } catch (err) {
+        console.error("Auto-fix failed:", err);
+        // If auto-fix fails, we could fallback to chat or just alert
+        // For now, let's open chat with the error so user knows something went wrong
+        onFixError(index + 1, cell.error + `\n\n(Auto-fix failed: ${err})`, cell.content, cell.id);
+      } finally {
+        setIsFixing(false);
+      }
     }
   };
 
   const formatDuration = (seconds: number) => {
-    if (seconds < 0.01) return '<0.01s';
-    if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
+    if (seconds === 0) return '0ms';
+    if (seconds < 0.001) return '<1ms';
+    if (seconds < 1) return `${(seconds * 1000).toFixed(1)}ms`;
     if (seconds < 60) return `${seconds.toFixed(2)}s`;
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}m ${secs.toFixed(1)}s`;
   };
 
+  // DRAG AND DROP HANDLERS
   const handleDragStart = (e: React.DragEvent) => {
+    // Prepare drag data with cell information
     const dragData = {
       type: 'cell-drag',
       index: index + 1,
+      cellId: cell.id,
+      notebookId: notebookId,
+      notebookName: notebookName,
       content: cell.content,
       cellType: cell.type
     };
+
     e.dataTransfer.setData('application/json', JSON.stringify(dragData));
+    e.dataTransfer.setData('application/x-cell-index', index.toString());
+    // Use cell reference instead of actual content for text/plain
     const textPayload = `[Cell ${index + 1}]`;
     e.dataTransfer.setData('text/plain', textPayload);
-    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.effectAllowed = 'copyMove';
   };
 
-  const isCode = cell.type === 'code';
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('application/x-cell-index')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      setIsDragOver(true);
+    }
+  };
 
-  // Syntax Highlighting
-  const highlightCode = (code: string) => {
-    if (typeof window !== 'undefined' && (window as any).Prism) {
-      try {
-        return (window as any).Prism.highlight(code, (window as any).Prism.languages.python, 'python');
-      } catch (e) {
-        return code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const fromIndexStr = e.dataTransfer.getData('application/x-cell-index');
+    if (fromIndexStr && onMove) {
+      const fromIndex = parseInt(fromIndexStr, 10);
+      if (!isNaN(fromIndex) && fromIndex !== index) {
+        onMove(fromIndex, index);
       }
     }
-    return code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   };
 
-  // Highlight code with line-level styling
+  const highlightCode = (code: string) => {
+    if (typeof window !== 'undefined' && (window as any).Prism && (window as any).Prism.languages.python) {
+      try { return (window as any).Prism.highlight(code, (window as any).Prism.languages.python, 'python'); } catch (e) { }
+    }
+    return simpleFallbackHighlight(code);
+  };
+
   const renderHighlightedCode = () => {
     return codeLines.map((line, idx) => {
       const lineNum = idx + 1;
       const isErrorLine = errorLine === lineNum && cell.status === 'error';
-
-      let lineClass = '';
-      if (isErrorLine) {
-        lineClass = 'bg-red-500/20 border-l-2 border-red-500';
-      }
-
       return (
-        <div key={idx} className={`${lineClass} pl-1 -ml-1`}>
+        <div key={idx} className={`${isErrorLine ? 'bg-red-900/20' : ''} pl-1 -ml-1`}>
           <span dangerouslySetInnerHTML={{ __html: highlightCode(line) || '&nbsp;' }} />
         </div>
       );
@@ -334,315 +250,212 @@ export const Cell: React.FC<CellProps> = ({
 
   return (
     <div
-      className={`relative group flex gap-2 pl-2 pr-4 py-2 my-2 rounded-lg transition-all duration-200 border
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`relative group flex ${isCode ? 'gap-3 px-4' : 'px-3 py-3'} py-2 my-1 rounded-xl transition-all duration-200 min-h-[40px] cursor-default border
+        ${isDragOver ? 'border-2 border-dashed border-sim-red bg-sim-red/5' : 'border-transparent'}
         ${isActive
-          ? 'bg-sim-surface border-sim-red shadow-cell-focus z-10'
-          : 'bg-sim-surface/50 border-sim-border hover:border-sim-muted'
+          ? `${isCode ? 'bg-[#1e1e20]/30 border-white/20' : 'border-white/20 bg-transparent'} z-10`
+          : isCode
+            ? 'bg-[#1e1e20]/10 border-white/5'
+            : 'bg-transparent border-transparent'
         }`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={onActivate}
+      onClick={(e) => { e.stopPropagation(); if (!isActive) onActivate(); }}
     >
-      {/* Active Indicator Border (Left) */}
-      {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-sim-red rounded-l-lg"></div>}
+      {/* Drag Handle (Top Center) */}
+      <div
+        draggable
+        onDragStart={handleDragStart}
+        className="absolute left-1/2 -translate-x-1/2 -top-2 px-3 py-1 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-all z-30 bg-[#2b2b2e] border border-white/10 rounded-full shadow-lg hover:bg-[#3b3b3e] hover:shadow-xl"
+        title="Drag to Chat or Reorder"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical className="w-4 h-4 text-gray-400 hover:text-white" />
+      </div>
+      {/* Active Indicator Removed as requested */}
 
-      {/* Left Gutter: Play/Status Button & Drag Handle */}
-      <div className="w-14 flex-shrink-0 flex flex-col items-center pt-2 relative select-none group/gutter">
-        {/* Drag Handle - Visible on hover */}
-        <div
-          draggable
-          onDragStart={handleDragStart}
-          className="absolute -left-1 top-2 p-1 cursor-grab active:cursor-grabbing text-sim-muted hover:text-white opacity-0 group-hover:opacity-100 transition-opacity z-20"
-          title="Drag to Chat"
-        >
-          <GripVertical className="w-4 h-4" />
-        </div>
-
-        {isCode && (
-          <>
-            {/* Play/Status Button */}
+      {/* Gutter / Controls - Only for code */}
+      {isCode && (
+        <div className="w-10 flex-shrink-0 flex flex-col items-center pt-2 select-none z-20 sticky top-2 self-start h-fit">
+          <div className="flex flex-col items-center gap-2">
             <button
               onClick={(e) => { e.stopPropagation(); runCell(); }}
-              className={`w-7 h-7 rounded-full flex items-center justify-center transition-all mb-1 z-10
-                  ${cell.status === 'running'
-                  ? 'bg-yellow-500/20 border border-yellow-500/50'
-                  : cell.status === 'pending'
-                    ? 'bg-gray-500/20 border border-gray-500/50'
-                    : cell.status === 'success'
-                      ? 'bg-green-500/20 border border-green-500/50 hover:bg-green-500/30'
-                      : cell.status === 'error'
-                        ? 'bg-red-500/20 border border-red-500/50 hover:bg-red-500/30'
-                        : 'bg-sim-border text-sim-text hover:bg-sim-red hover:text-white'
-                }
-                `}
-              title={cell.status === 'running' ? 'Running...' : cell.status === 'pending' ? 'Queued' : cell.status === 'success' ? 'Run again' : cell.status === 'error' ? 'Run again' : 'Run cell'}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border 
+                 ${cell.status !== 'running' && cell.status !== 'success' ? 'bg-[#2b2b2e] border-white/10 hover:bg-white hover:text-black' : ''}
+                 ${cell.status === 'running' ? 'bg-green-900/20 text-green-400 border-green-500 ring-2 ring-green-500 animate-pulse' : ''}
+                 ${cell.status === 'success' ? 'bg-green-950/40 text-green-500 border-green-800 hover:border-green-500 shadow-lg shadow-green-950/50' : ''}
+                 ${cell.status === 'error' ? 'bg-red-900/20 text-red-500 border-red-500' : ''}
+              `}
+              title="Run cell"
             >
               {cell.status === 'running' ? (
-                <div className="w-4 h-4 border-2 border-yellow-500/30 border-t-yellow-500 rounded-full animate-spin"></div>
-              ) : cell.status === 'pending' ? (
-                <Clock className="w-3.5 h-3.5 text-gray-400 animate-pulse" />
-              ) : cell.status === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
-              ) : cell.status === 'error' ? (
-                <XCircle className="w-4 h-4 text-red-500" />
+                <div className="w-3.5 h-3.5 border-2 border-green-400 border-t-transparent rounded-full animate-spin"></div>
               ) : (
-                <Play className="w-3 h-3 fill-current ml-0.5" />
+                <Play className="w-3.5 h-3.5 fill-current" />
               )}
             </button>
-
-            {/* Execution Count & Duration */}
-            <div className="flex flex-col items-center gap-0.5">
-              {cell.executionCount && (
-                <span className="text-[10px] text-sim-muted font-mono opacity-60">[{cell.executionCount}]</span>
-              )}
-              {cell.duration !== undefined && cell.status !== 'running' && cell.status !== 'idle' && (
-                <span className={`text-[9px] font-mono flex items-center gap-0.5 ${cell.status === 'success' ? 'text-green-500/70' : 'text-red-500/70'}`}>
-                  <Clock className="w-2.5 h-2.5" />
-                  {formatDuration(cell.duration)}
-                </span>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 min-w-0 flex flex-col">
-        {/* Editor */}
-        <div className={`relative w-full rounded overflow-hidden ${isCode ? 'bg-[#0f0f11] border border-sim-border' : 'bg-transparent'}`}>
-          {isCode ? (
-            <div className="relative font-mono text-sm w-full flex" style={{ lineHeight: '1.5rem' }}>
-              {/* Line Numbers Gutter */}
-              <div className="flex-shrink-0 pt-3 pb-3 pr-2 pl-2 border-r border-sim-border/50 select-none bg-black/30">
-                {codeLines.map((_, idx) => {
-                  const lineNum = idx + 1;
-                  const isErrorLine = errorLine === lineNum && cell.status === 'error';
-                  const isRunning = cell.status === 'running';
-                  const lineIssues = getLineIssues(lineNum);
-                  const hasError = lineIssues.some(i => i.type === 'error');
-                  const hasWarning = lineIssues.some(i => i.type === 'warning');
-                  const issueTooltip = lineIssues.map(i => i.message).join('\n');
-
-                  return (
-                    <div
-                      key={idx}
-                      className={`text-right pr-1 min-w-[2rem] flex items-center justify-end relative group/line
-                        ${isErrorLine ? 'text-red-500 font-bold'
-                          : hasError ? 'text-red-400'
-                            : hasWarning ? 'text-yellow-400'
-                              : isRunning && lineNum === 1 ? 'text-yellow-400'
-                                : 'text-sim-muted/50'}
-                      `}
-                      style={{ height: '1.5rem' }}
-                      title={issueTooltip || undefined}
-                    >
-                      {/* Running indicator removed */}
-                      {(isErrorLine || hasError) && (
-                        <span className="mr-1 text-red-500">●</span>
-                      )}
-                      {!isErrorLine && !hasError && hasWarning && (
-                        <span className="mr-1 text-yellow-500">⚠</span>
-                      )}
-                      {lineNum}
-                      {/* Tooltip for syntax issues */}
-                      {lineIssues.length > 0 && (
-                        <div className="absolute left-full ml-2 top-0 hidden group-hover/line:block z-50 whitespace-nowrap">
-                          <div className={`px-2 py-1 text-xs rounded shadow-lg border ${hasError ? 'bg-red-500/90 border-red-400 text-white' : 'bg-yellow-500/90 border-yellow-400 text-black'}`}>
-                            {lineIssues.map((issue, i) => (
-                              <div key={i}>{issue.message}</div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+            {cell.status === 'success' && (
+              <div className="flex flex-col items-center mt-1" title={`Executed in ${formatDuration(cell.duration || 0)}`}>
+                <CheckCircle2 className="w-3 h-3 text-green-500 mb-0.5" />
+                <span className="text-[10px] font-mono text-gray-400">{formatDuration(cell.duration || 0)}</span>
               </div>
+            )}
+            {cell.status === 'error' && (
+              <div className="flex flex-col items-center mt-1">
+                <XCircle className="w-3 h-3 text-red-500 mb-0.5" />
+                <span className="text-[10px] font-mono text-red-400">Error</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
-              {/* Code Area */}
-              <div className="flex-1 relative min-w-0">
-                {/* Syntax Highlighting Layer with Error Lines */}
-                <pre
-                  ref={preRef}
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 m-0 p-3 whitespace-pre-wrap break-words bg-transparent text-gray-300 w-full overflow-hidden"
-                  style={{ minHeight: '100%', lineHeight: '1.5rem' }}
-                >
+      {/* Editor & Output Container */}
+      <div className="flex-1 min-w-0 flex flex-col gap-3">
+        {isCode ? (
+          // Code Editor
+          <div className={`relative w-full rounded-xl overflow-hidden bg-[#09090b] shadow-inner`}>
+            <div className="relative font-mono text-sm w-full flex py-3 min-h-[3rem]" style={{ lineHeight: '1.6rem' }}>
+              <div className="flex-shrink-0 px-3 text-right select-none text-gray-600 border-r border-[#27272a] bg-[#09090b]">
+                {codeLines.map((_, idx) => (
+                  <div key={idx} className="h-[1.6rem] text-[11px] font-mono opacity-50">{idx + 1}</div>
+                ))}
+              </div>
+              <div
+                className="flex-1 relative min-w-0 no-drag"
+                onDragStart={(e) => e.stopPropagation()}
+              >
+                <pre ref={preRef} aria-hidden="true" className="pointer-events-none absolute inset-0 m-0 px-4 whitespace-pre-wrap break-words bg-transparent text-gray-300 w-full font-mono text-sm" style={{ minHeight: '100%', lineHeight: '1.6rem', fontFamily: 'inherit' }}>
                   {renderHighlightedCode()}
                 </pre>
-                {/* Editable Layer */}
                 <textarea
                   ref={textareaRef}
                   value={cell.content}
                   onChange={(e) => onUpdate(cell.id, e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="# Enter Python code here..."
-                  className="relative w-full p-3 bg-transparent text-transparent caret-white resize-none outline-none whitespace-pre-wrap break-words z-10"
+                  className="relative w-full px-4 bg-transparent text-transparent caret-sim-red resize-none outline-none whitespace-pre-wrap break-words z-10 min-h-[1.6rem] font-mono text-sm border-none ring-0 p-0"
                   spellCheck={false}
                   rows={1}
-                  style={{ color: 'transparent', lineHeight: '1.5rem' }}
+                  style={{ color: 'transparent', lineHeight: '1.6rem', fontFamily: 'inherit', padding: '0 1rem' }}
                 />
               </div>
             </div>
-          ) : (
-            <textarea
-              ref={textareaRef}
-              value={cell.content}
-              onChange={(e) => onUpdate(cell.id, e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Enter text here..."
-              className="w-full p-3 bg-transparent resize-none outline-none text-sm leading-relaxed font-sans text-gray-200 caret-sim-red"
-              spellCheck={true}
-              rows={1}
-            />
-          )}
-        </div>
+          </div>
+        ) : (
+          // Text/Markdown Editor (Delegated to TextCell)
+          <TextCell
+            content={cell.content}
+            isActive={isActive}
+            onUpdate={(content) => onUpdate(cell.id, content)}
+            onActivate={onActivate}
+            onDeactivate={onDeactivate}
+          />
+        )}
 
-        {/* Output Area - Shows during streaming or after execution */}
+        {/* Output Section */}
         {isCode && (cell.status === 'running' || cell.output || cell.outputs?.length || cell.status === 'error') && (
-          <div
-            ref={outputRef}
-            className="mt-2 text-sm font-mono overflow-x-auto max-h-[500px] overflow-y-auto bg-black/50 border border-sim-border rounded"
-          >
-            {/* Streaming Output - Terminal style */}
-            {cell.status === 'running' && streamingOutputs.length > 0 && (
-              <div className="p-3 space-y-1">
-                <div className="flex items-center gap-2 text-xs text-sim-muted mb-2 pb-2 border-b border-sim-border">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span>Running...</span>
+          <div ref={outputRef} className="mt-1 text-sm font-mono overflow-auto max-h-[500px] rounded-lg bg-black/30 border border-white/5 p-4 shadow-inner">
+            {cell.status === 'running' && (
+              <div className="flex items-center gap-2 text-xs text-sim-red mb-2 animate-pulse">
+                <Clock className="w-3 h-3" /> Executing...
+              </div>
+            )}
+            <div className="space-y-2">
+              {cell.outputs?.map((output, idx) => <OutputItem key={idx} output={output} />)}
+              {!cell.outputs?.length && cell.output && !cell.error && (
+                <div className="text-gray-300 whitespace-pre-wrap break-words">{cell.output}</div>
+              )}
+              {cell.status === 'error' && (
+                <div className="text-red-400 whitespace-pre-wrap break-words break-all mt-2 bg-red-950/20 p-3 rounded-lg border border-red-500/20 w-full max-w-full overflow-hidden overflow-x-auto">
+                  {cell.error}
                 </div>
-                {streamingOutputs.map((output, idx) => (
-                  <OutputItem key={idx} output={output} />
-                ))}
-              </div>
-            )}
+              )}
+              {cell.status === 'error' && onFixError && (
+                <div className="relative mt-2">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowFixPopover(!showFixPopover); }}
+                    disabled={isFixing}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold bg-sim-red text-white rounded-full hover:bg-sim-redHover transition-colors shadow-lg shadow-red-900/50 disabled:opacity-50"
+                  >
+                    {isFixing ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Wrench className="w-3.5 h-3.5" />
+                    )}
+                    {isFixing ? 'Processing...' : 'Fix with AI'}
+                    <ChevronDown className={`w-3 h-3 transition-transform ${showFixPopover ? 'rotate-180' : ''}`} />
+                  </button>
 
-            {/* Final Output - After execution completes */}
-            {cell.status !== 'running' && (
-              <div className="p-3 space-y-2">
-                {cell.status === 'error' ? (
-                  <div className="flex flex-col gap-2">
-                    {/* Show any outputs before the error */}
-                    {cell.outputs?.filter(o => o.type !== 'error').map((output, idx) => (
-                      <OutputItem key={idx} output={output} />
-                    ))}
-                    {/* Error message with line highlight info */}
-                    <div className="text-red-400 whitespace-pre-wrap bg-red-500/10 p-2 rounded border border-red-500/30">
-                      {errorLine && (
-                        <div className="text-xs text-red-300 mb-2 flex items-center gap-2">
-                          <span className="bg-red-500/30 px-2 py-0.5 rounded">Line {errorLine}</span>
-                          <span className="text-red-400/70">Error detected on line {errorLine}</span>
-                        </div>
-                      )}
-                      {cell.error || cell.output}
-                    </div>
-                    {onFixError && (
+                  {/* Fix Options Popover - Horizontal Layout */}
+                  {showFixPopover && (
+                    <div className="absolute left-0 bottom-full mb-2 flex bg-[#1e1e20] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200 divide-x divide-white/10">
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleFixError(); }}
-                        disabled={isFixing}
-                        className="self-start flex items-center gap-1.5 px-2 py-1 text-xs bg-sim-red/20 hover:bg-sim-red/30 text-sim-red border border-sim-red/50 rounded transition-colors disabled:opacity-50"
+                        onClick={(e) => { e.stopPropagation(); handleFixError('chat'); }}
+                        className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
                       >
-                        {isFixing ? (
-                          <>
-                            <div className="w-3 h-3 border-2 border-sim-red/30 border-t-sim-red rounded-full animate-spin"></div>
-                            Analyzing...
-                          </>
-                        ) : (
-                          <>
-                            <Wrench className="w-3 h-3" />
-                            Fix Error with AI
-                          </>
-                        )}
+                        <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-400">
+                          <MoreHorizontal className="w-4 h-4" />
+                        </div>
+                        <div className="font-bold">Chat</div>
                       </button>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    {cell.outputs?.map((output, idx) => (
-                      <OutputItem key={idx} output={output} />
-                    ))}
-                    {!cell.outputs?.length && cell.output && (
-                      <div className="text-gray-300 whitespace-pre-wrap">{cell.output}</div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleFixError('auto'); }}
+                        className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
+                      >
+                        <div className="p-1.5 rounded-md bg-green-500/10 text-green-400">
+                          <Zap className="w-4 h-4" />
+                        </div>
+                        <div className="font-bold">Auto-Fix</div>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Click outside listener */}
+                  {showFixPopover && (
+                    <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setShowFixPopover(false); }} />
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Right Toolbar - Shows on hover */}
       <div
-        className={`absolute right-2 top-2 flex items-center gap-1 p-1 rounded bg-sim-bg/90 border border-sim-border shadow-lg transition-all duration-200
-          ${isHovered || isActive ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}
+        className={`absolute right-4 top-2 flex items-center gap-1 p-1 rounded-full bg-[#2b2b2e] border border-white/10 shadow-xl transition-all duration-200 z-30
+          ${(isActive || (isCode && isHovered)) && !isDragOver ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}
         `}
       >
-        <ToolBtn icon={ArrowUp} onClick={() => onMoveUp(cell.id)} label="Move cell up" />
-        <ToolBtn icon={ArrowDown} onClick={() => onMoveDown(cell.id)} label="Move cell down" />
-        <div className="w-[1px] h-4 bg-sim-border mx-1"></div>
-        <ToolBtn icon={Trash2} onClick={() => onDelete(cell.id)} label="Delete cell" />
-        <ToolBtn icon={MoreHorizontal} onClick={() => { }} label="More actions" />
+        <ToolBtn icon={ArrowUp} onClick={() => onMoveUp(cell.id)} label="Up" />
+        <ToolBtn icon={ArrowDown} onClick={() => onMoveDown(cell.id)} label="Down" />
+        <div className="w-[1px] h-4 bg-white/10 mx-1"></div>
+        <ToolBtn icon={Trash2} onClick={() => onDelete(cell.id)} label="Delete" />
+        <ToolBtn icon={MoreHorizontal} onClick={() => { }} label="More" />
       </div>
     </div>
   );
 };
 
-// Output Item Component - Renders different output types
+// Helper Components
 const OutputItem: React.FC<{ output: CellOutput }> = ({ output }) => {
   if (output.type === 'image' && output.data) {
     return (
       <div className="flex justify-center py-2">
-        <img
-          src={`data:${output.mimeType || 'image/png'};base64,${output.data}`}
-          alt="Output"
-          className="max-w-full h-auto rounded border border-sim-border"
-          style={{ maxHeight: '400px' }}
-        />
+        <img src={`data:${output.mimeType || 'image/png'};base64,${output.data}`} alt="Output" className="max-w-full h-auto rounded-lg shadow-sm" />
       </div>
     );
   }
-
   if (output.type === 'html' && output.data) {
-    return (
-      <div
-        className="prose prose-invert max-w-full"
-        dangerouslySetInnerHTML={{ __html: output.data }}
-      />
-    );
+    return <div className="prose prose-invert max-w-full" dangerouslySetInnerHTML={{ __html: output.data }} />;
   }
-
-  if (output.type === 'stream') {
-    const isStderr = output.stream === 'stderr';
-    return (
-      <span className={`whitespace-pre-wrap ${isStderr ? 'text-yellow-400' : 'text-gray-300'}`}>
-        {output.data}
-      </span>
-    );
-  }
-
-  if (output.type === 'error') {
-    return (
-      <div className="text-red-400 whitespace-pre-wrap">
-        {output.data}
-      </div>
-    );
-  }
-
-  // Default text output
-  return (
-    <div className="text-gray-300 whitespace-pre-wrap">
-      {output.data}
-    </div>
-  );
+  return <div className={`whitespace-pre-wrap ${output.stream === 'stderr' ? 'text-yellow-300' : 'text-gray-300'}`}>{output.data}</div>
 };
 
 const ToolBtn: React.FC<{ icon: React.ComponentType<any>; onClick: (e: any) => void; label: string }> = ({ icon: Icon, onClick, label }) => (
-  <button
-    onClick={(e) => { e.stopPropagation(); onClick(e); }}
-    title={label}
-    className="p-1.5 text-sim-muted hover:bg-sim-bg hover:text-white rounded transition-colors"
-  >
+  <button onClick={(e) => { e.stopPropagation(); onClick(e); }} title={label} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors">
     <Icon className="w-4 h-4" />
   </button>
 );
