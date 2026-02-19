@@ -11,6 +11,7 @@ import { memoryRoutes } from './routes/memory.js';
 import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { KernelManager } from './core/KernelManager.js';
+import { closeMemoryStore } from './core/ai/MemoryStore.js';
 
 const server: FastifyInstance = fastify({
     logger: {
@@ -42,7 +43,8 @@ const gracefulShutdown = async () => {
         }
     }
 
-    // Close server
+    closeMemoryStore();
+
     await server.close();
     process.exit(0);
 };

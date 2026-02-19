@@ -1,7 +1,10 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { HumanMessage, SystemMessage, AIMessage } from '@langchain/core/messages';
 import { PROVIDERS, DEFAULT_PROVIDER, DEFAULT_MODEL, ProviderConfig, ModelInfo } from './providers.js';
 import { SYSTEM_PROMPT, ERROR_FIX_PROMPT } from './prompts.js';
+import { getOrCreateSession, appendMessage, getRecentMessages } from './MemoryStore.js';
+import { retrieve, formatRetrievedContext, indexChunks } from './RAGService.js';
+import { validateOperations } from './operationsSchema.js';
 
 export interface AIRequest {
     prompt: string;
@@ -32,11 +35,19 @@ export interface AIResponse {
         completion_tokens?: number;
         total_tokens?: number;
     };
+    sessionId?: string;
 }
 
 export interface SelectedModel {
     provider: string;
     modelId: string;
+}
+
+export interface GenerateStreamCallbacks {
+    onChunk: (delta: string) => void;
+    onOperations: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
+    onDone: (payload: { sessionId: string; tokenInfo?: AIResponse['tokenInfo'] }) => void;
+    onError: (message: string) => void;
 }
 
 export class AIService {
@@ -165,7 +176,8 @@ export class AIService {
         prompt: string,
         context?: any,
         provider?: string,
-        model?: string
+        model?: string,
+        sessionId?: string | null
     ): Promise<AIResponse> {
         const useProvider = provider || this.currentProvider;
         const useModel = model || this.currentModel;
@@ -185,7 +197,21 @@ export class AIService {
             throw new Error(`Failed to create AI client for ${useProvider}:${useModel}`);
         }
 
-        // Build context string
+        const resolvedSessionId = getOrCreateSession(sessionId, context?.notebookName);
+
+        const history = getRecentMessages(resolvedSessionId, {
+            limit: 20,
+            maxTokens: this.getModelContextReserve(useProvider, useModel),
+        });
+
+        let ragContext = '';
+        try {
+            const chunks = await retrieve(resolvedSessionId, prompt, { topK: 20, afterRerank: 8 });
+            ragContext = formatRetrievedContext(chunks);
+        } catch (e) {
+            // RAG optional: continue without retrieved context
+        }
+
         let contextStr = '';
         if (context?.notebookName) {
             contextStr += `Notebook: ${context.notebookName}\n\n`;
@@ -197,39 +223,174 @@ export class AIService {
             });
         }
 
-        const messages = [
-            new SystemMessage(SYSTEM_PROMPT),
+        const systemContent = (ragContext ? ragContext + '\n' : '') + SYSTEM_PROMPT;
+        const messageParts: (HumanMessage | AIMessage | SystemMessage)[] = [
+            new SystemMessage(systemContent),
+            ...history.map((m) =>
+                m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
+            ),
             new HumanMessage(contextStr + prompt),
         ];
 
         try {
-            const response = await client.invoke(messages);
+            const response = await client.invoke(messageParts);
             const rawText = response.content.toString();
 
-            // Extract operations from response
-            const operations = this.extractOperations(rawText);
+            let operations = this.extractOperations(rawText);
+            operations = this.normalizeRawOperations(operations);
+            const validated = validateOperations(operations);
+            const validOps = validated.success ? validated.data : [];
 
-            // Clean text by removing operations block to hide raw JSON from user
             let text = rawText.replace(/```(?:json|operations)?\s*\n([\s\S]*?)\n```/g, '').trim();
-
-            // Also remove isolated JSON arrays if they look like operations
-            // (Only if they are large multiline blocks, to avoid removing inline code examples)
-            if (operations.length > 0 && text.match(/\[\s*\{[\s\S]*?\}\s*\]/)) {
+            if (validOps.length > 0 && text.match(/\[\s*\{[\s\S]*?\}\s*\]/)) {
                 text = text.replace(/\[\s*\{[\s\S]*?\}\s*\]/g, '').trim();
+            }
+
+            appendMessage(resolvedSessionId, 'user', contextStr + prompt);
+            appendMessage(resolvedSessionId, 'assistant', rawText);
+
+            try {
+                await indexChunks(resolvedSessionId, 'message', contextStr + prompt, { embed: true });
+                await indexChunks(resolvedSessionId, 'message', rawText, { embed: true });
+            } catch (_) {
+                // Indexing optional
             }
 
             return {
                 text,
-                operations,
+                operations: validOps.map((op) => ({ type: op.type, params: op.params })),
                 tokenInfo: {
                     prompt_tokens: (response.response_metadata as any)?.tokenUsage?.promptTokens,
                     completion_tokens: (response.response_metadata as any)?.tokenUsage?.completionTokens,
                     total_tokens: (response.response_metadata as any)?.tokenUsage?.totalTokens,
                 },
+                sessionId: resolvedSessionId,
             };
         } catch (error: any) {
             throw new Error(`AI generation failed: ${error.message}`);
         }
+    }
+
+    /**
+     * Stream the assistant response and emit chunks + operations when a complete operations block is detected.
+     */
+    public async generateStream(
+        prompt: string,
+        context: any,
+        provider: string | undefined,
+        model: string | undefined,
+        sessionId: string | null | undefined,
+        callbacks: GenerateStreamCallbacks
+    ): Promise<void> {
+        const useProvider = provider || this.currentProvider;
+        const useModel = model || this.currentModel;
+
+        const client = await this.getClient(useProvider, useModel);
+        if (!client) {
+            const providerConfig = PROVIDERS[useProvider];
+            if (!providerConfig) {
+                callbacks.onError(`Unknown AI provider: ${useProvider}`);
+                return;
+            }
+            if (!providerConfig.apiKey && !providerConfig.isLocal) {
+                callbacks.onError(`No API key configured for provider: ${useProvider}`);
+                return;
+            }
+            callbacks.onError(`Failed to create AI client for ${useProvider}:${useModel}`);
+            return;
+        }
+
+        const resolvedSessionId = getOrCreateSession(sessionId, context?.notebookName);
+        const history = getRecentMessages(resolvedSessionId, {
+            limit: 20,
+            maxTokens: this.getModelContextReserve(useProvider, useModel),
+        });
+
+        let ragContext = '';
+        try {
+            const chunks = await retrieve(resolvedSessionId, prompt, { topK: 20, afterRerank: 8 });
+            ragContext = formatRetrievedContext(chunks);
+        } catch (_) {}
+
+        let contextStr = '';
+        if (context?.notebookName) contextStr += `Notebook: ${context.notebookName}\n\n`;
+        if (context?.cells?.length) {
+            contextStr += 'Current cells:\n';
+            context.cells.forEach((cell: any, idx: number) => {
+                contextStr += `Cell ${idx + 1} (${cell.type}):\n${cell.content}\n\n`;
+            });
+        }
+
+        const systemContent = (ragContext ? ragContext + '\n' : '') + SYSTEM_PROMPT;
+        const messageParts: (HumanMessage | AIMessage | SystemMessage)[] = [
+            new SystemMessage(systemContent),
+            ...history.map((m) => (m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content))),
+            new HumanMessage(contextStr + prompt),
+        ];
+
+        let buffer = '';
+        let lastEmittedOpsEndIndex = -1;
+        let tokenInfo: AIResponse['tokenInfo'] | undefined;
+        let lastChunk: any;
+
+        try {
+            const stream = await client.stream(messageParts);
+            for await (const chunk of stream) {
+                lastChunk = chunk;
+                const content = chunk.content;
+                const delta = typeof content === 'string' ? content : Array.isArray(content) ? (content as any[]).map((c) => (typeof c === 'string' ? c : (c as any)?.text ?? '')).join('') : String(content ?? '');
+                if (!delta) continue;
+                buffer += delta;
+                callbacks.onChunk(delta);
+
+                const jsonBlockMatch = buffer.match(/```(?:json|operations)?\s*\n([\s\S]*?)\n```/);
+                if (jsonBlockMatch && jsonBlockMatch.index !== undefined) {
+                    const blockEndIndex = jsonBlockMatch.index + jsonBlockMatch[0].length;
+                    if (blockEndIndex > lastEmittedOpsEndIndex) {
+                        try {
+                            const parsed = JSON.parse(jsonBlockMatch[1]);
+                            if (Array.isArray(parsed)) {
+                                const operations = this.normalizeRawOperations(parsed);
+                                const validated = validateOperations(operations);
+                                if (validated.success && validated.data.length > 0) {
+                                    callbacks.onOperations(validated.data.map((op) => ({ type: op.type, params: op.params })));
+                                    lastEmittedOpsEndIndex = blockEndIndex;
+                                }
+                            }
+                        } catch (_) {}
+                    }
+                }
+            }
+
+            const usage = lastChunk?.response_metadata?.tokenUsage ?? lastChunk?.usage;
+            if (usage) {
+                tokenInfo = {
+                    prompt_tokens: usage.promptTokens ?? usage.prompt_tokens,
+                    completion_tokens: usage.completionTokens ?? usage.completion_tokens,
+                    total_tokens: usage.totalTokens ?? usage.total_tokens,
+                };
+            }
+        } catch (err: any) {
+            callbacks.onError(err?.message ?? 'Stream failed');
+            return;
+        }
+
+        appendMessage(resolvedSessionId, 'user', contextStr + prompt);
+        appendMessage(resolvedSessionId, 'assistant', buffer);
+        try {
+            await indexChunks(resolvedSessionId, 'message', contextStr + prompt, { embed: true });
+            await indexChunks(resolvedSessionId, 'message', buffer, { embed: true });
+        } catch (_) {}
+
+        callbacks.onDone({ sessionId: resolvedSessionId, tokenInfo });
+    }
+
+    private getModelContextReserve(provider: string, model: string): number {
+        const providerConfig = PROVIDERS[provider];
+        if (!providerConfig?.models?.length) return 4096;
+        const info = providerConfig.models.find((m) => m.id === model);
+        const context = info?.context ?? 4096;
+        return Math.floor(context * 0.4);
     }
 
     public async fixError(request: ErrorFixRequest): Promise<AIResponse> {
@@ -276,6 +437,23 @@ export class AIService {
         } catch (error: any) {
             throw new Error(`Error fixing failed: ${error.message}`);
         }
+    }
+
+    private normalizeRawOperations(ops: Array<{ type?: string; params?: Record<string, any> }>): Array<{ type: string; params: Record<string, any> }> {
+        return ops.filter((o) => o && typeof o.type === 'string' && o.params && typeof o.params === 'object').map((o) => {
+            const type = String(o.type).toLowerCase().trim();
+            const params = { ...o.params } as Record<string, any>;
+            if (type === 'add_cell' || type === 'edit_cell') {
+                if (params.type !== undefined) params.type = String(params.type).toLowerCase().trim() === 'markdown' ? 'markdown' : 'code';
+                if (params.content === undefined) params.content = '';
+            }
+            if (type === 'edit_cell' || type === 'delete_cell') {
+                if (params.cellIndex !== undefined) params.cellIndex = Number(params.cellIndex);
+            }
+            if (type === 'create_notebook' && params.name !== undefined) params.name = String(params.name).trim();
+            if (type === 'add_package' && !Array.isArray(params.packages)) params.packages = params.packages != null ? [String(params.packages)] : [];
+            return { type, params };
+        });
     }
 
     private extractOperations(text: string): Array<{ type: string; params: Record<string, any> }> {

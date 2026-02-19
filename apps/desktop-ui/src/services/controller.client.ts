@@ -60,16 +60,7 @@ export interface AllKernelMetrics {
 
 export interface AIRequest {
   prompt: string;
-  context?: {
-    notebookName?: string;
-    cells?: Array<{ type: string; content: string }>;
-  };
-}
-
-export interface ErrorFixRequest {
-  cellIndex: number;
-  error: string;
-  cellContent: string;
+  sessionId?: string | null;
   context?: {
     notebookName?: string;
     cells?: Array<{ type: string; content: string }>;
@@ -86,6 +77,17 @@ export interface AIResponse {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+  };
+  sessionId?: string;
+}
+
+export interface ErrorFixRequest {
+  cellIndex: number;
+  error: string;
+  cellContent: string;
+  context?: {
+    notebookName?: string;
+    cells?: Array<{ type: string; content: string }>;
   };
 }
 
@@ -237,6 +239,83 @@ export const controllerClient = {
       method: 'POST',
       body: JSON.stringify(req),
     });
+  },
+
+  /**
+   * Streaming AI Assistant (SSE). Callbacks are invoked as events arrive.
+   * Pass signal for cancellation.
+   */
+  async askAIStream(
+    req: AIRequest,
+    callbacks: {
+      onChunk: (delta: string) => void;
+      onOperations: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
+      onDone: (payload: { sessionId?: string; tokenInfo?: AIResponse['tokenInfo'] }) => void;
+      onError: (message: string) => void;
+    },
+    signal?: AbortSignal
+  ): Promise<void> {
+    const res = await fetch(`${BASE_URL}/ai/assist/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+      signal,
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      callbacks.onError(err || `HTTP ${res.status}`);
+      return;
+    }
+    const reader = res.body?.getReader();
+    if (!reader) {
+      callbacks.onError('No response body');
+      return;
+    }
+    const decoder = new TextDecoder();
+    let buf = '';
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const events = buf.split('\n\n');
+        buf = events.pop() ?? '';
+        for (const raw of events) {
+          let event = '';
+          let data = '';
+          for (const line of raw.split('\n')) {
+            if (line.startsWith('event: ')) event = line.slice(7).trim();
+            else if (line.startsWith('data: ')) data = line.slice(6);
+          }
+          if (!data) continue;
+          try {
+            const payload = JSON.parse(data);
+            if (event === 'chunk' && payload.delta != null) callbacks.onChunk(payload.delta);
+            else if (event === 'operations' && Array.isArray(payload.operations)) callbacks.onOperations(payload.operations);
+            else if (event === 'done') callbacks.onDone(payload);
+            else if (event === 'error' && payload.message) callbacks.onError(payload.message);
+          } catch (_) {}
+        }
+      }
+      if (buf.trim()) {
+        let event = '';
+        let data = '';
+        for (const line of buf.split('\n')) {
+          if (line.startsWith('event: ')) event = line.slice(7).trim();
+          else if (line.startsWith('data: ')) data = line.slice(6);
+        }
+        if (data) {
+          try {
+            const payload = JSON.parse(data);
+            if (event === 'done') callbacks.onDone(payload);
+            else if (event === 'error' && payload.message) callbacks.onError(payload.message);
+          } catch (_) {}
+        }
+      }
+    } catch (e: any) {
+      if (e?.name === 'AbortError') callbacks.onError('Cancelled');
+      else callbacks.onError(e?.message ?? 'Stream failed');
+    }
   },
 
   // Error Fixing - Analyze and fix cell execution errors

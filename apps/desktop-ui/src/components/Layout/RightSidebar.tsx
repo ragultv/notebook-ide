@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, User, CornerDownLeft, Zap, ChevronDown, Wrench, Paperclip, AlertTriangle, Check, Ban, File as FileIcon, Code, Plus, Loader2 } from 'lucide-react';
+import { X, Send, User, CornerDownLeft, Zap, ChevronDown, Wrench, Paperclip, AlertTriangle, Check, Ban, File as FileIcon, Code, Plus, Loader2, MessageSquarePlus } from 'lucide-react';
 import { controllerClient } from '../../services/controller.client';
 import { CellData, ProjectFile } from '../../types';
 import { ModelSelector } from '../ModelSelector';
@@ -30,6 +30,7 @@ interface Message {
   role: 'user' | 'ai';
   text: string;
   tokenInfo?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+  streaming?: boolean;
   pendingConfirmation?: {
     type: 'delete_notebook';
     name?: string;
@@ -65,9 +66,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   isResizing,
   onStartResizing
 }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    // { id: '1', role: 'ai', text: 'OPREL INTELLIGENCE SYSTEM ONLINE. CONNECTED TO NVIDIA NIM.' }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -160,96 +160,124 @@ ${cellContext}
 
     const finalMessage = `${projectOverview}${attachmentContext}\n\nUSER QUERY: ${inputValue}`;
 
-    try {
-      // Call the backend AI service with proper request structure
-      const response = await controllerClient.askAI({
-        prompt: finalMessage,
-        context: {
-          notebookName: notebookName,
-          cells: notebookCells.map(c => ({ type: c.type, content: c.content }))
+    const placeholderId = `streaming-${Date.now()}`;
+    setMessages(prev => [...prev, {
+      id: placeholderId,
+      role: 'ai',
+      text: '',
+      streaming: true,
+    }]);
+
+    const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): string[] => {
+      const actionDescriptions: string[] = [];
+      ops.forEach((op) => {
+        switch (op.type) {
+          case 'create_notebook':
+            onCreateNotebook(op.params.name);
+            actionDescriptions.push(`Created notebook: ${op.params.name}`);
+            break;
+          case 'add_cell': {
+            const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
+            onAddCell(op.params.content ?? '', cellType);
+            const preview = (op.params.content || '').slice(0, 50).replace(/\n/g, ' ');
+            actionDescriptions.push(`Added ${cellType} cell${preview ? `: ${preview}${(op.params.content?.length || 0) > 50 ? '...' : ''}` : ''}`);
+            break;
+          }
+          case 'move_cell':
+            onMoveCell(op.params.fromIndex, op.params.toIndex);
+            actionDescriptions.push(`Moved cell ${op.params.fromIndex} → ${op.params.toIndex}`);
+            break;
+          case 'delete_cell':
+            onDeleteCell(op.params.cellIndex);
+            actionDescriptions.push(`Deleted cell ${op.params.cellIndex}`);
+            break;
+          case 'delete_notebook':
+            setMessages(prev => [...prev, {
+              id: (Date.now() + Math.random()).toString(),
+              role: 'ai',
+              text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
+              pendingConfirmation: { type: 'delete_notebook', name: op.params.name }
+            }]);
+            break;
+          case 'edit_cell': {
+            const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
+            onEditCell(op.params.cellIndex, op.params.content ?? '', editType);
+            actionDescriptions.push(`Edited cell ${op.params.cellIndex}`);
+            break;
+          }
+          case 'add_package':
+            onAddPackages(op.params.packages || []);
+            actionDescriptions.push(`Added packages: ${(op.params.packages || []).join(', ')}`);
+            break;
         }
       });
+      return actionDescriptions;
+    };
 
-      let addedCount = 0;
-      let deletedCount = 0;
-      let movedCount = 0;
-      let createdCount = 0;
+    const stripOperationsBlock = (t: string): string => {
+      let out = t.replace(/```(?:json|operations)?\s*\n[\s\S]*?\n```/g, '').trim();
+      if (out.match(/\[\s*\{[\s\S]*?\}\s*\]/)) out = out.replace(/\[\s*\{[\s\S]*?\}\s*\]/g, '').trim();
+      return out;
+    };
 
-      // Execute operations progressively (Streaming Effect)
-      if (response.operations && response.operations.length > 0) {
-        for (const op of response.operations) {
-          switch (op.type) {
-            case 'create_notebook':
-              onCreateNotebook(op.params.name);
-              createdCount++;
-              // Wait longer after creating notebook to ensure state is updated
-              await new Promise(resolve => setTimeout(resolve, 600));
-              break;
-            case 'add_cell':
-              onAddCell(op.params.content, op.params.type);
-              addedCount++;
-              // Delay between cells for visual effect
-              await new Promise(resolve => setTimeout(resolve, 400));
-              break;
-            case 'move_cell':
-              onMoveCell(op.params.fromIndex, op.params.toIndex);
-              movedCount++;
-              await new Promise(resolve => setTimeout(resolve, 400));
-              break;
-            case 'delete_cell':
-              onDeleteCell(op.params.cellIndex);
-              deletedCount++;
-              await new Promise(resolve => setTimeout(resolve, 400));
-              break;
-            case 'delete_notebook':
-              // Don't execute immediately; push a confirmation message
-              setMessages(prev => [...prev, {
-                id: (Date.now() + Math.random()).toString(),
-                role: 'ai',
-                text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
-                pendingConfirmation: {
-                  type: 'delete_notebook',
-                  name: op.params.name
-                }
-              }]);
-              break;
-            case 'edit_cell':
-              onEditCell(op.params.cellIndex, op.params.content, op.params.type);
-              movedCount++; // Reusing for edits
-              await new Promise(resolve => setTimeout(resolve, 400));
-              break;
-            case 'add_package':
-              onAddPackages(op.params.packages || []);
-              await new Promise(resolve => setTimeout(resolve, 400));
-              break;
-          }
-        }
+    const req = {
+      prompt: finalMessage,
+      sessionId: sessionId ?? undefined,
+      context: { notebookName, cells: notebookCells.map(c => ({ type: c.type, content: c.content })) },
+    };
+
+    const applyNonStreamResponse = (response: { text: string; operations?: Array<{ type: string; params: Record<string, any> }>; tokenInfo?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null; sessionId?: string }) => {
+      if (response.operations?.length) {
+        const descriptions = runOperations(response.operations);
+        setMessages(prev => prev.map(m => m.id === placeholderId
+          ? { ...m, streaming: false, text: stripOperationsBlock(response.text) + (descriptions.length ? `\n\n**Applied:** ${descriptions.join('; ')}` : ''), tokenInfo: response.tokenInfo ?? null }
+          : m));
+      } else {
+        setMessages(prev => prev.map(m => m.id === placeholderId
+          ? { ...m, streaming: false, text: response.text || "I couldn't process that request.", tokenInfo: response.tokenInfo ?? null }
+          : m));
       }
+      if (response.sessionId) setSessionId(response.sessionId);
+      setIsLoading(false);
+    };
 
-      const actionSummary: string[] = [];
-      if (createdCount > 0) actionSummary.push(`Created ${createdCount} notebook(s).`);
-      if (addedCount > 0) actionSummary.push(`Added ${addedCount} cell(s).`);
-      if (movedCount > 0) actionSummary.push(`Modified ${movedCount} cell(s).`);
-      if (deletedCount > 0) actionSummary.push(`Deleted ${deletedCount} cell(s).`);
-
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'ai',
-        text: response.text || (actionSummary.length > 0 ? "Actions executed:\n- " + actionSummary.join("\n- ") : "I couldn't process that request."),
-        tokenInfo: response.tokenInfo || null,
-      };
-
-      setMessages(prev => [...prev, aiMsg]);
-    } catch (error) {
-      console.error('AI request failed:', error);
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'ai',
-        text: `Error: ${error instanceof Error ? error.message : 'Failed to connect to AI service. Make sure the backend is running.'}`
-      }]);
-    }
-
-    setIsLoading(false);
+    controllerClient.askAIStream(req, {
+      onChunk: (delta) => {
+        setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, text: m.text + delta } : m));
+      },
+      onOperations: (operations) => {
+        const descriptions = runOperations(operations);
+        if (descriptions.length > 0) {
+          setMessages(prev => prev.map(m => m.id === placeholderId
+            ? { ...m, text: m.text + `\n\n**Applied:** ${descriptions.join('; ')}` }
+            : m));
+        }
+      },
+      onDone: (payload) => {
+        if (payload.sessionId) setSessionId(payload.sessionId);
+        setMessages(prev => prev.map(m => m.id === placeholderId
+          ? { ...m, streaming: false, tokenInfo: payload.tokenInfo ?? null, text: stripOperationsBlock(m.text) }
+          : m));
+        setIsLoading(false);
+      },
+      onError: (message) => {
+        setMessages(prev => prev.map(m => m.id === placeholderId
+          ? { ...m, text: `Error: ${message}`, streaming: false }
+          : m));
+        setIsLoading(false);
+      },
+    }).catch(async (err) => {
+      try {
+        const response = await controllerClient.askAI(req);
+        applyNonStreamResponse(response);
+      } catch (fallbackErr: any) {
+        const msg = fallbackErr?.message || err?.message || 'Failed to connect to AI service.';
+        setMessages(prev => prev.map(m => m.id === placeholderId
+          ? { ...m, text: `Error: ${msg}. Make sure the controller is running (e.g. npm run dev in apps/controller-node).`, streaming: false }
+          : m));
+        setIsLoading(false);
+      }
+    });
   };
 
   const handleConfirmation = (messageId: string, accepted: boolean, actionData?: { type: 'delete_notebook', name?: string }) => {
@@ -434,7 +462,7 @@ ${cellContext}
                     ? 'text-gray-300 pl-0'
                     : 'bg-[#27272a] text-white border border-sim-border rounded-lg p-3 shadow-sm'}
                   `}>
-                  <div className="whitespace-pre-wrap">{msg.text}</div>
+                  <div className="whitespace-pre-wrap">{msg.text}{msg.streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-sim-red animate-pulse" />}</div>
                 </div>
                 {/* Token info */}
                 {msg.tokenInfo && (
@@ -564,6 +592,16 @@ ${cellContext}
           {/* Action Bar */}
           <div className="flex items-center justify-between px-3 pb-3 select-none">
             <div className="flex items-center gap-1">
+              {(messages.length > 0 || sessionId) && (
+                <button
+                  onClick={() => { setSessionId(null); setMessages([]); }}
+                  disabled={isLoading}
+                  className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
+                  title="New chat"
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                </button>
+              )}
               <ModelSelector onOpenManage={onOpenManageModels} refreshTrigger={modelsRefreshTrigger} />
               <div className="h-4 w-[1px] bg-white/5 mx-1" />
               <button className="p-1.5 text-white/30 hover:text-white/60 transition-colors" title="Voice query (Coming Soon)">
