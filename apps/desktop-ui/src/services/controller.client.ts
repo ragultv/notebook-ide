@@ -58,9 +58,12 @@ export interface AllKernelMetrics {
   running_count: number;
 }
 
+export type AIMode = 'ask' | 'agent' | 'plan';
+
 export interface AIRequest {
   prompt: string;
   sessionId?: string | null;
+  mode?: AIMode;
   context?: {
     notebookName?: string;
     cells?: Array<{ type: string; content: string }>;
@@ -243,13 +246,15 @@ export const controllerClient = {
 
   /**
    * Streaming AI Assistant (SSE). Callbacks are invoked as events arrive.
+   * onPlanReady: for plan mode, operations are ready but not executed; user confirms first.
    * Pass signal for cancellation.
    */
   async askAIStream(
     req: AIRequest,
     callbacks: {
       onChunk: (delta: string) => void;
-      onOperations: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
+      onOperations?: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
+      onPlanReady?: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
       onDone: (payload: { sessionId?: string; tokenInfo?: AIResponse['tokenInfo'] }) => void;
       onError: (message: string) => void;
     },
@@ -291,7 +296,8 @@ export const controllerClient = {
           try {
             const payload = JSON.parse(data);
             if (event === 'chunk' && payload.delta != null) callbacks.onChunk(payload.delta);
-            else if (event === 'operations' && Array.isArray(payload.operations)) callbacks.onOperations(payload.operations);
+            else if (event === 'operations' && Array.isArray(payload.operations) && callbacks.onOperations) callbacks.onOperations(payload.operations);
+            else if (event === 'plan_ready' && Array.isArray(payload.operations) && callbacks.onPlanReady) callbacks.onPlanReady(payload.operations);
             else if (event === 'done') callbacks.onDone(payload);
             else if (event === 'error' && payload.message) callbacks.onError(payload.message);
           } catch (_) {}
@@ -307,7 +313,8 @@ export const controllerClient = {
         if (data) {
           try {
             const payload = JSON.parse(data);
-            if (event === 'done') callbacks.onDone(payload);
+            if (event === 'plan_ready' && Array.isArray(payload.operations) && callbacks.onPlanReady) callbacks.onPlanReady(payload.operations);
+            else if (event === 'done') callbacks.onDone(payload);
             else if (event === 'error' && payload.message) callbacks.onError(payload.message);
           } catch (_) {}
         }

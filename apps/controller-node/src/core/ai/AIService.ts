@@ -1,7 +1,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage, AIMessage } from '@langchain/core/messages';
 import { PROVIDERS, DEFAULT_PROVIDER, DEFAULT_MODEL, ProviderConfig, ModelInfo } from './providers.js';
-import { SYSTEM_PROMPT, ERROR_FIX_PROMPT } from './prompts.js';
+import { SYSTEM_PROMPT, ERROR_FIX_PROMPT, getSystemPrompt, AIMode } from './prompts.js';
 import { getOrCreateSession, appendMessage, getRecentMessages } from './MemoryStore.js';
 import { retrieve, formatRetrievedContext, indexChunks } from './RAGService.js';
 import { validateOperations } from './operationsSchema.js';
@@ -45,7 +45,8 @@ export interface SelectedModel {
 
 export interface GenerateStreamCallbacks {
     onChunk: (delta: string) => void;
-    onOperations: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
+    onOperations?: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
+    onPlanReady?: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
     onDone: (payload: { sessionId: string; tokenInfo?: AIResponse['tokenInfo'] }) => void;
     onError: (message: string) => void;
 }
@@ -177,10 +178,12 @@ export class AIService {
         context?: any,
         provider?: string,
         model?: string,
-        sessionId?: string | null
+        sessionId?: string | null,
+        mode?: AIMode
     ): Promise<AIResponse> {
         const useProvider = provider || this.currentProvider;
         const useModel = model || this.currentModel;
+        const useMode: AIMode = mode ?? 'agent';
 
         const client = await this.getClient(useProvider, useModel);
         if (!client) {
@@ -223,7 +226,10 @@ export class AIService {
             });
         }
 
-        const systemContent = (ragContext ? ragContext + '\n' : '') + SYSTEM_PROMPT;
+        const systemContent =
+            (ragContext ? ragContext + '\n' : '') +
+            // Use mode‑aware prompt if available; fall back to default SYSTEM_PROMPT
+            (useMode ? getSystemPrompt(useMode) : SYSTEM_PROMPT);
         const messageParts: (HumanMessage | AIMessage | SystemMessage)[] = [
             new SystemMessage(systemContent),
             ...history.map((m) =>
@@ -236,10 +242,13 @@ export class AIService {
             const response = await client.invoke(messageParts);
             const rawText = response.content.toString();
 
-            let operations = this.extractOperations(rawText);
-            operations = this.normalizeRawOperations(operations);
-            const validated = validateOperations(operations);
-            const validOps = validated.success ? validated.data : [];
+            let validOps: Array<{ type: string; params: Record<string, any> }> = [];
+            if (useMode !== 'ask') {
+                let operations = this.extractOperations(rawText);
+                operations = this.normalizeRawOperations(operations);
+                const validated = validateOperations(operations);
+                validOps = validated.success ? validated.data.map((op) => ({ type: op.type, params: op.params })) : [];
+            }
 
             let text = rawText.replace(/```(?:json|operations)?\s*\n([\s\S]*?)\n```/g, '').trim();
             if (validOps.length > 0 && text.match(/\[\s*\{[\s\S]*?\}\s*\]/)) {
@@ -258,7 +267,7 @@ export class AIService {
 
             return {
                 text,
-                operations: validOps.map((op) => ({ type: op.type, params: op.params })),
+                operations: useMode === 'ask' ? [] : validOps,
                 tokenInfo: {
                     prompt_tokens: (response.response_metadata as any)?.tokenUsage?.promptTokens,
                     completion_tokens: (response.response_metadata as any)?.tokenUsage?.completionTokens,
@@ -280,10 +289,12 @@ export class AIService {
         provider: string | undefined,
         model: string | undefined,
         sessionId: string | null | undefined,
-        callbacks: GenerateStreamCallbacks
+        callbacks: GenerateStreamCallbacks,
+        mode?: AIMode
     ): Promise<void> {
         const useProvider = provider || this.currentProvider;
         const useModel = model || this.currentModel;
+        const useMode: AIMode = mode ?? 'agent';
 
         const client = await this.getClient(useProvider, useModel);
         if (!client) {
@@ -321,7 +332,9 @@ export class AIService {
             });
         }
 
-        const systemContent = (ragContext ? ragContext + '\n' : '') + SYSTEM_PROMPT;
+        const systemContent =
+            (ragContext ? ragContext + '\n' : '') +
+            (useMode ? getSystemPrompt(useMode) : SYSTEM_PROMPT);
         const messageParts: (HumanMessage | AIMessage | SystemMessage)[] = [
             new SystemMessage(systemContent),
             ...history.map((m) => (m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content))),
@@ -343,21 +356,30 @@ export class AIService {
                 buffer += delta;
                 callbacks.onChunk(delta);
 
-                const jsonBlockMatch = buffer.match(/```(?:json|operations)?\s*\n([\s\S]*?)\n```/);
-                if (jsonBlockMatch && jsonBlockMatch.index !== undefined) {
-                    const blockEndIndex = jsonBlockMatch.index + jsonBlockMatch[0].length;
-                    if (blockEndIndex > lastEmittedOpsEndIndex) {
-                        try {
-                            const parsed = JSON.parse(jsonBlockMatch[1]);
-                            if (Array.isArray(parsed)) {
-                                const operations = this.normalizeRawOperations(parsed);
-                                const validated = validateOperations(operations);
-                                if (validated.success && validated.data.length > 0) {
-                                    callbacks.onOperations(validated.data.map((op) => ({ type: op.type, params: op.params })));
-                                    lastEmittedOpsEndIndex = blockEndIndex;
+                if (useMode !== 'ask') {
+                    const jsonBlockMatch = buffer.match(/```(?:json|operations)?\s*\n([\s\S]*?)\n```/);
+                    if (jsonBlockMatch && jsonBlockMatch.index !== undefined) {
+                        const blockEndIndex = jsonBlockMatch.index + jsonBlockMatch[0].length;
+                        if (blockEndIndex > lastEmittedOpsEndIndex) {
+                            try {
+                                const parsed = JSON.parse(jsonBlockMatch[1]);
+                                if (Array.isArray(parsed)) {
+                                    const operations = this.normalizeRawOperations(parsed);
+                                    const validated = validateOperations(operations);
+                                    if (validated.success && validated.data.length > 0) {
+                                        const ops = validated.data.map((op) => ({ type: op.type, params: op.params }));
+                                        if (useMode === 'plan') {
+                                            if (callbacks.onPlanReady) {
+                                                callbacks.onPlanReady(ops);
+                                            }
+                                        } else if (callbacks.onOperations) {
+                                            callbacks.onOperations(ops);
+                                        }
+                                        lastEmittedOpsEndIndex = blockEndIndex;
+                                    }
                                 }
-                            }
-                        } catch (_) {}
+                            } catch (_) {}
+                        }
                     }
                 }
             }

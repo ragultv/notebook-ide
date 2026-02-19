@@ -11,10 +11,14 @@
   "dependencies": {
     "@google/genai": "^1.34.0",
     "groq-sdk": "^0.37.0",
+    "highlight.js": "^11.11.1",
     "lucide-react": "^0.562.0",
     "openai": "^4.28.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
     "uuid": "^13.0.0",
     "zustand": "^4.4.7"
   },

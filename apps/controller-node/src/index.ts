@@ -59,8 +59,12 @@ const start = async () => {
 
         // Register plugins
         await server.register(cors, {
-            origin: config.cors.origin,
+            // For browser clients (Vite dev server / desktop UI), reflect the Origin header.
+            // Using '*' with credentials breaks streaming fetch in browsers.
+            origin: true,
             credentials: config.cors.credentials,
+            methods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
+            allowedHeaders: ['Content-Type', 'Accept'],
         });
 
         await server.register(websocket);

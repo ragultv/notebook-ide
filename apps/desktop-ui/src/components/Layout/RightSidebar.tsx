@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, User, CornerDownLeft, Zap, ChevronDown, Wrench, Paperclip, AlertTriangle, Check, Ban, File as FileIcon, Code, Plus, Loader2, MessageSquarePlus } from 'lucide-react';
+import { X, Send, User, CornerDownLeft, Zap, ChevronDown, Wrench, Paperclip, AlertTriangle, Check, Ban, File as FileIcon, Code, Plus, Loader2, MessageSquarePlus, MessageCircle, Bot, ListChecks } from 'lucide-react';
 import { controllerClient } from '../../services/controller.client';
 import { CellData, ProjectFile } from '../../types';
 import { ModelSelector } from '../ModelSelector';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 
 interface RightSidebarProps {
   isOpen: boolean;
@@ -25,6 +28,8 @@ interface RightSidebarProps {
   onStartResizing: () => void;
 }
 
+type AIMode = 'ask' | 'agent' | 'plan';
+
 interface Message {
   id: string;
   role: 'user' | 'ai';
@@ -34,9 +39,13 @@ interface Message {
   pendingConfirmation?: {
     type: 'delete_notebook';
     name?: string;
+  } | {
+    type: 'plan_execute';
+    operations: Array<{ type: string; params: Record<string, any> }>;
   };
   isConfirmed?: boolean; // true = accepted, false = rejected
   attachments?: AttachedFile[];
+  mode?: AIMode; // mode used when this message was sent (for AI messages)
 }
 
 interface AttachedFile {
@@ -72,6 +81,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<AIMode>('agent');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -160,12 +170,14 @@ ${cellContext}
 
     const finalMessage = `${projectOverview}${attachmentContext}\n\nUSER QUERY: ${inputValue}`;
 
+    const currentMode = selectedMode;
     const placeholderId = `streaming-${Date.now()}`;
     setMessages(prev => [...prev, {
       id: placeholderId,
       role: 'ai',
       text: '',
       streaming: true,
+      mode: currentMode,
     }]);
 
     const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): string[] => {
@@ -223,12 +235,18 @@ ${cellContext}
     const req = {
       prompt: finalMessage,
       sessionId: sessionId ?? undefined,
+      mode: currentMode,
       context: { notebookName, cells: notebookCells.map(c => ({ type: c.type, content: c.content })) },
     };
 
     const applyNonStreamResponse = (response: { text: string; operations?: Array<{ type: string; params: Record<string, any> }>; tokenInfo?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null; sessionId?: string }) => {
-      if (response.operations?.length) {
-        const descriptions = runOperations(response.operations);
+      const executeOps = currentMode !== 'ask' && (response.operations?.length ?? 0) > 0;
+      if (currentMode === 'plan' && response.operations?.length) {
+        setMessages(prev => prev.map(m => m.id === placeholderId
+          ? { ...m, streaming: false, text: stripOperationsBlock(response.text), tokenInfo: response.tokenInfo ?? null, pendingConfirmation: { type: 'plan_execute', operations: response.operations! } }
+          : m));
+      } else if (executeOps) {
+        const descriptions = runOperations(response.operations!);
         setMessages(prev => prev.map(m => m.id === placeholderId
           ? { ...m, streaming: false, text: stripOperationsBlock(response.text) + (descriptions.length ? `\n\n**Applied:** ${descriptions.join('; ')}` : ''), tokenInfo: response.tokenInfo ?? null }
           : m));
@@ -246,6 +264,8 @@ ${cellContext}
         setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, text: m.text + delta } : m));
       },
       onOperations: (operations) => {
+        if (currentMode === 'ask') return;
+        if (currentMode === 'plan') return;
         const descriptions = runOperations(operations);
         if (descriptions.length > 0) {
           setMessages(prev => prev.map(m => m.id === placeholderId
@@ -253,11 +273,19 @@ ${cellContext}
             : m));
         }
       },
+      onPlanReady: (operations) => {
+        if (currentMode !== 'plan') return;
+        setMessages(prev => prev.map(m => m.id === placeholderId
+          ? { ...m, pendingConfirmation: { type: 'plan_execute', operations } }
+          : m));
+      },
       onDone: (payload) => {
         if (payload.sessionId) setSessionId(payload.sessionId);
-        setMessages(prev => prev.map(m => m.id === placeholderId
-          ? { ...m, streaming: false, tokenInfo: payload.tokenInfo ?? null, text: stripOperationsBlock(m.text) }
-          : m));
+        setMessages(prev => prev.map(m => {
+          if (m.id !== placeholderId) return m;
+          const updated = { ...m, streaming: false, tokenInfo: payload.tokenInfo ?? null, text: stripOperationsBlock(m.text) };
+          return updated;
+        }));
         setIsLoading(false);
       },
       onError: (message) => {
@@ -280,10 +308,14 @@ ${cellContext}
     });
   };
 
-  const handleConfirmation = (messageId: string, accepted: boolean, actionData?: { type: 'delete_notebook', name?: string }) => {
+  const handleConfirmation = (
+    messageId: string,
+    accepted: boolean,
+    actionData?: { type: 'delete_notebook'; name?: string } | { type: 'plan_execute'; operations: Array<{ type: string; params: Record<string, any> }> }
+  ) => {
     setMessages(prev => prev.map(m => {
       if (m.id === messageId) {
-        return { ...m, isConfirmed: accepted };
+        return { ...m, isConfirmed: accepted, pendingConfirmation: accepted ? m.pendingConfirmation : undefined };
       }
       return m;
     }));
@@ -296,13 +328,52 @@ ${cellContext}
           role: 'ai',
           text: `Notebook "${actionData.name || 'Current'}" deleted successfully.`
         }]);
+      } else if (actionData.type === 'plan_execute') {
+        const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): void => {
+          ops.forEach((op) => {
+            switch (op.type) {
+              case 'create_notebook':
+                onCreateNotebook(op.params.name);
+                break;
+              case 'add_cell': {
+                const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
+                onAddCell(op.params.content ?? '', cellType);
+                break;
+              }
+              case 'move_cell':
+                onMoveCell(op.params.fromIndex, op.params.toIndex);
+                break;
+              case 'delete_cell':
+                onDeleteCell(op.params.cellIndex);
+                break;
+              case 'edit_cell': {
+                const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
+                onEditCell(op.params.cellIndex, op.params.content ?? '', editType);
+                break;
+              }
+              case 'add_package':
+                onAddPackages(op.params.packages || []);
+                break;
+              case 'delete_notebook':
+                setMessages(prev => [...prev, {
+                  id: (Date.now() + Math.random()).toString(),
+                  role: 'ai',
+                  text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
+                  pendingConfirmation: { type: 'delete_notebook', name: op.params.name }
+                }]);
+                break;
+            }
+          });
+        };
+        runOperations(actionData.operations);
+        setMessages(prev => prev.map(m =>
+          m.id === messageId ? { ...m, text: m.text + '\n\n**Plan executed successfully.**', pendingConfirmation: undefined } : m
+        ));
       }
     } else if (!accepted) {
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'ai',
-        text: `Action cancelled.`
-      }]);
+      setMessages(prev => prev.map(m =>
+        m.id === messageId ? { ...m, text: m.text + '\n\n**Plan cancelled.**', pendingConfirmation: undefined } : m
+      ));
     }
   };
 
@@ -393,7 +464,7 @@ ${cellContext}
 
   return (
     <div
-      className={`bg-sim-bg border-sim-border flex flex-col z-20 shrink-0 relative rounded-2xl border border-sim-border overflow-hidden shadow-lg
+      className={`bg-sim-bg flex flex-col z-20 shrink-0 relative rounded-2xl border border-sim-border overflow-hidden shadow-lg
         ${isResizing ? '' : 'transition-all duration-300 ease-in-out'}
         ${isOpen ? '' : 'w-0 border-l-0 overflow-hidden'}
       `}
@@ -462,7 +533,49 @@ ${cellContext}
                     ? 'text-gray-300 pl-0'
                     : 'bg-[#27272a] text-white border border-sim-border rounded-lg p-3 shadow-sm'}
                   `}>
-                  <div className="whitespace-pre-wrap">{msg.text}{msg.streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-sim-red animate-pulse" />}</div>
+                  {msg.role === 'ai' ? (
+                    <div className="text-gray-300">
+                      {/* While streaming, the markdown may be incomplete (e.g. unfinished ``` fences).
+                          Rendering with syntax highlighting can break incremental updates. */}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={msg.streaming ? [] : [rehypeHighlight]}
+                        components={{
+                          p: (props) => <p className="my-2 whitespace-pre-wrap" {...props} />,
+                          a: (props) => <a className="text-sim-red underline" target="_blank" rel="noreferrer" {...props} />,
+                          ul: (props) => <ul className="list-disc ml-5 my-2" {...props} />,
+                          ol: (props) => <ol className="list-decimal ml-5 my-2" {...props} />,
+                          li: (props) => <li className="my-1" {...props} />,
+                          code: ({ inline, className, children, ...props }: any) => {
+                            if (inline) {
+                              return (
+                                <code className="px-1 py-0.5 rounded bg-white/5 border border-white/10 text-[12px]" {...props}>
+                                  {children}
+                                </code>
+                              );
+                            }
+                            return (
+                              <code className={`${className ?? ''}`} {...props}>
+                                {children}
+                              </code>
+                            );
+                          },
+                          pre: (props) => (
+                            <pre className="my-3 p-3 rounded-lg bg-black/40 border border-white/10 overflow-x-auto text-[12px] leading-relaxed" {...props} />
+                          ),
+                          blockquote: (props) => (
+                            <blockquote className="border-l-2 border-white/20 pl-3 my-2 text-white/70" {...props} />
+                          ),
+                          hr: (props) => <hr className="my-3 border-white/10" {...props} />,
+                        }}
+                      >
+                        {msg.text}
+                      </ReactMarkdown>
+                      {msg.streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-sim-red animate-pulse align-text-bottom" />}
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap">{msg.text}{msg.streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-sim-red animate-pulse" />}</div>
+                  )}
                 </div>
                 {/* Token info */}
                 {msg.tokenInfo && (
@@ -475,33 +588,57 @@ ${cellContext}
 
             {/* Confirmation UI Block */}
             {msg.pendingConfirmation && msg.isConfirmed === undefined && (
-              <div className="ml-10 w-[85%] bg-sim-surface/50 border border-sim-red/50 rounded-lg p-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-sim-red text-xs font-bold uppercase tracking-wider">
-                  <AlertTriangle className="w-4 h-4" />
-                  Confirmation Required
+              <div className={`ml-10 w-[85%] rounded-lg p-3 flex flex-col gap-2 ${
+                msg.pendingConfirmation.type === 'plan_execute'
+                  ? 'bg-sim-surface/50 border border-white/20'
+                  : 'bg-sim-surface/50 border border-sim-red/50'
+              }`}>
+                <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${
+                  msg.pendingConfirmation.type === 'plan_execute' ? 'text-white' : 'text-sim-red'
+                }`}>
+                  {msg.pendingConfirmation.type === 'plan_execute' ? (
+                    <ListChecks className="w-4 h-4" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4" />
+                  )}
+                  {msg.pendingConfirmation.type === 'plan_execute' ? 'Plan Ready' : 'Confirmation Required'}
                 </div>
                 <p className="text-xs text-sim-muted">
-                  Please confirm you want to proceed with this destructive action.
+                  {msg.pendingConfirmation.type === 'plan_execute'
+                    ? 'Review the plan above. Execute to apply changes to your notebook, or cancel to discard.'
+                    : 'Please confirm you want to proceed with this destructive action.'}
                 </p>
                 <div className="flex gap-2 mt-1">
                   <button
                     onClick={() => handleConfirmation(msg.id, true, msg.pendingConfirmation)}
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-sim-red hover:bg-sim-redHover text-white text-xs font-bold py-1.5 rounded transition-colors"
+                    className={`flex-1 flex items-center justify-center gap-1.5 text-white text-xs font-bold py-1.5 rounded transition-colors ${
+                      msg.pendingConfirmation.type === 'plan_execute'
+                        ? 'bg-sim-red hover:bg-sim-redHover'
+                        : 'bg-sim-red hover:bg-sim-redHover'
+                    }`}
                   >
-                    <Check className="w-3.5 h-3.5" /> ACCEPT
+                    {msg.pendingConfirmation.type === 'plan_execute' ? (
+                      <><Check className="w-3.5 h-3.5" /> EXECUTE PLAN</>
+                    ) : (
+                      <><Check className="w-3.5 h-3.5" /> ACCEPT</>
+                    )}
                   </button>
                   <button
                     onClick={() => handleConfirmation(msg.id, false)}
                     className="flex-1 flex items-center justify-center gap-1.5 bg-sim-surface border border-sim-border hover:bg-sim-border text-sim-muted text-xs font-bold py-1.5 rounded transition-colors"
                   >
-                    <Ban className="w-3.5 h-3.5" /> REJECT
+                    {msg.pendingConfirmation.type === 'plan_execute' ? (
+                      <><Ban className="w-3.5 h-3.5" /> CANCEL</>
+                    ) : (
+                      <><Ban className="w-3.5 h-3.5" /> REJECT</>
+                    )}
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Post-Confirmation Status */}
-            {msg.pendingConfirmation && msg.isConfirmed !== undefined && (
+            {/* Post-Confirmation Status - only for delete_notebook (plan_execute updates message text) */}
+            {msg.pendingConfirmation?.type === 'delete_notebook' && msg.isConfirmed !== undefined && (
               <div className={`ml-10 text-xs font-mono font-bold flex items-center gap-2 mt-1 ${msg.isConfirmed ? 'text-green-500' : 'text-sim-muted'}`}>
                 {msg.isConfirmed ? <Check className="w-3 h-3" /> : <Ban className="w-3 h-3" />}
                 {msg.isConfirmed ? 'ACTION AUTHORIZED' : 'ACTION REJECTED'}
@@ -589,8 +726,30 @@ ${cellContext}
             />
           </div>
 
-          {/* Action Bar */}
-          <div className="flex items-center justify-between px-3 pb-3 select-none">
+          {/* Mode selector + Action Bar */}
+          <div className="flex flex-col gap-2 px-3 pb-3 select-none">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider mr-1">Mode:</span>
+              {(['ask', 'agent', 'plan'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => !isLoading && setSelectedMode(m)}
+                  disabled={isLoading}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold transition-colors ${
+                    selectedMode === m
+                      ? 'bg-sim-red text-white'
+                      : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                  }`}
+                  title={m === 'ask' ? 'Ask questions only, no edits' : m === 'agent' ? 'Ask when unclear, then act' : 'Show plan first, execute on confirm'}
+                >
+                  {m === 'ask' && <MessageCircle className="w-3 h-3" />}
+                  {m === 'agent' && <Bot className="w-3 h-3" />}
+                  {m === 'plan' && <ListChecks className="w-3 h-3" />}
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-between">
             <div className="flex items-center gap-1">
               {(messages.length > 0 || sessionId) && (
                 <button
@@ -624,6 +783,7 @@ ${cellContext}
                 <Send className="w-4 h-4" />
               )}
             </button>
+            </div>
           </div>
         </div>
         <p className="mt-3 text-[10px] text-center text-white/20 font-medium tracking-tight">
