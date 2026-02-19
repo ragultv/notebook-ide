@@ -182,47 +182,59 @@ ${cellContext}
 
     const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): string[] => {
       const actionDescriptions: string[] = [];
-      ops.forEach((op) => {
-        switch (op.type) {
-          case 'create_notebook':
-            onCreateNotebook(op.params.name);
-            actionDescriptions.push(`Created notebook: ${op.params.name}`);
-            break;
-          case 'add_cell': {
-            const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
-            onAddCell(op.params.content ?? '', cellType);
-            const preview = (op.params.content || '').slice(0, 50).replace(/\n/g, ' ');
-            actionDescriptions.push(`Added ${cellType} cell${preview ? `: ${preview}${(op.params.content?.length || 0) > 50 ? '...' : ''}` : ''}`);
-            break;
+      console.log('[RightSidebar.runOperations] Executing operations:', ops);
+      ops.forEach((op, idx) => {
+        try {
+          console.log(`[RightSidebar.runOperations] Executing operation ${idx + 1}/${ops.length}: ${op.type}`, op.params);
+          switch (op.type) {
+            case 'create_notebook':
+              onCreateNotebook(op.params.name);
+              actionDescriptions.push(`Created notebook: ${op.params.name}`);
+              break;
+            case 'add_cell': {
+              const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
+              console.log(`[RightSidebar.runOperations] Calling onAddCell with content length=${(op.params.content ?? '').length}, type=${cellType}`);
+              onAddCell(op.params.content ?? '', cellType);
+              const preview = (op.params.content || '').slice(0, 50).replace(/\n/g, ' ');
+              actionDescriptions.push(`Added ${cellType} cell${preview ? `: ${preview}${(op.params.content?.length || 0) > 50 ? '...' : ''}` : ''}`);
+              console.log(`[RightSidebar.runOperations] onAddCell called successfully`);
+              break;
+            }
+            case 'move_cell':
+              onMoveCell(op.params.fromIndex, op.params.toIndex);
+              actionDescriptions.push(`Moved cell ${op.params.fromIndex} → ${op.params.toIndex}`);
+              break;
+            case 'delete_cell':
+              onDeleteCell(op.params.cellIndex);
+              actionDescriptions.push(`Deleted cell ${op.params.cellIndex}`);
+              break;
+            case 'delete_notebook':
+              setMessages(prev => [...prev, {
+                id: (Date.now() + Math.random()).toString(),
+                role: 'ai',
+                text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
+                pendingConfirmation: { type: 'delete_notebook', name: op.params.name }
+              }]);
+              break;
+            case 'edit_cell': {
+              const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
+              onEditCell(op.params.cellIndex, op.params.content ?? '', editType);
+              actionDescriptions.push(`Edited cell ${op.params.cellIndex}`);
+              break;
+            }
+            case 'add_package':
+              onAddPackages(op.params.packages || []);
+              actionDescriptions.push(`Added packages: ${(op.params.packages || []).join(', ')}`);
+              break;
+            default:
+              console.warn(`[RightSidebar.runOperations] Unknown operation type: ${op.type}`);
           }
-          case 'move_cell':
-            onMoveCell(op.params.fromIndex, op.params.toIndex);
-            actionDescriptions.push(`Moved cell ${op.params.fromIndex} → ${op.params.toIndex}`);
-            break;
-          case 'delete_cell':
-            onDeleteCell(op.params.cellIndex);
-            actionDescriptions.push(`Deleted cell ${op.params.cellIndex}`);
-            break;
-          case 'delete_notebook':
-            setMessages(prev => [...prev, {
-              id: (Date.now() + Math.random()).toString(),
-              role: 'ai',
-              text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
-              pendingConfirmation: { type: 'delete_notebook', name: op.params.name }
-            }]);
-            break;
-          case 'edit_cell': {
-            const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
-            onEditCell(op.params.cellIndex, op.params.content ?? '', editType);
-            actionDescriptions.push(`Edited cell ${op.params.cellIndex}`);
-            break;
-          }
-          case 'add_package':
-            onAddPackages(op.params.packages || []);
-            actionDescriptions.push(`Added packages: ${(op.params.packages || []).join(', ')}`);
-            break;
+        } catch (err: any) {
+          console.error(`[RightSidebar.runOperations] Error executing operation ${op.type}:`, err);
+          actionDescriptions.push(`Error executing ${op.type}: ${err.message}`);
         }
       });
+      console.log(`[RightSidebar.runOperations] Completed, ${actionDescriptions.length} actions executed`);
       return actionDescriptions;
     };
 
@@ -264,9 +276,18 @@ ${cellContext}
         setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, text: m.text + delta } : m));
       },
       onOperations: (operations) => {
-        if (currentMode === 'ask') return;
-        if (currentMode === 'plan') return;
+        console.log('[RightSidebar] onOperations called:', { currentMode, operations, operationsCount: operations.length });
+        if (currentMode === 'ask') {
+          console.log('[RightSidebar] Skipping operations - mode is "ask"');
+          return;
+        }
+        if (currentMode === 'plan') {
+          console.log('[RightSidebar] Skipping operations - mode is "plan"');
+          return;
+        }
+        console.log('[RightSidebar] Executing operations:', operations);
         const descriptions = runOperations(operations);
+        console.log('[RightSidebar] Operations executed, descriptions:', descriptions);
         if (descriptions.length > 0) {
           setMessages(prev => prev.map(m => m.id === placeholderId
             ? { ...m, text: m.text + `\n\n**Applied:** ${descriptions.join('; ')}` }

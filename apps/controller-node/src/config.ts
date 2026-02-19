@@ -14,6 +14,11 @@ export interface AppConfig {
         level: string;
         pretty: boolean;
     };
+    continuation: {
+        maxPasses: number;
+        // Target maximum completion tokens per pass (soft hint; may not be enforced by all providers)
+        perPassTokens: number;
+    };
 }
 
 export const config: AppConfig = {
@@ -29,5 +34,9 @@ export const config: AppConfig = {
     logging: {
         level: process.env.LOG_LEVEL || 'info',
         pretty: process.env.NODE_ENV !== 'production',
+    },
+    continuation: {
+        maxPasses: parseInt(process.env.AI_CONT_MAX_PASSES || '5', 10),
+        perPassTokens: parseInt(process.env.AI_CONT_PER_PASS_TOKENS || '1536', 10),
     },
 };
