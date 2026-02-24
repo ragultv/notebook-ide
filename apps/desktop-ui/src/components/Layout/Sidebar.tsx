@@ -1,7 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Folder, Upload, Trash2, Edit2, Download, X, MoreVertical, File, Image as ImageIcon, FileCode } from 'lucide-react';
+import {
+  Folder, Upload, Trash2, Edit2, Download, X, MoreVertical,
+  File, Image as ImageIcon, FileCode, Search, ChevronRight,
+} from 'lucide-react';
 import { ProjectFile, CellData } from '../../types';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
   files: ProjectFile[];
@@ -11,7 +16,111 @@ interface SidebarProps {
   onFileSelect: (id: string) => void;
   onDeleteFile?: (id: string) => void;
   onRenameFile?: (id: string, newName: string) => void;
+  /** Optional: called when user clicks a search match to jump to that cell */
+  onCellFocus?: (fileId: string, cellId: string) => void;
 }
+
+type ActivePanel = 'files' | 'search';
+
+// ── Search result types ───────────────────────────────────────────────────────
+
+interface MatchLine {
+  lineNumber: number;  // 1-based line number within the cell
+  text: string;        // the full line
+  matchStart: number;  // char offset of the match within `text`
+  matchEnd: number;
+}
+
+interface CellMatch {
+  cellId: string;
+  cellIndex: number;  // 0-based index in the file's cells array
+  cellType: 'code' | 'markdown';
+  lines: MatchLine[];
+}
+
+interface FileMatch {
+  fileId: string;
+  fileName: string;
+  cells: CellMatch[];
+}
+
+// ── Search logic ──────────────────────────────────────────────────────────────
+
+function searchFiles(files: ProjectFile[], query: string): FileMatch[] {
+  if (!query.trim()) return [];
+  const lower = query.toLowerCase();
+  const results: FileMatch[] = [];
+
+  for (const file of files) {
+    if (!file.cells?.length) continue;
+    const cellMatches: CellMatch[] = [];
+
+    file.cells.forEach((cell, cellIndex) => {
+      const lines = (cell.content || '').split('\n');
+      const matchedLines: MatchLine[] = [];
+
+      lines.forEach((lineText, lineIdx) => {
+        const idx = lineText.toLowerCase().indexOf(lower);
+        if (idx !== -1) {
+          matchedLines.push({
+            lineNumber: lineIdx + 1,
+            text: lineText,
+            matchStart: idx,
+            matchEnd: idx + query.length,
+          });
+        }
+      });
+
+      if (matchedLines.length > 0) {
+        cellMatches.push({
+          cellId: cell.id,
+          cellIndex,
+          cellType: cell.type as 'code' | 'markdown',
+          lines: matchedLines.slice(0, 5), // cap at 5 matching lines per cell
+        });
+      }
+    });
+
+    if (cellMatches.length > 0) {
+      results.push({ fileId: file.id, fileName: file.name, cells: cellMatches });
+    }
+  }
+
+  return results;
+}
+
+// ── Highlighted text snippet ──────────────────────────────────────────────────
+
+const HighlightedLine: React.FC<{ text: string; matchStart: number; matchEnd: number }> = ({
+  text, matchStart, matchEnd,
+}) => {
+  // Truncate long lines — show at most 60 chars around the match
+  const MAX = 60;
+  let display = text;
+  let start = matchStart;
+  let end = matchEnd;
+
+  if (text.length > MAX) {
+    const pad = Math.floor((MAX - (matchEnd - matchStart)) / 2);
+    const from = Math.max(0, matchStart - pad);
+    const to = Math.min(text.length, from + MAX);
+    display = (from > 0 ? '…' : '') + text.slice(from, to) + (to < text.length ? '…' : '');
+    start = matchStart - from + (from > 0 ? 1 : 0); // adjust for ellipsis char
+    end = start + (matchEnd - matchStart);
+  }
+
+  return (
+    <span className="font-mono text-[10px] text-gray-400 leading-relaxed truncate block">
+      {display.slice(0, start)}
+      <mark className="bg-yellow-400/30 text-yellow-200 rounded-[2px] not-italic">
+        {display.slice(start, end)}
+      </mark>
+      {display.slice(end)}
+    </span>
+  );
+};
+
+// ── Main Sidebar ──────────────────────────────────────────────────────────────
 
 export const Sidebar: React.FC<SidebarProps> = ({
   files,
@@ -20,268 +129,366 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeFileId,
   onFileSelect,
   onDeleteFile,
-  onRenameFile
+  onRenameFile,
+  onCellFocus,
 }) => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [activePanel, setActivePanel] = useState<ActivePanel>('files');
+  const [drawerOpen, setDrawerOpen] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; fileId: string } | null>(null);
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
 
+  // ── Search state ────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<FileMatch[]>([]);
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
-    const handleClick = () => setContextMenu(null);
-    window.addEventListener('click', handleClick);
-    return () => window.removeEventListener('click', handleClick);
+    const handler = () => setContextMenu(null);
+    window.addEventListener('click', handler);
+    return () => window.removeEventListener('click', handler);
   }, []);
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
+  // Focus search input when panel opens
+  useEffect(() => {
+    if (activePanel === 'search' && drawerOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 150);
+    }
+  }, [activePanel, drawerOpen]);
+
+  // Run search whenever query or files change
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const results = searchFiles(files, searchQuery);
+      setSearchResults(results);
+      // Auto-expand all matching files
+      setExpandedFiles(new Set(results.map(r => r.fileId)));
+    }, 150); // debounce 150ms
+    return () => clearTimeout(id);
+  }, [searchQuery, files]);
+
+  // ── Panel switching ──────────────────────────────────────────────────────────
+  const switchPanel = (panel: ActivePanel) => {
+    if (activePanel === panel) {
+      setDrawerOpen(v => !v);
+    } else {
+      setActivePanel(panel);
+      setDrawerOpen(true);
+    }
   };
+
+  // ── File import ───────────────────────────────────────────────────────────────
+  const handleUploadClick = () => fileInputRef.current?.click();
 
   const parseIpynb = (content: string): CellData[] => {
     try {
       const json = JSON.parse(content);
       if (!json.cells || !Array.isArray(json.cells)) return [];
-
       return json.cells.map((c: any) => {
         const rawSource = c.source;
         const contentStr = Array.isArray(rawSource) ? rawSource.join('') : (rawSource || '');
         let outputStr = '';
         let status: 'idle' | 'success' | 'error' = 'idle';
-
-        if (c.outputs && c.outputs.length > 0) {
+        if (c.outputs?.length > 0) {
           status = 'success';
           c.outputs.forEach((o: any) => {
-            if (o.text) {
-              outputStr += Array.isArray(o.text) ? o.text.join('') : o.text;
-            } else if (o.data && o.data['text/plain']) {
+            if (o.text) outputStr += Array.isArray(o.text) ? o.text.join('') : o.text;
+            else if (o.data?.['text/plain']) {
               const txt = o.data['text/plain'];
               outputStr += Array.isArray(txt) ? txt.join('') : txt;
             }
-            if (o.output_type === 'error') {
-              status = 'error';
-              outputStr += `\n${o.ename}: ${o.evalue}`;
-            }
+            if (o.output_type === 'error') { status = 'error'; outputStr += `\n${o.ename}: ${o.evalue}`; }
           });
         }
-
-        return {
-          id: uuidv4(),
-          type: c.cell_type === 'markdown' ? 'markdown' : 'code',
-          content: contentStr,
-          status: status,
-          output: outputStr,
-          executionCount: c.execution_count
-        };
+        return { id: uuidv4(), type: c.cell_type === 'markdown' ? 'markdown' : 'code', content: contentStr, status, output: outputStr, executionCount: c.execution_count };
       });
-    } catch (e) {
-      console.error("Failed to parse ipynb", e);
-      return [];
-    }
+    } catch { return []; }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const uploadedFiles = Array.from(e.target.files) as File[];
-      const newProjectFiles: ProjectFile[] = [];
-
-      for (const f of uploadedFiles) {
+    if (e.target.files?.length) {
+      const uploaded = Array.from(e.target.files) as File[];
+      const newFiles: ProjectFile[] = [];
+      for (const f of uploaded) {
         const isNotebook = f.name.endsWith('.ipynb');
-        let cells: CellData[] | undefined = undefined;
-
-        if (isNotebook) {
-          try {
-            const text = await f.text();
-            cells = parseIpynb(text);
-          } catch (err) {
-            console.error(`Error reading file ${f.name}`, err);
-          }
-        }
-
-        newProjectFiles.push({
-          id: uuidv4(),
-          name: f.name,
-          type: f.type || (isNotebook ? 'application/json' : 'text/plain'),
-          file: f,
-          cells: cells
-        });
+        let cells: CellData[] | undefined;
+        if (isNotebook) { try { cells = parseIpynb(await f.text()); } catch { } }
+        newFiles.push({ id: uuidv4(), name: f.name, type: f.type || (isNotebook ? 'application/json' : 'text/plain'), file: f, cells });
       }
-
-      onImportFiles(newProjectFiles);
+      onImportFiles(newFiles);
     }
     if (e.target.value) e.target.value = '';
   };
 
+  // ── Context menu ──────────────────────────────────────────────────────────────
   const handleContextMenu = (e: React.MouseEvent, fileId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     setContextMenu({ x: e.clientX, y: e.clientY, fileId });
   };
 
   const startRenaming = (e: React.MouseEvent, fileId: string, currentName: string) => {
     e.stopPropagation();
-    setEditingFileId(fileId);
-    setEditName(currentName);
-    setContextMenu(null);
+    setEditingFileId(fileId); setEditName(currentName); setContextMenu(null);
   };
 
   const finishRenaming = () => {
-    if (editingFileId && onRenameFile) {
-      onRenameFile(editingFileId, editName);
-    }
+    if (editingFileId && onRenameFile) onRenameFile(editingFileId, editName);
     setEditingFileId(null);
   };
 
   const requestDelete = (e: React.MouseEvent, fileId: string) => {
     e.stopPropagation();
-    if (onDeleteFile) onDeleteFile(fileId);
-    setContextMenu(null);
+    onDeleteFile?.(fileId); setContextMenu(null);
   };
 
   const handleDownload = (fileId: string) => {
     const file = files.find(f => f.id === fileId);
     if (!file) return;
-
     let blob: Blob;
-
     if (file.name.endsWith('.ipynb') && file.cells) {
-      const notebookContent = {
-        metadata: {
-          kernelspec: {
-            display_name: "Python 3",
-            language: "python",
-            name: "python3"
-          },
-          language_info: {
-            codemirror_mode: { name: "ipython", version: 3 },
-            file_extension: ".py",
-            mimetype: "text/x-python",
-            name: "python",
-            nbconvert_exporter: "python",
-            pygments_lexer: "ipython3",
-            version: "3.8.0"
-          }
-        },
-        nbformat: 4,
-        nbformat_minor: 4,
+      const nb = {
+        metadata: { kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' }, language_info: { codemirror_mode: { name: 'ipython', version: 3 }, file_extension: '.py', mimetype: 'text/x-python', name: 'python', nbconvert_exporter: 'python', pygments_lexer: 'ipython3', version: '3.8.0' } },
+        nbformat: 4, nbformat_minor: 4,
         cells: file.cells.map(cell => ({
-          cell_type: cell.type,
-          metadata: {},
-          source: cell.content.split('\n').map((line, i, arr) => i === arr.length - 1 ? line : line + '\n'),
-          outputs: cell.output ? [{
-            name: "stdout",
-            output_type: "stream",
-            text: cell.output.split('\n').map((line, i, arr) => i === arr.length - 1 ? line : line + '\n')
-          }] : [],
-          execution_count: cell.type === 'code' ? (cell.executionCount || null) : null
-        }))
+          cell_type: cell.type, metadata: {},
+          source: cell.content.split('\n').map((l, i, a) => i === a.length - 1 ? l : l + '\n'),
+          outputs: cell.output ? [{ name: 'stdout', output_type: 'stream', text: cell.output.split('\n').map((l, i, a) => i === a.length - 1 ? l : l + '\n') }] : [],
+          execution_count: cell.type === 'code' ? (cell.executionCount || null) : null,
+        })),
       };
-
-      blob = new Blob([JSON.stringify(notebookContent, null, 2)], { type: 'application/x-ipynb+json' });
+      blob = new Blob([JSON.stringify(nb, null, 2)], { type: 'application/x-ipynb+json' });
     } else if (file.file) {
       blob = file.file;
     } else {
       blob = new Blob([''], { type: 'text/plain' });
     }
-
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    a.href = url; a.download = file.name;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
     setContextMenu(null);
   };
 
+  // ── Search helpers ────────────────────────────────────────────────────────────
+  const totalMatches = searchResults.reduce((sum, r) => sum + r.cells.reduce((s, c) => s + c.lines.length, 0), 0);
+
+  const handleMatchClick = (fileId: string, cellId: string) => {
+    onFileSelect(fileId);
+    // Small delay to let the file switch before focussing the cell
+    setTimeout(() => onCellFocus?.(fileId, cellId), 100);
+  };
+
+  const toggleFileExpand = (fileId: string) => {
+    setExpandedFiles(prev => {
+      const next = new Set(prev);
+      next.has(fileId) ? next.delete(fileId) : next.add(fileId);
+      return next;
+    });
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full bg-[#09090b] z-10 shrink-0 relative rounded-2xl border border-sim-border overflow-hidden shadow-lg transition-all duration-300">
-      {/* Icon Strip */}
-      <div className="w-14 h-full flex flex-col items-center py-4 bg-[#09090b] gap-6 z-20 shrink-0 border-r border-sim-border/50">
-        <SidebarIcon icon={Folder} isActive={isOpen} onClick={() => setIsOpen(!isOpen)} label="Files" />
+
+      {/* ── Activity Bar ── */}
+      <div className="w-14 h-full flex flex-col items-center py-4 bg-[#09090b] gap-2 z-20 shrink-0 border-r border-sim-border/50">
+        <SidebarIcon
+          icon={Folder}
+          isActive={drawerOpen && activePanel === 'files'}
+          onClick={() => switchPanel('files')}
+          label="Files"
+        />
+        <SidebarIcon
+          icon={Search}
+          isActive={drawerOpen && activePanel === 'search'}
+          onClick={() => switchPanel('search')}
+          label="Search in Notebooks"
+        />
       </div>
 
-      {/* Drawer */}
+      {/* ── Drawer ── */}
       <div
         className={`bg-[#1e1e20] transition-all duration-300 ease-in-out flex flex-col overflow-hidden h-full
-          ${isOpen ? 'w-64 opacity-100' : 'w-0 opacity-0'}
-        `}
+          ${drawerOpen ? 'w-64 opacity-100' : 'w-0 opacity-0'}`}
       >
-        <div className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-sim-border/30">
-          <span className="text-sm font-semibold text-gray-200 tracking-wide">Files</span>
-          <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-white rounded p-1">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
 
-        {/* Content */}
-        <div className="flex-1 flex flex-col overflow-hidden px-2 py-2">
-          {/* File Actions */}
-          <div className="flex items-center gap-1 mb-2 px-1">
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
-              onChange={handleFileChange}
-              multiple
-              accept=".ipynb,.py,.csv,.json,.txt,.png,.jpg,.jpeg,.svg"
-            />
-            <button
-              onClick={handleUploadClick}
-              className="flex-1 flex items-center justify-center gap-2 bg-[#2b2b2e] hover:bg-[#3a3a3c] text-xs font-medium text-gray-300 py-1.5 rounded-lg transition-colors"
-            >
-              <Upload className="w-3.5 h-3.5" /> Upload
-            </button>
-            <button
-              onClick={onClearFiles}
-              className="flex items-center justify-center p-1.5 bg-[#2b2b2e] hover:bg-sim-red/20 text-gray-400 hover:text-sim-red rounded-lg transition-colors"
-              title="Clear All"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <div className="space-y-0.5">
-              {files.length === 0 && (
-                <div className="flex flex-col items-center justify-center pt-10 text-center px-4 opacity-50">
-                  <Folder className="w-8 h-8 text-gray-600 mb-2" />
-                  <span className="text-xs text-gray-500">
-                    No files open.
-                  </span>
-                </div>
-              )}
-
-              {files.map((file) => (
-                <FileTreeItem
-                  key={file.id}
-                  id={file.id}
-                  name={file.name}
-                  fileType={file.type}
-                  isActive={file.id === activeFileId}
-                  onClick={() => onFileSelect(file.id)}
-                  onContextMenu={(e) => handleContextMenu(e, file.id)}
-                  isEditing={editingFileId === file.id}
-                  editValue={editName}
-                  onEditChange={setEditName}
-                  onEditSubmit={finishRenaming}
-                />
-              ))}
+        {/* ━━ FILES panel ━━ */}
+        {activePanel === 'files' && (
+          <>
+            <div className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-sim-border/30">
+              <span className="text-sm font-semibold text-gray-200 tracking-wide">Files</span>
+              <button onClick={() => setDrawerOpen(false)} className="text-gray-400 hover:text-white rounded p-1">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-          </div>
-        </div>
+
+            <div className="flex-1 flex flex-col overflow-hidden px-2 py-2">
+              <div className="flex items-center gap-1 mb-2 px-1">
+                <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} multiple accept=".ipynb,.py,.csv,.json,.txt,.png,.jpg,.jpeg,.svg" />
+                <button onClick={handleUploadClick} className="flex-1 flex items-center justify-center gap-2 bg-[#2b2b2e] hover:bg-[#3a3a3c] text-xs font-medium text-gray-300 py-1.5 rounded-lg transition-colors">
+                  <Upload className="w-3.5 h-3.5" /> Upload
+                </button>
+                <button onClick={onClearFiles} className="flex items-center justify-center p-1.5 bg-[#2b2b2e] hover:bg-sim-red/20 text-gray-400 hover:text-sim-red rounded-lg transition-colors" title="Clear All">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-0.5">
+                  {files.length === 0 && (
+                    <div className="flex flex-col items-center justify-center pt-10 text-center px-4 opacity-50">
+                      <Folder className="w-8 h-8 text-gray-600 mb-2" />
+                      <span className="text-xs text-gray-500">No files open.</span>
+                    </div>
+                  )}
+                  {files.map(file => (
+                    <FileTreeItem
+                      key={file.id}
+                      id={file.id}
+                      name={file.name}
+                      fileType={file.type}
+                      isActive={file.id === activeFileId}
+                      onClick={() => onFileSelect(file.id)}
+                      onContextMenu={e => handleContextMenu(e, file.id)}
+                      isEditing={editingFileId === file.id}
+                      editValue={editName}
+                      onEditChange={setEditName}
+                      onEditSubmit={finishRenaming}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ━━ SEARCH panel ━━ */}
+        {activePanel === 'search' && (
+          <>
+            <div className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-sim-border/30">
+              <span className="text-sm font-semibold text-gray-200 tracking-wide">Search</span>
+              <button onClick={() => setDrawerOpen(false)} className="text-gray-400 hover:text-white rounded p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 flex flex-col overflow-hidden">
+
+              {/* Search input */}
+              <div className="px-2 pt-3 pb-2 shrink-0">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    placeholder="Search in notebooks…"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="w-full bg-[#2b2b2e] border border-[#3a3a3c] focus:border-sim-red/50
+                      rounded-lg py-2 pl-8 pr-8 text-xs text-gray-200
+                      placeholder-gray-600 outline-none transition-colors"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Result count */}
+                {searchQuery.trim() && (
+                  <p className="text-[10px] text-gray-600 mt-1.5 px-1">
+                    {totalMatches === 0
+                      ? 'No results'
+                      : `${totalMatches} match${totalMatches !== 1 ? 'es' : ''} in ${searchResults.length} file${searchResults.length !== 1 ? 's' : ''}`}
+                  </p>
+                )}
+              </div>
+
+              {/* Results list */}
+              <div className="flex-1 overflow-y-auto">
+                {searchQuery.trim() === '' ? (
+                  <div className="flex flex-col items-center justify-center pt-12 text-center px-4 opacity-40">
+                    <Search className="w-8 h-8 text-gray-600 mb-2" />
+                    <span className="text-xs text-gray-500">Type to search cell content</span>
+                  </div>
+                ) : searchResults.length === 0 ? (
+                  <div className="text-center pt-12 text-xs text-gray-600 opacity-60">No matches found</div>
+                ) : (
+                  <div className="py-1">
+                    {searchResults.map(fileMatch => (
+                      <div key={fileMatch.fileId}>
+                        {/* File header — collapsible */}
+                        <button
+                          onClick={() => toggleFileExpand(fileMatch.fileId)}
+                          className="w-full flex items-center gap-1.5 px-3 py-1.5 text-left hover:bg-white/5 transition-colors group"
+                        >
+                          <ChevronRight
+                            className={`w-3 h-3 text-gray-500 shrink-0 transition-transform ${expandedFiles.has(fileMatch.fileId) ? 'rotate-90' : ''}`}
+                          />
+                          <FileCode className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                          <span className="text-xs font-medium text-gray-300 truncate flex-1">{fileMatch.fileName}</span>
+                          <span className="text-[10px] text-gray-600 shrink-0">
+                            {fileMatch.cells.reduce((s, c) => s + c.lines.length, 0)}
+                          </span>
+                        </button>
+
+                        {/* Cell matches */}
+                        {expandedFiles.has(fileMatch.fileId) && fileMatch.cells.map(cellMatch => (
+                          <div key={cellMatch.cellId}>
+                            {/* Cell header */}
+                            <div className="flex items-center gap-1.5 px-5 py-0.5">
+                              <span className="text-[9px] uppercase tracking-widest text-gray-600 font-mono">
+                                {cellMatch.cellType} cell {cellMatch.cellIndex + 1}
+                              </span>
+                            </div>
+
+                            {/* Matching lines */}
+                            {cellMatch.lines.map((line, li) => (
+                              <button
+                                key={li}
+                                onClick={() => handleMatchClick(fileMatch.fileId, cellMatch.cellId)}
+                                className="w-full text-left px-5 py-1 hover:bg-white/5 transition-colors group"
+                              >
+                                <div className="flex items-start gap-1.5">
+                                  <span className="text-[9px] text-gray-700 font-mono w-5 shrink-0 pt-0.5 text-right">
+                                    {line.lineNumber}
+                                  </span>
+                                  <HighlightedLine
+                                    text={line.text}
+                                    matchStart={line.matchStart}
+                                    matchEnd={line.matchEnd}
+                                  />
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Context Menu Portal */}
+      {/* ── Context Menu ── */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-[#27272a] border border-[#3a3a3c] shadow-xl rounded-lg py-1 w-36 flex flex-col animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
+          className="fixed z-50 bg-[#27272a] border border-[#3a3a3c] shadow-xl rounded-lg py-1 w-36 flex flex-col overflow-hidden"
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
         >
           <button
-            onClick={(e) => startRenaming(e, contextMenu.fileId, files.find(f => f.id === contextMenu.fileId)?.name || '')}
+            onClick={e => startRenaming(e, contextMenu.fileId, files.find(f => f.id === contextMenu.fileId)?.name || '')}
             className="flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-[#3a3a3c] hover:text-white text-left transition-colors"
           >
             <Edit2 className="w-3.5 h-3.5" /> Rename
@@ -292,9 +499,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <Download className="w-3.5 h-3.5" /> Download
           </button>
-          <div className="h-[1px] bg-[#3a3a3c] my-1"></div>
+          <div className="h-[1px] bg-[#3a3a3c] my-1" />
           <button
-            onClick={(e) => requestDelete(e, contextMenu.fileId)}
+            onClick={e => requestDelete(e, contextMenu.fileId)}
             className="flex items-center gap-2 px-3 py-2 text-xs text-sim-red hover:bg-sim-red/10 hover:text-sim-redHover text-left transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete
@@ -305,16 +512,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 };
 
-const SidebarIcon: React.FC<{ icon: React.ComponentType<any>; isActive: boolean; onClick: () => void; label: string }> = ({
-  icon: Icon,
-  isActive,
-  onClick,
-  label
-}) => (
+// ── Sub-components ───────────────────────────────────────────────────────────
+
+const SidebarIcon: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  isActive: boolean;
+  onClick: () => void;
+  label: string;
+}> = ({ icon: Icon, isActive, onClick, label }) => (
   <button
     onClick={onClick}
     title={label}
-    className={`p-2.5 rounded-xl transition-all ${isActive ? 'text-sim-red bg-[#1e1e20]' : 'text-gray-500 hover:text-gray-300 hover:bg-[#1e1e20]/50'
+    className={`p-2.5 rounded-xl transition-all duration-150 ${isActive
+        ? 'text-sim-red bg-[#1e1e20]'
+        : 'text-gray-500 hover:text-gray-300 hover:bg-[#1e1e20]/50'
       }`}
   >
     <Icon className="w-5 h-5" />
@@ -333,14 +544,9 @@ const FileTreeItem: React.FC<{
   onEditChange: (val: string) => void;
   onEditSubmit: () => void;
 }> = ({ id, name, fileType, isActive, onClick, onContextMenu, isEditing, editValue, onEditChange, onEditSubmit }) => {
-  let RenderIcon = File;
-  if (fileType?.startsWith('image/') || name.match(/\.(png|jpg|jpeg|gif|svg)$/i)) {
-    RenderIcon = ImageIcon;
-  } else if (name.endsWith('.csv') || name.endsWith('.json')) {
-    RenderIcon = File;
-  } else if (name.endsWith('.py') || name.endsWith('.ipynb') || name.endsWith('.js') || name.endsWith('.ts') || name.endsWith('.tsx')) {
-    RenderIcon = FileCode;
-  }
+  let RenderIcon: React.ComponentType<{ className?: string }> = File;
+  if (fileType?.startsWith('image/') || name.match(/\.(png|jpg|jpeg|gif|svg)$/i)) RenderIcon = ImageIcon;
+  else if (name.match(/\.(py|ipynb|js|ts|tsx)$/i)) RenderIcon = FileCode;
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('application/x-sim-file-id', id);
@@ -355,25 +561,19 @@ const FileTreeItem: React.FC<{
         draggable={!isEditing}
         onDragStart={handleDragStart}
         className={`flex items-center gap-2 py-1.5 px-3 rounded-lg cursor-pointer group transition-all duration-200
-          ${isActive
-            ? 'bg-[#2b2b2e] text-sim-red shadow-sm'
-            : 'text-gray-400 hover:text-gray-200 hover:bg-[#2b2b2e]/50'}
-        `}
+          ${isActive ? 'bg-[#2b2b2e] text-sim-red shadow-sm' : 'text-gray-400 hover:text-gray-200 hover:bg-[#2b2b2e]/50'}`}
       >
-        <RenderIcon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? 'text-sim-red' : 'text-gray-500 group-hover:text-gray-400'
-          }`} />
+        <RenderIcon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-sim-red' : 'text-gray-500 group-hover:text-gray-400'}`} />
 
         {isEditing ? (
           <input
             autoFocus
             value={editValue}
-            onChange={(e) => onEditChange(e.target.value)}
+            onChange={e => onEditChange(e.target.value)}
             onBlur={onEditSubmit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onEditSubmit();
-            }}
+            onKeyDown={e => { if (e.key === 'Enter') onEditSubmit(); }}
             className="bg-black/50 text-white text-xs p-1 w-full rounded border border-sim-red outline-none"
-            onClick={(e) => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
           />
         ) : (
           <span className="truncate text-xs font-medium">{name}</span>

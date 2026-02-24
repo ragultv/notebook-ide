@@ -68,7 +68,10 @@ export async function kernelRoutes(fastify: FastifyInstance) {
     // Add this route before global metrics or anywhere appropriate
     fastify.get('/metrics/:notebookId', async (request, reply) => {
         const { notebookId } = request.params as { notebookId: string };
-        const metrics = kernelManager.getKernelMetrics(notebookId);
+        const metrics = await kernelManager.getKernelMetrics(notebookId);
+        if (metrics.available) {
+            console.log(`[METRICS] Notebook ${notebookId} PID ${metrics.pid} | Process RAM: ${metrics.memory_mb?.toFixed(2)}MB | Sys RAM Used: ${metrics.system_memory_used_mb?.toFixed(2)}MB / ${metrics.system_memory_total_mb?.toFixed(2)}MB`);
+        }
         // Always return 200 with the metrics object (which contains available: boolean)
         return metrics;
     });

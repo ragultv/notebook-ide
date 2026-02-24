@@ -73,19 +73,68 @@ async def get_notebook_metrics(notebook_id: str):
         # Get process metrics
         if PSUTIL_AVAILABLE:
             try:
+                import shutil, subprocess, os
                 process = psutil.Process(pid)
-                memory_info = process.memory_info()
+                
+                total_mem_bytes = 0
+                try:
+                    mem_info = process.memory_info()
+                    total_mem_bytes += getattr(mem_info, 'vms', mem_info.rss)
+                    for child in process.children(recursive=True):
+                        try:
+                            child_mem = child.memory_info()
+                            total_mem_bytes += getattr(child_mem, 'vms', child_mem.rss)
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+                
+                try:
+                    memory_percent = process.memory_percent()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    memory_percent = 0.0
+
                 cpu_percent = process.cpu_percent(interval=0.1)
                 
-                return {
+                # Disk usage of the current drive
+                disk_info = shutil.disk_usage(os.getcwd())
+                disk_mb = (disk_info.total - disk_info.free) / (1024 * 1024)
+                
+                # Check GPU
+                gpu_mb = None
+                try:
+                    output = subprocess.check_output(
+                        ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,nounits,noheader"],
+                        universal_newlines=True, timeout=1
+                    )
+                    memories = [float(x.strip()) for x in output.strip().split('\n') if x.strip()]
+                    if memories:
+                        gpu_mb = round(sum(memories), 2)
+                except Exception:
+                    pass
+                
+                # Fetch system-wide memory (total RAM instead of just process RAM)
+                sys_mem = psutil.virtual_memory()
+                sys_mem_used = sys_mem.used / (1024 * 1024)
+                sys_mem_total = sys_mem.total / (1024 * 1024)
+
+                metrics_payload = {
                     "notebook_id": notebook_id,
                     "available": True,
                     "pid": pid,
-                    "memory_mb": round(memory_info.rss / (1024 * 1024), 2),
-                    "memory_percent": round(process.memory_percent(), 2),
+                    "memory_mb": round(total_mem_bytes / (1024 * 1024), 2),
+                    "memory_percent": round(memory_percent, 2),
                     "cpu_percent": round(cpu_percent, 2),
+                    "disk_mb": round(disk_mb, 2),
+                    "gpu_memory_mb": gpu_mb,
+                    "system_memory_used_mb": round(sys_mem_used, 2),
+                    "system_memory_total_mb": round(sys_mem_total, 2),
                     "status": "running"
                 }
+
+                print(f"[METRICS] Notebook {notebook_id} PID {pid} | Process RAM: {metrics_payload['memory_mb']}MB | Sys RAM Used: {metrics_payload['system_memory_used_mb']}MB / {metrics_payload['system_memory_total_mb']}MB")
+                
+                return metrics_payload
             except psutil.NoSuchProcess:
                 return {
                     "notebook_id": notebook_id,

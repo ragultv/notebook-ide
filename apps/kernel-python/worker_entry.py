@@ -7,11 +7,14 @@ import os
 import sys
 
 # Suppress TensorFlow and other library logging BEFORE any imports
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow C++ warnings
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN custom ops messages
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable CUDA to avoid GPU messages
+
+# NOTE: CUDA_VISIBLE_DEVICES is set AFTER reading the config from stdin,
+# because whether to enable GPU depends on the device selection from the UI.
+# We do NOT set it here — it's handled in worker_main() based on the config.
 os.environ['NUMEXPR_MAX_THREADS'] = '1'  # Suppress numexpr threading messages
-os.environ['OMP_NUM_THREADS'] = '1'  # Suppress OpenMP messages
+os.environ['OMP_NUM_THREADS'] = '1'      # Suppress OpenMP messages
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 import io
 import time
@@ -119,11 +122,31 @@ def execute_with_capture(code_str: str, namespace: dict):
     except ImportError:
         HAS_MATPLOTLIB = False
     
+    class LiveStream(io.StringIO):
+        def __init__(self, stream_type='stdout'):
+            super().__init__()
+            self._stream_type = stream_type
+            
+        def write(self, s):
+            super().write(s)
+            if s:
+                _write_response({
+                    "type": "stream",
+                    "stream": self._stream_type,
+                    "data": s
+                })
+            return len(s)
+
+        def isatty(self):
+            return True
+
+    stdout_buffer = LiveStream('stdout')
+    stderr_buffer = LiveStream('stderr')
+    
     outputs = []
+    start_time = time.perf_counter()  # Start timing HERE, before exec(), accessible in all except blocks
     
     try:
-        start_time = time.perf_counter()
-        
         # Monkey-patch subprocess to capture output from spawned processes
         import subprocess
         import threading
@@ -239,6 +262,10 @@ def execute_with_capture(code_str: str, namespace: dict):
         
         ns_summary = summarize_namespace(namespace)
         
+        # Aggressively collect garbage to free any unreferenced temporary variables
+        import gc
+        gc.collect()
+        
         return {
             'status': 'success',
             'stdout': stdout_buffer.getvalue(),
@@ -255,19 +282,21 @@ def execute_with_capture(code_str: str, namespace: dict):
             'stdout': stdout_buffer.getvalue(),
             'stderr': stderr_buffer.getvalue(),
             'error_details': "MemoryError: Process exceeded memory limit",
-            'duration': 0.0,
+            'duration': time.perf_counter() - start_time,
             'namespace_vars': {},
             'outputs': []
         }
         
     except Exception:
+        import gc
+        gc.collect()
         tb = traceback.format_exc()
         return {
             'status': 'error',
             'stdout': stdout_buffer.getvalue(),
             'stderr': stderr_buffer.getvalue(),
             'error_details': tb,
-            'duration': 0.0,
+            'duration': time.perf_counter() - start_time,
             'namespace_vars': {},
             'outputs': []
         }
@@ -406,6 +435,63 @@ def set_resource_limits(max_memory_mb: int):
             print(f"Warning: Could not set resource limits: {e}", file=sys.stderr)
 
 
+def get_completions(code: str, cursor_pos: int, namespace: dict, context_code: str = "") -> list:
+    """Get code completions using Jedi if available, otherwise fallback to namespace keys"""
+    try:
+        import jedi
+        # Prepend context code if available to provide cross-cell completions
+        full_code = context_code + "\n" + code if context_code else code
+        adjusted_cursor_pos = cursor_pos + (len(context_code) + 1 if context_code else 0)
+
+        # Jedi uses 1-based line numbers and 0-based column numbers
+        lines = full_code[:adjusted_cursor_pos].splitlines(keepends=True)
+        if not lines:
+            line_num = 1
+            col_num = 0
+        else:
+            line_num = len(lines)
+            col_num = len(lines[-1])
+            if full_code[adjusted_cursor_pos-1:adjusted_cursor_pos] == '\n':
+                line_num += 1
+                col_num = 0
+
+        # Create interpreter with the full context
+        interpreter = jedi.Interpreter(full_code, [namespace])
+        completions = interpreter.complete(line_num, col_num)
+        
+        return [
+            {
+                "name": c.name,
+                "type": c.type,
+                "description": c.description,
+                "docstring": c.docstring() if hasattr(c, 'docstring') else "",
+                "complete": c.complete
+            }
+            for c in completions
+        ]
+    except ImportError:
+        # Fallback: very basic completion based on namespace keys
+        prefix = ""
+        # Try to find the word being typed
+        import re
+        match = re.search(r'([a-zA-Z_][a-zA-Z0-9_]*)$', code[:cursor_pos])
+        if match:
+            prefix = match.group(1).lower()
+        
+        results = []
+        for key in namespace.keys():
+            if not key.startswith('_') and key.lower().startswith(prefix):
+                results.append({
+                    "name": key,
+                    "type": "variable",
+                    "description": f"Variable: {key}",
+                    "complete": key[len(prefix):]
+                })
+        return results
+    except Exception as e:
+        return [{"name": f"Error: {str(e)}", "type": "error", "complete": ""}]
+
+
 def worker_main():
     """Main worker loop - reads JSON-RPC requests from stdin, executes, writes results to stderr"""
     
@@ -414,13 +500,92 @@ def worker_main():
         config_line = sys.stdin.readline()
         config = json.loads(config_line)
         max_memory_mb = config.get('max_memory_mb')
-        
+        device = config.get('device', 'cpu')  # 'cpu' or 'cuda'
+
+        # ── Configure CUDA visibility based on selected runtime ──────────────
+        # This MUST happen before any ML library imports so they see the right device.
+        if device == 'cuda':
+            # Clear any inherited CUDA_VISIBLE_DEVICES restriction
+            os.environ.pop('CUDA_VISIBLE_DEVICES', None)
+        else:
+            # '-1' = hide all GPUs (CPU-only execution)
+            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+        # ─────────────────────────────────────────────────────────────────────
+
         if max_memory_mb:
             set_resource_limits(max_memory_mb)
-        
-        # Send ready signal via stderr
-        _write_response({"status": "ready"})
-        
+
+        # ── Pre-flight CUDA check ─────────────────────────────────────────────
+        # If GPU runtime is requested, verify torch can see a CUDA device BEFORE
+        # we accept the first cell execution. This surfaces a clear, actionable
+        # error instead of a cryptic unsloth/torch traceback later.
+        if device == 'cuda':
+            try:
+                import torch
+                if not torch.cuda.is_available():
+                    # Detect whether torch was built without CUDA at all
+                    cuda_in_build = '+cu' in torch.__version__ or 'cuda' in torch.__version__.lower()
+                    if not cuda_in_build:
+                        problem = (
+                            f"Your PyTorch is CPU-only ({torch.__version__}).\n\n"
+                            "To use GPU runtime you need a CUDA-enabled PyTorch. "
+                            "Run the following command, then restart the kernel:\n\n"
+                            "    pip install torch torchvision torchaudio "
+                            "--index-url https://download.pytorch.org/whl/cu121"
+                        )
+                    else:
+                        problem = (
+                            f"CUDA not available (PyTorch {torch.__version__}).\n\n"
+                            "Make sure:\n"
+                            "  1. You have an NVIDIA GPU\n"
+                            "  2. NVIDIA drivers are installed (run: nvidia-smi)\n"
+                            "  3. The CUDA toolkit version matches your PyTorch build\n\n"
+                            "GPU device count: 0"
+                        )
+                    _write_response({"status": "ready"})
+                    _CUDA_PREFLIGHT_ERROR = problem
+                else:
+                    # CUDA is available — get GPU info and do a deeper vendor check
+                    # that matches what unsloth_zoo does internally.
+                    gpu_name = torch.cuda.get_device_name(0)
+                    gpu_mem_gb = torch.cuda.get_device_properties(0).total_memory // (1024 ** 3)
+
+                    # Mimic unsloth_zoo's vendor detection — it checks for NVIDIA/AMD/Intel.
+                    # If it can't classify, it raises NotImplementedError. We catch that here
+                    # so the user gets a clear message instead of a stacktrace.
+                    gpu_vendor = gpu_name.upper()
+                    known_vendor = any(v in gpu_vendor for v in ['NVIDIA', 'AMD', 'RADEON', 'INTEL', 'GEFORCE', 'RTX', 'GTX', 'QUADRO', 'TESLA'])
+
+                    if not known_vendor:
+                        problem = (
+                            f"GPU detected: {gpu_name}\n\n"
+                            "Unsloth requires an NVIDIA, AMD, or Intel GPU but could not "
+                            f"classify '{gpu_name}' as a supported device.\n\n"
+                            "If this is an NVIDIA GPU, make sure the NVIDIA CUDA toolkit and "
+                            "drivers are properly installed and try reinstalling PyTorch:\n\n"
+                            "    pip install torch torchvision torchaudio "
+                            "--index-url https://download.pytorch.org/whl/cu121"
+                        )
+                        _write_response({"status": "ready"})
+                        _CUDA_PREFLIGHT_ERROR = problem
+                    else:
+                        _write_response({
+                            "status": "ready",
+                            "gpu": f"{gpu_name} ({gpu_mem_gb} GB VRAM)"
+                        })
+                        _CUDA_PREFLIGHT_ERROR = None
+            except ImportError:
+                _write_response({"status": "ready"})
+                _CUDA_PREFLIGHT_ERROR = (
+                    "PyTorch is not installed. Install it with:\n\n"
+                    "    pip install torch torchvision torchaudio "
+                    "--index-url https://download.pytorch.org/whl/cu121"
+                )
+        else:
+            _write_response({"status": "ready"})
+            _CUDA_PREFLIGHT_ERROR = None
+        # ─────────────────────────────────────────────────────────────────────
+
     except Exception as e:
         _write_response({"status": "error", "message": str(e)})
         sys.exit(1)
@@ -447,10 +612,34 @@ def worker_main():
             
             if request.get("command") == "EXECUTE":
                 code = request.get("code", "")
-                result = execute_with_capture(code, local_namespace)
+
+                # If the CUDA preflight check failed, report the error directly
+                # instead of running user code (which would give a cryptic traceback)
+                if _CUDA_PREFLIGHT_ERROR:
+                    _write_response({
+                        'status': 'error',
+                        'stdout': '',
+                        'stderr': '',
+                        'error_details': _CUDA_PREFLIGHT_ERROR,
+                        'duration': 0.0,
+                        'namespace_vars': {},
+                        'outputs': []
+                    })
+                else:
+                    result = execute_with_capture(code, local_namespace)
+                    # Write result to stderr as JSON
+                    _write_response(result)
+
+            if request.get("command") == "COMPLETE":
+                code = request.get("code", "")
+                cursor_pos = request.get("cursor_pos", len(code))
+                context_code = request.get("context_code", "")
                 
-                # Write result to stderr as JSON
-                _write_response(result)
+                completions = get_completions(code, cursor_pos, local_namespace, context_code)
+                _write_response({
+                    "type": "completions",
+                    "completions": completions
+                })
 
             if request.get("command") == "SNAPSHOT":
                 snapshot = get_memory_snapshot(local_namespace)

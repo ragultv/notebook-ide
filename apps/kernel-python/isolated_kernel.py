@@ -84,7 +84,15 @@ class ResourceMonitor:
             
             while not self._stop_event.is_set():
                 try:
-                    mem_mb = process.memory_info().rss / (1024 * 1024)
+                    mem_info = process.memory_info()
+                    total_bytes = getattr(mem_info, 'vms', mem_info.rss)
+                    for child in process.children(recursive=True):
+                        try:
+                            child_mem = child.memory_info()
+                            total_bytes += getattr(child_mem, 'vms', child_mem.rss)
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                    mem_mb = total_bytes / (1024 * 1024)
                     cpu_pct = process.cpu_percent(interval=None)
                     
                     memory_samples.append(mem_mb)
@@ -122,22 +130,26 @@ class TrulyIsolatedKernel:
     def __init__(
         self, 
         notebook_id: str, 
-        timeout: int = 0,  # 0 = no timeout (for long-running operations like model downloads)
+        timeout: int = 0,
         max_memory_mb: Optional[int] = None,
         monitor_interval: float = 0.05,
-        python_path: Optional[str] = None
+        python_path: Optional[str] = None,
+        device: str = 'cpu'  # 'cpu' or 'cuda'
     ):
         self.notebook_id = notebook_id
-        self.timeout = timeout  # 0 means no timeout
+        self.timeout = timeout
         self.max_memory_mb = max_memory_mb
         self.monitor_interval = monitor_interval
         self.python_path = python_path or sys.executable
+        self.device = device
         
         self.worker = None
         self.monitor = None
+        self.last_activity = time.time()
+        self.is_suspended = False
         
         self._start_worker()
-        logger.info(f"Created isolated kernel for notebook {notebook_id}")
+        logger.info(f"Created isolated kernel for notebook {notebook_id} (device={device})")
 
     def _start_worker(self):
         """Spawns the isolated worker process using subprocess"""
@@ -159,8 +171,8 @@ class TrulyIsolatedKernel:
             universal_newlines=True
         )
         
-        # Send configuration
-        config = {"max_memory_mb": self.max_memory_mb}
+        # Send configuration (including device so the worker sets CUDA_VISIBLE_DEVICES)
+        config = {"max_memory_mb": self.max_memory_mb, "device": self.device}
         self.worker.stdin.write(json.dumps(config) + "\n")
         self.worker.stdin.flush()
         
@@ -183,8 +195,32 @@ class TrulyIsolatedKernel:
         """Check if worker process is still alive"""
         return self.worker is not None and self.worker.poll() is None
 
-    def execute(self, code: str) -> ExecutionResult:
+    def suspend(self):
+        """Suspend the worker process at the OS level to save CPU without clearing RAM"""
+        if self._is_alive() and PSUTIL_AVAILABLE and not self.is_suspended:
+            try:
+                psutil.Process(self.worker.pid).suspend()
+                self.is_suspended = True
+                logger.info(f"Kernel {self.notebook_id} suspended due to inactivity")
+            except Exception as e:
+                logger.warning(f"Failed to suspend kernel {self.notebook_id}: {e}")
+
+    def resume(self):
+        """Resume a suspended worker"""
+        if self._is_alive() and PSUTIL_AVAILABLE and self.is_suspended:
+            try:
+                psutil.Process(self.worker.pid).resume()
+                self.is_suspended = False
+                logger.info(f"Kernel {self.notebook_id} resumed")
+            except Exception as e:
+                logger.warning(f"Failed to resume kernel {self.notebook_id}: {e}")
+
+    def execute(self, code: str, output_callback: Optional[Callable] = None) -> ExecutionResult:
         """Execute code with real-time monitoring and proper error handling"""
+        
+        self.last_activity = time.time()
+        if self.is_suspended:
+            self.resume()
         
         if not self._is_alive():
             try:
@@ -212,7 +248,7 @@ class TrulyIsolatedKernel:
             
             # Read result with timeout (0 = no timeout)
             result_data = None
-            read_thread = threading.Thread(target=self._read_result, args=(self.worker.stderr,))
+            read_thread = threading.Thread(target=self._read_result, args=(self.worker.stderr, output_callback))
             read_thread.daemon = True
             read_thread.start()
             # Use None for join timeout when self.timeout is 0 (no timeout)
@@ -271,33 +307,55 @@ class TrulyIsolatedKernel:
                 error_details=f"Execution error: {traceback.format_exc()}",
                 metrics=monitor.metrics
             )
-    
-    def _read_result(self, stderr_stream):
+    def _read_result(self, stderr_stream, output_callback=None):
         """Helper to read result from stderr in a separate thread"""
         try:
-            # Read first line from stderr
-            result_line = stderr_stream.readline()
-            
-            if not result_line or not result_line.strip():
-                self._last_result = {
-                    'status': 'error',
-                    'error_details': 'No response received from worker'
-                }
-                return
-            
-            # Try to parse the line as JSON
-            try:
-                self._last_result = json.loads(result_line.strip())
-            except json.JSONDecodeError as e:
-                # Provide detailed error info
-                self._last_result = {
-                    'status': 'error',
-                    'error_details': f"Failed to parse worker response: {e}. Received: {result_line.strip()[:100]}"
-                }
+            while True:
+                # Read line from stderr
+                result_line = stderr_stream.readline()
+                
+                if not result_line or not result_line.strip():
+                    self._last_result = {
+                        'status': 'error',
+                        'error_details': 'No response received from worker'
+                    }
+                    return
+                
+                # Try to parse the line as JSON
+                try:
+                    data = json.loads(result_line.strip())
+                    
+                    if data.get("type") == "stream":
+                        if output_callback:
+                            try:
+                                # We construct a minimal dictionary or object that matches RichOutput structure
+                                # Since python is duck typed, kernel_manager just needs `output.type`, `output.data`, `output.stream` etc.
+                                class DummyRichOutput:
+                                    def __init__(self, t, d, s):
+                                        self.type = t
+                                        self.data = d
+                                        self.stream = s
+                                        self.mimeType = None
+                                out = DummyRichOutput('stream', data.get("data", ""), data.get("stream", "stdout"))
+                                output_callback(out)
+                            except Exception as ex:
+                                pass
+                        continue
+                    
+                    # It's the final result data message 
+                    self._last_result = data
+                    break
+                except json.JSONDecodeError as e:
+                    # Provide detailed error info
+                    self._last_result = {
+                        'status': 'error',
+                        'error_details': f"Failed to parse worker response: {e}. Received: {result_line.strip()[:100]}"
+                    }
+                    break
         except Exception as e:
             self._last_result = {
                 'status': 'error',
-                'error_details': f"Failed to read result: {e}"
+                'error_details': f'Exception reading worker output: {str(e)}'
             }
 
     def get_namespace_info(self) -> Dict[str, str]:

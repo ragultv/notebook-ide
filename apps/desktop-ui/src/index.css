@@ -17,12 +17,15 @@ code {
 
 /* Hide all scrollbars globally while keeping scroll functionality */
 * {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
 }
 
 *::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Opera */
+  display: none;
+  /* Chrome, Safari, Opera */
 }
 
 /* Optional: Show scrollbar on hover for specific elements if needed */
@@ -47,16 +50,22 @@ code {
 
 /* Toast animations */
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideInFromBottom {
-  from { 
+  from {
     opacity: 0;
     transform: translateX(-50%) translateY(16px);
   }
-  to { 
+
+  to {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
@@ -64,4 +73,17 @@ code {
 
 .animate-in {
   animation: fadeIn 0.3s ease-out, slideInFromBottom 0.3s ease-out;
+}
+
+/* File menu dropdown animation */
+@keyframes dropdownIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }

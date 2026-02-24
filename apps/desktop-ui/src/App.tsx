@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { TopBar, Sidebar, RightSidebar } from './components/Layout';
 import { MainContent } from './components/MainContent';
+import { ResourcePanel } from './components/Layout/ResourcePanel';
 import { useUIStore } from './store/ui.store';
 import {
   useNotebookManagement,
@@ -12,7 +13,7 @@ import {
 
 const App: React.FC = () => {
   const defaultFileId = useMemo(() => crypto.randomUUID(), []);
-  const { chatOpen, toggleChat } = useUIStore();
+  const { chatOpen, toggleChat, resourcePanelOpen } = useUIStore();
 
   const [modelsRefreshTrigger, setModelsRefreshTrigger] = useState(0);
 
@@ -79,6 +80,8 @@ const App: React.FC = () => {
         onNewNotebook={notebook.handleNewNotebook}
         onOpenFile={notebook.handleOpenFile}
         onSaveFile={notebook.handleSaveFile}
+        onSaveAll={notebook.handleSaveFile}
+        onOpenFolder={(_path) => { /* FileExplorer manages project state */ }}
         onConnectKernel={kernel.handleConnectKernel}
         onRestartKernel={kernel.handleRestartKernel}
         onRunAll={() => kernel.handleRunAll(notebook.activeCells, notebook.updateActiveNotebookCells)}
@@ -105,6 +108,10 @@ const App: React.FC = () => {
           onFileSelect={notebook.setActiveFileId}
           onDeleteFile={fileExplorer.handleDeleteFile}
           onRenameFile={fileExplorer.handleRenameFile}
+          onCellFocus={(_fileId, cellId) => {
+            // setActiveCellId makes the notebook scroll to & highlight the cell
+            cells.setActiveCellId(cellId);
+          }}
         />
 
         <MainContent
@@ -121,8 +128,10 @@ const App: React.FC = () => {
           onModelsChanged={() => setModelsRefreshTrigger(prev => prev + 1)}
         />
 
-        {/* Resizer Handle (Professional Minimalist Divider) */}
-        {chatOpen && (
+        {/* ── Right panel area: ResourcePanel XOR RightSidebar ── */}
+
+        {/* Resizer handle — only visible when a right panel is open */}
+        {(chatOpen || resourcePanelOpen) && (
           <div
             onMouseDown={handleStartResizing}
             className="group relative w-1 h-full cursor-col-resize z-50 flex-shrink-0"
@@ -132,6 +141,8 @@ const App: React.FC = () => {
             `} />
           </div>
         )}
+
+        <ResourcePanel width={chatWidth} isResizing={isResizing} />
 
         <RightSidebar
           isOpen={chatOpen}
@@ -152,9 +163,7 @@ const App: React.FC = () => {
             if (!manageModelsTab) {
               tabs.setTabs(prev => [...prev, { id: 'manage-models', title: 'Language Models', type: 'settings' as const }]);
             }
-            // Clear activeFileId when opening settings tab to prevent useEffect from switching back
             notebook.setActiveFileId(null);
-            // Set the active tab ID directly
             tabs.setActiveTabId('manage-models');
           }}
           modelsRefreshTrigger={modelsRefreshTrigger}

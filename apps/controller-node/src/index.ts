@@ -63,7 +63,7 @@ const start = async () => {
             // Using '*' with credentials breaks streaming fetch in browsers.
             origin: true,
             credentials: config.cors.credentials,
-            methods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
+            methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Accept'],
         });
 

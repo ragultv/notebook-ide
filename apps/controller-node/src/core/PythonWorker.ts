@@ -232,6 +232,40 @@ export class PythonWorker extends EventEmitter {
         });
     }
 
+    public async getCompletions(code: string, cursorPos: number, contextCode?: string): Promise<any[]> {
+        if (!this.process || !this.isReady) {
+            throw new Error('Worker not running');
+        }
+
+        return new Promise((resolve, reject) => {
+            const request = { command: 'COMPLETE', code, cursor_pos: cursorPos, context_code: contextCode };
+            this.process!.stdin!.write(JSON.stringify(request) + '\n');
+
+            const onStderr = (data: Buffer) => {
+                const lines = data.toString().split('\n');
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const response = JSON.parse(line);
+                        if (response.type === 'completions') {
+                            cleanup();
+                            resolve(response.completions);
+                            return;
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+            };
+
+            const cleanup = () => {
+                this.process?.stderr?.off('data', onStderr);
+            };
+
+            this.process!.stderr!.on('data', onStderr);
+        });
+    }
+
     public stop(): void {
         if (this.process) {
             try {

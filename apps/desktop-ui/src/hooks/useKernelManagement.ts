@@ -1,47 +1,63 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { controllerClient } from '../services/controller.client';
-import { useUIStore } from '../store/ui.store';
+import { useUIStore, RuntimeType } from '../store/ui.store';
 import { CellData } from '../types';
 
 interface UseKernelManagementReturn {
-  handleConnectKernel: () => Promise<void>;
+  handleConnectKernel: (runtime: RuntimeType) => Promise<void>;
   handleRestartKernel: () => Promise<void>;
   handleRunAll: (cells: CellData[], updateCells: (cells: CellData[]) => void) => Promise<void>;
 }
 
 export const useKernelManagement = (activeFileId: string | null): UseKernelManagementReturn => {
-  const { setKernelStatus, setKernelId, setKernelMetrics, clearKernelMetrics } = useUIStore();
+  const {
+    setKernelStatus, setKernelId, setKernelMetrics,
+    clearKernelMetrics, setRuntimeType, recordMetricSnapshot, runtimeType
+  } = useUIStore();
 
-  // Kernel  // Metrics polling - COMMENTED OUT to reduce noise
-  /*
+  // Derive the compute device from the selected runtime
+  // GPU runtime → CUDA (cells run on VRAM), CPU runtime → CPU (cells run on RAM)
+  const device = runtimeType === 'gpu' ? 'cuda' : 'cpu';
+
+  // Metrics polling - records notebook kernel process metrics only (not app-wide)
   useEffect(() => {
-    if (!activeFileId) {
-      clearKernelMetrics();
-      return;
-    }
-
     const pollMetrics = async () => {
       try {
-        const metrics = await controllerClient.getKernelMetrics(activeFileId);
-        setKernelMetrics(metrics);
-      } catch (error) {
-        console.error('Failed to fetch kernel metrics:', error);
+        const rawMetrics: any = await controllerClient.getKernelMetrics(activeFileId || 'default');
+
+        console.log('[useKernelManagement] Realtime Metrics:', rawMetrics);
+
+        if (rawMetrics.available || rawMetrics.status === 'running') {
+          setKernelMetrics({
+            pid: rawMetrics.pid,
+            memoryMb: rawMetrics.memory_mb, // process memory
+            cpuPercent: rawMetrics.cpu_percent,
+            diskMb: rawMetrics.disk_mb,
+            gpuMemoryMb: rawMetrics.gpu_memory_mb,
+            systemMemoryUsedMb: rawMetrics.system_memory_used_mb,
+            systemMemoryTotalMb: rawMetrics.system_memory_total_mb
+          });
+          // Ensure we don't pass undefined for diskMb if it's not present
+          recordMetricSnapshot(rawMetrics.disk_mb ?? undefined);
+        } else {
+          clearKernelMetrics();
+        }
+      } catch {
+        // Silently ignore — kernel may not be running yet
         clearKernelMetrics();
       }
     };
 
-    // Poll immediately
     pollMetrics();
-
-    // Then every 2 seconds
-    const interval = setInterval(pollMetrics, 2000);
+    const interval = setInterval(pollMetrics, 1000);
     return () => clearInterval(interval);
-  }, [activeFileId, setKernelMetrics, clearKernelMetrics]);
-  */
+  }, [activeFileId, setKernelMetrics, clearKernelMetrics, recordMetricSnapshot]);
 
-  const handleConnectKernel = useCallback(async () => {
+  const handleConnectKernel = useCallback(async (runtime: RuntimeType) => {
     try {
+      setRuntimeType(runtime);
       setKernelStatus('connecting');
+      // The backend kernel will use the selected runtime for all subsequent cell runs
       await controllerClient.startKernel();
       setKernelId('default');
       setKernelStatus('idle');
@@ -49,7 +65,7 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
       console.error('Failed to connect kernel:', error);
       setKernelStatus('disconnected');
     }
-  }, [setKernelStatus, setKernelId]);
+  }, [setKernelStatus, setKernelId, setRuntimeType]);
 
   const handleRestartKernel = useCallback(async () => {
     try {
@@ -64,7 +80,6 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
 
   const handleRunAll = useCallback(async (cells: CellData[], updateCells: (cells: CellData[]) => void) => {
     const codeCells = cells.filter(c => c.type === 'code' && c.content.trim());
-
     if (codeCells.length === 0) return;
 
     const notebookId = activeFileId || 'default';
@@ -82,6 +97,7 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
           cellId: cell.id,
           code: cell.content,
           notebookId,
+          device,  // ← 'cpu' or 'cuda' — routes execution to RAM or VRAM
         });
 
         updatedCells[cellIndex] = {
@@ -106,7 +122,7 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
         break;
       }
     }
-  }, [activeFileId]);
+  }, [activeFileId, device]);
 
   return {
     handleConnectKernel,

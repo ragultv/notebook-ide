@@ -18,7 +18,7 @@ interface UseNotebookManagementReturn {
   activeFile: ProjectFile | undefined;
   activeCells: CellData[];
   updateActiveNotebookCells: (cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
-  handleNewNotebook: () => void;
+  handleNewNotebook: (name?: string, initialCells?: CellData[], path?: string) => void;
   handleOpenFile: () => Promise<void>;
   handleSaveFile: () => Promise<void>;
 }
@@ -79,26 +79,35 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
     setHasUnsavedChanges(true);
   }, [activeFileId]);
 
-  const handleNewNotebook = useCallback(() => {
+  const handleNewNotebook = useCallback((name?: string, initialCells?: CellData[], path?: string) => {
     const newId = crypto.randomUUID();
-    
-    // Generate unique filename
-    const baseFileName = 'Untitled';
-    let fileName = `${baseFileName}.ipynb`;
-    let counter = 2;
-    
-    // Check if filename exists and increment counter
-    const existingNames = new Set(files.map(f => f.name));
-    while (existingNames.has(fileName)) {
-      fileName = `${baseFileName}-${counter}.ipynb`;
-      counter++;
+
+    let fileName = name;
+    if (!fileName) {
+      // Generate unique filename if none provided
+      const baseFileName = 'Untitled';
+      fileName = `${baseFileName}.ipynb`;
+      let counter = 2;
+
+      // Check if filename exists and increment counter
+      const existingNames = new Set(files.map(f => f.name));
+      while (existingNames.has(fileName)) {
+        fileName = `${baseFileName}-${counter}.ipynb`;
+        counter++;
+      }
     }
-    
+
+    // Ensure .ipynb extension
+    if (fileName && !fileName.endsWith('.ipynb')) {
+      fileName = `${fileName}.ipynb`;
+    }
+
     const newFile: ProjectFile = {
       id: newId,
-      name: fileName,
+      name: fileName!,
       type: 'application/x-ipynb+json',
-      cells: [{
+      path: path,
+      cells: initialCells || [{
         id: crypto.randomUUID(),
         type: 'code',
         content: '',
@@ -108,7 +117,7 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
     setFiles(prev => [...prev, newFile]);
     setActiveFileId(newId);
     activeFileIdRef.current = newId;
-    setCurrentNotebookPath(null);
+    setCurrentNotebookPath(path || null);
     setHasUnsavedChanges(false);
   }, [files]);
 

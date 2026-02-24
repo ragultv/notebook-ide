@@ -2,6 +2,8 @@
 export interface KernelMetrics {
   cpuPercent: number;
   memoryMB: number;
+  diskMb?: number;
+  gpuMemoryMb?: number;
   executionCount: number;
   isAlive: boolean;
 }

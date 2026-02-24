@@ -10,6 +10,7 @@ export interface ExecutionRequest {
   cellId: string;
   code: string;
   notebookId: string;  // Required for notebook isolation
+  device?: 'cpu' | 'cuda';  // Target compute device for this execution
 }
 
 // Rich output types - like Jupyter
@@ -236,6 +237,14 @@ export const controllerClient = {
     return request('/execution/interrupt', { method: 'POST' });
   },
 
+  // Code Completion
+  async getCompletions(req: { code: string; cursorPos: number; notebookId: string; contextCode?: string }): Promise<{ completions: any[] }> {
+    return request('/execution/complete', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  },
+
   // AI Assistant
   async askAI(req: AIRequest): Promise<AIResponse> {
     return request('/ai/assist', {
@@ -300,7 +309,7 @@ export const controllerClient = {
             else if (event === 'plan_ready' && Array.isArray(payload.operations) && callbacks.onPlanReady) callbacks.onPlanReady(payload.operations);
             else if (event === 'done') callbacks.onDone(payload);
             else if (event === 'error' && payload.message) callbacks.onError(payload.message);
-          } catch (_) {}
+          } catch (_) { }
         }
       }
       if (buf.trim()) {
@@ -316,7 +325,7 @@ export const controllerClient = {
             if (event === 'plan_ready' && Array.isArray(payload.operations) && callbacks.onPlanReady) callbacks.onPlanReady(payload.operations);
             else if (event === 'done') callbacks.onDone(payload);
             else if (event === 'error' && payload.message) callbacks.onError(payload.message);
-          } catch (_) {}
+          } catch (_) { }
         }
       }
     } catch (e: any) {

@@ -104,4 +104,16 @@ export async function executionRoutes(fastify: FastifyInstance) {
             reply.raw.end();
         }
     });
+
+    fastify.post('/complete', async (request, reply) => {
+        try {
+            const { code, cursorPos, notebookId, contextCode } = request.body as { code: string; cursorPos: number; notebookId: string; contextCode?: string };
+            const id = notebookId || 'default';
+
+            const completions = await kernelManager.getCompletions(id, code, cursorPos, contextCode);
+            return { completions };
+        } catch (error: any) {
+            reply.code(500).send({ error: error.message });
+        }
+    });
 }

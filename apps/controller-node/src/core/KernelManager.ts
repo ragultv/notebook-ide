@@ -115,7 +115,7 @@ export class KernelManager extends EventEmitter {
         return Array.from(this.kernels.values()).map(k => k.info);
     }
 
-    public getKernelMetrics(notebookId: string): KernelMetrics {
+    public async getKernelMetrics(notebookId: string): Promise<KernelMetrics> {
         const state = this.kernels.get(notebookId);
 
         if (!state) {
@@ -126,15 +126,55 @@ export class KernelManager extends EventEmitter {
             };
         }
 
-        return {
-            notebook_id: notebookId,
-            available: true,
-            pid: state.worker.pid,
-            status: state.info.status,
-            memory_mb: 50, // Stub
-            memory_percent: 1.5, // Stub
-            cpu_percent: 0.5 // Stub
-        };
+        try {
+            const si = await import('systeminformation');
+
+            // Get system metrics
+            const mem = await si.mem();
+            const diskStats = await si.fsSize();
+            const rootDisk = diskStats[0] || { used: 0, size: 0 };
+            const diskMb = rootDisk.used / (1024 * 1024);
+
+            const sysMemUsedMb = mem.active / (1024 * 1024);
+            const sysMemTotalMb = mem.total / (1024 * 1024);
+
+            let procMemMb = 0;
+            let cpuPercent = 0;
+
+            if (state.worker.pid) {
+                const processes = await si.processes();
+                const proc = processes.list.find(p => p.pid === state.worker.pid);
+                if (proc) {
+                    procMemMb = proc.memRss / 1024;
+                    cpuPercent = proc.cpu;
+                }
+            }
+
+            return {
+                notebook_id: notebookId,
+                available: true,
+                pid: state.worker.pid,
+                status: state.info.status,
+                memory_mb: procMemMb,
+                memory_percent: procMemMb / sysMemTotalMb,
+                cpu_percent: cpuPercent,
+                disk_mb: diskMb,
+                gpu_memory_mb: 0, // Fallback since node child metrics don't track GPU easily
+                system_memory_used_mb: sysMemUsedMb,
+                system_memory_total_mb: sysMemTotalMb
+            };
+        } catch (error) {
+            console.error('Failed to get kernel metrics:', error);
+            return {
+                notebook_id: notebookId,
+                available: true,
+                pid: state.worker.pid,
+                status: state.info.status,
+                memory_mb: 50, // Stub fallback if failure
+                memory_percent: 1.5,
+                cpu_percent: 0.5
+            };
+        }
     }
     public async getMemorySnapshot(notebookId: string): Promise<any> {
         const state = this.kernels.get(notebookId);
@@ -149,6 +189,20 @@ export class KernelManager extends EventEmitter {
             throw error;
         }
     }
+
+    public async getCompletions(notebookId: string, code: string, cursorPos: number, contextCode?: string): Promise<any[]> {
+        const state = this.kernels.get(notebookId);
+        if (!state) {
+            throw new Error('Kernel not running for this notebook');
+        }
+
+        try {
+            return await state.worker.getCompletions(code, cursorPos, contextCode);
+        } catch (error) {
+            console.error('Failed to get completions:', error);
+            throw error;
+        }
+    }
 }
 
 export interface KernelMetrics {
@@ -158,6 +212,10 @@ export interface KernelMetrics {
     memory_mb?: number;
     memory_percent?: number;
     cpu_percent?: number;
+    disk_mb?: number;
+    gpu_memory_mb?: number;
+    system_memory_used_mb?: number;
+    system_memory_total_mb?: number;
     status?: string;
     error?: string;
 }

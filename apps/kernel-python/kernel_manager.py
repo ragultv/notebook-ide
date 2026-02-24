@@ -66,6 +66,7 @@ class ExecutionRequest:
     streaming: bool = False
     output_callback: Optional[Callable] = None
     submitted_at: float = field(default_factory=time.time)
+    device: str = 'cpu'  # 'cpu' or 'cuda'
 
 
 @dataclass
@@ -119,6 +120,7 @@ class KernelManager:
         # Execution queue + single consumer worker
         self._execution_queue: asyncio.Queue = None
         self._queue_worker_task: Optional[asyncio.Task] = None
+        self._auto_suspend_task: Optional[asyncio.Task] = None
         self._queue_order: int = 0
         self._max_queue_size: int = 100
         
@@ -142,15 +144,27 @@ class KernelManager:
     def execution_count(self) -> int:
         return self.state.execution_count
     
-    def _get_isolated_kernel(self, notebook_id: str) -> TrulyIsolatedKernel:
-        """Get or create isolated kernel for a notebook."""
-        if notebook_id not in self.notebook_kernels:
-            logger.info(f"Creating isolated kernel for notebook {notebook_id}")
-            self.notebook_kernels[notebook_id] = TrulyIsolatedKernel(
-                notebook_id=notebook_id,
-                timeout=self._kernel_timeout,
-                max_memory_mb=self._kernel_max_memory_mb
-            )
+    def _get_isolated_kernel(self, notebook_id: str, device: str = 'cpu') -> TrulyIsolatedKernel:
+        """Get or create isolated kernel for a notebook. Restarts if device changed."""
+        existing = self.notebook_kernels.get(notebook_id)
+        if existing is not None:
+            # If device changed, shut down and recreate the kernel so CUDA env is correct
+            if getattr(existing, 'device', 'cpu') != device:
+                logger.info(f"Device changed to '{device}' for notebook {notebook_id} — restarting kernel")
+                try:
+                    existing.shutdown()
+                except Exception:
+                    pass
+                del self.notebook_kernels[notebook_id]
+            else:
+                return existing
+        logger.info(f"Creating isolated kernel for notebook {notebook_id} (device={device})")
+        self.notebook_kernels[notebook_id] = TrulyIsolatedKernel(
+            notebook_id=notebook_id,
+            timeout=self._kernel_timeout,
+            max_memory_mb=self._kernel_max_memory_mb,
+            device=device
+        )
         return self.notebook_kernels[notebook_id]
     
     def _get_notebook_vars(self, notebook_id: str) -> dict:
@@ -206,7 +220,8 @@ class KernelManager:
                             request.notebook_id,
                             exec_count,
                             queue_order,
-                            request.output_callback if request.streaming else None
+                            request.output_callback if request.streaming else None,
+                            device=request.device
                         )
                     else:
                         # Legacy execution
@@ -245,6 +260,25 @@ class KernelManager:
             except Exception as e:
                 print(f"[Kernel] Queue worker error: {e}")
                 traceback.print_exc()
+
+    async def _auto_suspend_worker(self):
+        """Background task that suspends kernels that have been idle for more than 10 minutes."""
+        print("[Kernel] Auto-suspend daemon started (Timeout: 10m)")
+        while True:
+            try:
+                await asyncio.sleep(60) # check every minute
+                current_time = time.time()
+                for notebook_id, kernel in list(self.notebook_kernels.items()):
+                    if kernel and kernel._is_alive() and not kernel.is_suspended:
+                        # 600 seconds = 10 minutes
+                        if (current_time - kernel.last_activity) > 600:
+                            logger.info(f"Auto-suspending idle kernel for notebook {notebook_id}")
+                            kernel.suspend()
+            except asyncio.CancelledError:
+                print("[Kernel] Auto-suspend daemon cancelled")
+                break
+            except Exception as e:
+                logger.error(f"[Kernel] Auto-suspend error: {e}")
     
     async def start(self) -> dict:
         """Start the kernel."""
@@ -261,6 +295,7 @@ class KernelManager:
         
         self._execution_queue = asyncio.Queue(maxsize=self._max_queue_size)
         self._queue_worker_task = asyncio.create_task(self._queue_worker())
+        self._auto_suspend_task = asyncio.create_task(self._auto_suspend_worker())
         
         print(f"[Kernel] Started with ID: {self.state.id} (isolated={USE_ISOLATED_KERNELS})")
         return self._get_info()
@@ -272,6 +307,13 @@ class KernelManager:
             self._queue_worker_task.cancel()
             try:
                 await self._queue_worker_task
+            except asyncio.CancelledError:
+                pass
+        
+        if self._auto_suspend_task and not self._auto_suspend_task.done():
+            self._auto_suspend_task.cancel()
+            try:
+                await self._auto_suspend_task
             except asyncio.CancelledError:
                 pass
         
@@ -372,7 +414,7 @@ class KernelManager:
     
     # === Execution Methods (queued) ===
     
-    async def execute(self, code: str, cell_id: str, notebook_id: str = "default") -> dict:
+    async def execute(self, code: str, cell_id: str, notebook_id: str = "default", device: str = 'cpu') -> dict:
         """Execute code in the kernel (queued, non-streaming)."""
         if self.state.status == KernelStatus.DISCONNECTED:
             await self.start()
@@ -395,14 +437,15 @@ class KernelManager:
             cell_id=cell_id,
             code=code,
             future=future,
-            streaming=False
+            streaming=False,
+            device=device
         )
         
         await self._execution_queue.put(request)
         
         return await future
     
-    async def execute_streaming(self, code: str, cell_id: str, notebook_id: str = "default") -> AsyncGenerator[Dict[str, Any], None]:
+    async def execute_streaming(self, code: str, cell_id: str, notebook_id: str = "default", device: str = 'cpu') -> AsyncGenerator[Dict[str, Any], None]:
         """Execute code with streaming output (queued)."""
         if self.state.status == KernelStatus.DISCONNECTED:
             await self.start()
@@ -423,14 +466,14 @@ class KernelManager:
         
         output_queue: asyncio.Queue = asyncio.Queue()
         
-        def output_callback(output: RichOutput):
-            try:
-                output_queue.put_nowait(output)
-            except:
-                pass
-        
         loop = asyncio.get_event_loop()
         future = loop.create_future()
+        
+        def output_callback(output: RichOutput):
+            try:
+                loop.call_soon_threadsafe(output_queue.put_nowait, output)
+            except:
+                pass
         
         request = ExecutionRequest(
             notebook_id=notebook_id,
@@ -438,7 +481,8 @@ class KernelManager:
             code=code,
             future=future,
             streaming=True,
-            output_callback=output_callback
+            output_callback=output_callback,
+            device=device
         )
         
         await self._execution_queue.put(request)
@@ -489,16 +533,17 @@ class KernelManager:
 
     async def _run_code_isolated(self, code: str, cell_id: str, notebook_id: str,
                                   exec_count: int, queue_order: int,
-                                  output_callback: Optional[Callable] = None) -> dict:
+                                  output_callback: Optional[Callable] = None,
+                                  device: str = 'cpu') -> dict:
         """Run code using TrulyIsolatedKernel."""
         loop = asyncio.get_event_loop()
         start_time = time.time()
         outputs = []
         
-        kernel = self._get_isolated_kernel(notebook_id)
+        kernel = self._get_isolated_kernel(notebook_id, device=device)
         
         def run_sync():
-            return kernel.execute(code)
+            return kernel.execute(code, output_callback=output_callback)
         
         result: IsolatedExecutionResult = await loop.run_in_executor(None, run_sync)
         duration = time.time() - start_time

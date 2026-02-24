@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Literal
 import json
 import sys
 from pathlib import Path
@@ -17,7 +17,8 @@ router = APIRouter()
 class CellExecutionRequest(BaseModel):
     cellId: str
     code: str
-    notebookId: str = "default"  # Required for isolation
+    notebookId: str = "default"
+    device: Literal['cpu', 'cuda'] = 'cpu'  # target compute device
 
 class RunAllRequest(BaseModel):
     notebookId: str = "default"
@@ -40,7 +41,9 @@ async def run_cell(request: CellExecutionRequest):
         }
     
     try:
-        result = await kernel_manager.execute(request.code, request.cellId, request.notebookId)
+        result = await kernel_manager.execute(
+            request.code, request.cellId, request.notebookId, device=request.device
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -55,7 +58,9 @@ async def run_cell_stream(request: CellExecutionRequest):
     
     async def generate():
         try:
-            async for item in kernel_manager.execute_streaming(request.code, request.cellId, request.notebookId):
+            async for item in kernel_manager.execute_streaming(
+                request.code, request.cellId, request.notebookId, device=request.device
+            ):
                 yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
