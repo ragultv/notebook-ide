@@ -18,7 +18,8 @@ interface UseNotebookManagementReturn {
   activeFile: ProjectFile | undefined;
   activeCells: CellData[];
   updateActiveNotebookCells: (cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
-  handleNewNotebook: () => void;
+  updateNotebookCellsById: (notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
+  handleNewNotebook: (initialCells?: CellData[]) => string | null;
   handleOpenFile: () => Promise<void>;
   handleSaveFile: () => Promise<void>;
 }
@@ -79,7 +80,18 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
     setHasUnsavedChanges(true);
   }, [activeFileId]);
 
-  const handleNewNotebook = useCallback(() => {
+  const updateNotebookCellsById = useCallback((notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => {
+    setFiles(prev => prev.map(f => {
+      if (f.id === notebookId) {
+        const newCells = typeof cells === 'function' ? cells(f.cells || []) : cells;
+        return { ...f, cells: newCells };
+      }
+      return f;
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleNewNotebook = useCallback((initialCells?: CellData[]) => {
     const newId = crypto.randomUUID();
     
     // Generate unique filename
@@ -94,22 +106,28 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
       counter++;
     }
     
+    // Use provided cells or default to one empty cell
+    const cells = initialCells && initialCells.length > 0 
+      ? initialCells 
+      : [{
+          id: crypto.randomUUID(),
+          type: 'code' as const,
+          content: '',
+          status: 'idle' as const,
+        }];
+    
     const newFile: ProjectFile = {
       id: newId,
       name: fileName,
       type: 'application/x-ipynb+json',
-      cells: [{
-        id: crypto.randomUUID(),
-        type: 'code',
-        content: '',
-        status: 'idle',
-      }]
+      cells: cells
     };
     setFiles(prev => [...prev, newFile]);
     setActiveFileId(newId);
     activeFileIdRef.current = newId;
     setCurrentNotebookPath(null);
     setHasUnsavedChanges(false);
+    return newId;
   }, [files]);
 
   const handleOpenFile = useCallback(async () => {
@@ -176,6 +194,7 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
     activeFile,
     activeCells,
     updateActiveNotebookCells,
+    updateNotebookCellsById,
     handleNewNotebook,
     handleOpenFile,
     handleSaveFile,

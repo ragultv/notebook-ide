@@ -514,6 +514,15 @@ export const controllerClient = {
     if (sheet) url += `&sheet=${encodeURIComponent(sheet)}`;
     return request(url);
   },
+
+  // Chat history
+  async getChatSessions(): Promise<{ sessions: Array<{ id: string; notebook_name: string | null; created_at: number; last_activity_at: number; messageCount: number }> }> {
+    return request('/ai/chat/sessions');
+  },
+
+  async getChatMessages(sessionId: string): Promise<{ messages: Array<{ id: number; session_id: string; role: 'user' | 'assistant' | 'system'; content: string; token_estimate: number | null; created_at: number }> }> {
+    return request(`/ai/chat/sessions/${encodeURIComponent(sessionId)}/messages`);
+  },
 };
 
 // Additional types for file system

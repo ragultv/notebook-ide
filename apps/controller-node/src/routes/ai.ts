@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { aiService, AIRequest, ErrorFixRequest, GenerateStreamCallbacks } from '../core/ai/AIService.js';
+import { getAllSessions, getAllMessagesForSession, getSessionStats } from '../core/ai/MemoryStore.js';
 import { z } from 'zod';
 
 function writeSSE(reply: any, event: string, data: object): void {
@@ -126,6 +127,34 @@ export async function aiRoutes(fastify: FastifyInstance) {
             if (error.name === 'ZodError') {
                 return reply.code(400).send({ error: 'Invalid request', details: error.errors });
             }
+            return reply.code(500).send({ error: error.message });
+        }
+    });
+
+    // Chat history endpoints
+    fastify.get('/chat/sessions', async (request, reply) => {
+        try {
+            const sessions = getAllSessions();
+            // Get message count for each session
+            const sessionsWithStats = sessions.map(session => {
+                const stats = getSessionStats(session.id);
+                return {
+                    ...session,
+                    messageCount: stats.messageCount,
+                };
+            });
+            return { sessions: sessionsWithStats };
+        } catch (error: any) {
+            return reply.code(500).send({ error: error.message });
+        }
+    });
+
+    fastify.get('/chat/sessions/:sessionId/messages', async (request, reply) => {
+        try {
+            const { sessionId } = request.params as { sessionId: string };
+            const messages = getAllMessagesForSession(sessionId);
+            return { messages };
+        } catch (error: any) {
             return reply.code(500).send({ error: error.message });
         }
     });

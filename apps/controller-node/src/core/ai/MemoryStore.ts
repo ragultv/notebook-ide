@@ -189,6 +189,37 @@ export function getRecentMessages(
 }
 
 /**
+ * Get all sessions ordered by last activity (most recent first).
+ */
+export function getAllSessions(): Array<{ id: string; notebook_name: string | null; created_at: number; last_activity_at: number }> {
+    const database = getDb();
+    return database.prepare(
+        'SELECT id, notebook_name, created_at, last_activity_at FROM sessions ORDER BY last_activity_at DESC'
+    ).all() as Array<{ id: string; notebook_name: string | null; created_at: number; last_activity_at: number }>;
+}
+
+/**
+ * Get all messages for a session in chronological order (oldest first).
+ */
+export function getAllMessagesForSession(sessionId: string): StoredMessage[] {
+    const database = getDb();
+    return database.prepare(
+        'SELECT id, session_id, role, content, token_estimate, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC'
+    ).all(sessionId) as StoredMessage[];
+}
+
+/**
+ * Get session count and message count for a session.
+ */
+export function getSessionStats(sessionId: string): { messageCount: number } {
+    const database = getDb();
+    const result = database.prepare(
+        'SELECT COUNT(*) as count FROM messages WHERE session_id = ?'
+    ).get(sessionId) as { count: number };
+    return { messageCount: result.count };
+}
+
+/**
  * Run cleanup: delete sessions older than TTL, optionally trim messages per session, optionally VACUUM.
  */
 export function runCleanup(options?: { sessionTtlDays?: number; trimMessagesPerSession?: number; vacuum?: boolean }): void {

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, User, CornerDownLeft, Zap, ChevronDown, Wrench, Paperclip, AlertTriangle, Check, Ban, File as FileIcon, Code, Plus, Loader2, MessageSquarePlus, MessageCircle, Bot, ListChecks } from 'lucide-react';
+import { X, Send, User, CornerDownLeft, Zap, ChevronDown, Wrench, Paperclip, AlertTriangle, Check, Ban, File as FileIcon, Code, Plus, Loader2, MessageSquarePlus, MessageCircle, Bot, ListChecks, History } from 'lucide-react';
 import { controllerClient } from '../../services/controller.client';
 import { CellData, ProjectFile } from '../../types';
 import { ModelSelector } from '../ModelSelector';
@@ -22,6 +22,7 @@ interface RightSidebarProps {
   projectFiles: ProjectFile[];
   activeCellId?: string | null;
   onOpenManageModels: () => void;
+  onOpenChatHistory?: () => void;
   modelsRefreshTrigger?: number;
   width: number;
   isResizing: boolean;
@@ -70,6 +71,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   projectFiles,
   activeCellId,
   onOpenManageModels,
+  onOpenChatHistory,
   modelsRefreshTrigger,
   width,
   isResizing,
@@ -783,6 +785,18 @@ ${cellContext}
                 </button>
               )}
               <ModelSelector onOpenManage={onOpenManageModels} refreshTrigger={modelsRefreshTrigger} />
+              {onOpenChatHistory && (
+                <>
+                  <div className="h-4 w-[1px] bg-white/5 mx-1" />
+                  <button
+                    onClick={onOpenChatHistory}
+                    className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
+                    title="Chat History"
+                  >
+                    <History className="w-4 h-4" />
+                  </button>
+                </>
+              )}
               <div className="h-4 w-[1px] bg-white/5 mx-1" />
               <button className="p-1.5 text-white/30 hover:text-white/60 transition-colors" title="Voice query (Coming Soon)">
                 {/* Placeholder icon or future feature */}

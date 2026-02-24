@@ -118,6 +118,8 @@ const App: React.FC = () => {
           handleCloseTab={tabs.handleCloseTab}
           updateCells={notebook.updateActiveNotebookCells}
           setActiveCellId={cells.setActiveCellId}
+          onCreateNotebook={notebook.handleNewNotebook}
+          updateNotebookCellsById={notebook.updateNotebookCellsById}
           onModelsChanged={() => setModelsRefreshTrigger(prev => prev + 1)}
         />
 
@@ -156,6 +158,16 @@ const App: React.FC = () => {
             notebook.setActiveFileId(null);
             // Set the active tab ID directly
             tabs.setActiveTabId('manage-models');
+          }}
+          onOpenChatHistory={() => {
+            const chatHistoryTab = tabs.tabs.find(t => t.id === 'chat-history');
+            if (!chatHistoryTab) {
+              tabs.setTabs(prev => [...prev, { id: 'chat-history', title: 'Chat History', type: 'settings' as const }]);
+            }
+            // Clear activeFileId when opening settings tab to prevent useEffect from switching back
+            notebook.setActiveFileId(null);
+            // Set the active tab ID directly
+            tabs.setActiveTabId('chat-history');
           }}
           modelsRefreshTrigger={modelsRefreshTrigger}
           width={chatWidth}
