@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { PythonWorker, ExecutionResult } from './PythonWorker.js';
+import { TerminalWorker } from './TerminalWorker.js';
 
 export interface KernelInfo {
     id: string;
@@ -12,6 +13,7 @@ interface InternalKernelState {
     worker: PythonWorker;
     info: KernelInfo;
     notebookId: string;
+    activeTerminal?: TerminalWorker;
 }
 
 export class KernelManager extends EventEmitter {
@@ -70,7 +72,7 @@ export class KernelManager extends EventEmitter {
         }
     }
 
-    public async executeCode(notebookId: string, code: string): Promise<ExecutionResult> {
+    public async executeCode(notebookId: string, code: string, onStream?: (streamEvent: any) => void): Promise<ExecutionResult> {
         let state = this.kernels.get(notebookId);
 
         if (!state) {
@@ -83,17 +85,33 @@ export class KernelManager extends EventEmitter {
             throw new Error('Kernel is busy');
         }
 
+        const trimmedCode = code.trim();
+        const isTerminalCommand = trimmedCode.startsWith('!');
+
         state.info.status = 'busy';
         this.emit('kernel:status_change', notebookId, 'busy');
 
         try {
-            const result = await state.worker.execute(code);
+            let result: ExecutionResult;
+
+            if (isTerminalCommand) {
+                // Execute using TerminalWorker
+                const terminalCode = trimmedCode.substring(1).trim(); // Remove the '!'
+                state.activeTerminal = new TerminalWorker(notebookId);
+                result = await state.activeTerminal.execute(terminalCode, 0, onStream);
+                state.activeTerminal = undefined;
+            } else {
+                // Standard python kernel execution
+                result = await state.worker.execute(code, 0, onStream);
+            }
+
             state.info.executionCount++;
             state.info.status = 'idle';
             this.emit('kernel:status_change', notebookId, 'idle');
             return result;
         } catch (error: any) {
             state.info.status = 'error';
+            state.activeTerminal = undefined;
             this.emit('kernel:status_change', notebookId, 'error');
 
             // Return error result structure instead of throwing, to match frontend expectations
@@ -113,6 +131,35 @@ export class KernelManager extends EventEmitter {
 
     public getAllKernels(): KernelInfo[] {
         return Array.from(this.kernels.values()).map(k => k.info);
+    }
+
+    public interruptKernel(notebookId: string): void {
+        const state = this.kernels.get(notebookId);
+        if (state) {
+            if (state.activeTerminal) {
+                state.activeTerminal.stop();
+            } else {
+                state.worker.interrupt();
+            }
+        }
+    }
+
+    public sendInput(notebookId: string, value: string): void {
+        const state = this.kernels.get(notebookId);
+        if (state) {
+            if (state.activeTerminal) {
+                state.activeTerminal.sendInput(value);
+            } else {
+                state.worker.sendInput(value);
+            }
+        }
+    }
+
+    public resizeTerminal(notebookId: string, cols: number, rows: number): void {
+        const state = this.kernels.get(notebookId);
+        if (state && state.activeTerminal) {
+            state.activeTerminal.resize(cols, rows);
+        }
     }
 
     public async getKernelMetrics(notebookId: string): Promise<KernelMetrics> {

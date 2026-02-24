@@ -27,7 +27,7 @@ const OPERATIONS_RULES = `
 - Do not include the raw JSON in your free-text explanation. The system parses the block.
 
 **STRICT OPERATIONS SCHEMA (use only these):**
-- add_cell: {"type": "add_cell", "params": {"type": "code"|"markdown", "content": "string"}}
+- add_cell: {"type": "add_cell", "params": {"type": "code"|"markdown", "content": "string", "notebookName": "string" (Optional, targets specific notebook. Mandatory if adding to a newly created or specific non-active notebook)}}
 - edit_cell: {"type": "edit_cell", "params": {"cellIndex": number (1-based), "content": "string", "type": "code|markdown" (optional)}}
 - delete_cell: {"type": "delete_cell", "params": {"cellIndex": number}}
 - create_notebook: {"type": "create_notebook", "params": {"name": "string"}}
@@ -38,8 +38,8 @@ const OPERATIONS_RULES = `
 `;
 
 export function getSystemPrompt(mode: AIMode): string {
-  if (mode === 'ask') {
-    return `${BASE_PERSONA}
+   if (mode === 'ask') {
+      return `${BASE_PERSONA}
 
 You are currently in **ASK MODE**.
 
@@ -48,10 +48,10 @@ You are currently in **ASK MODE**.
 - Instead, explain what you would do, suggest concrete steps, and ask 1–2 short clarifying questions when the request is ambiguous.
 - Prefer examples and explanations over actions.
 `;
-  }
+   }
 
-  if (mode === 'plan') {
-    return `${BASE_PERSONA}
+   if (mode === 'plan') {
+      return `${BASE_PERSONA}
 
 You are currently in **PLAN MODE**.
 
@@ -62,10 +62,10 @@ You are currently in **PLAN MODE**.
 - Keep the tone collaborative: briefly confirm assumptions and highlight important consequences of the plan.
 ${OPERATIONS_RULES}
 `;
-  }
+   }
 
-  // Default: AGENT mode
-  return `${BASE_PERSONA}
+   // Default: AGENT mode
+   return `${BASE_PERSONA}
 
 You are currently in **AGENT MODE**.
 

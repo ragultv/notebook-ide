@@ -33,7 +33,8 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
 
     // Calculate initial height based on content to prevent jumping
     const initialLineCount = value.split('\n').length;
-    const initialHeight = Math.max(40, initialLineCount * 19 + 16);
+    const initialHeightPx = Math.max(40, initialLineCount * 19 + 16);
+    const [editorHeight, setEditorHeight] = useState(initialHeightPx);
 
     const handleEditorWillMount = (monaco: any) => {
         monaco.editor.defineTheme('notebook-dark', {
@@ -126,13 +127,22 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
             setTimeout(() => editor.focus(), 10);
         }
 
-        // Precise height management
+        // Precise height management without infinite loops
         const updateHeight = () => {
-            const contentHeight = editor.getContentHeight();
+            // Calculate height reliably from actual lines instead of relying on Monaco's layout engine
+            // which can misreport bounds during React render phases when container width isn't stable.
+            const model = editor.getModel();
+            const lineCount = model ? model.getLineCount() : 1;
+            const newHeightPx = Math.max(40, lineCount * 19 + 16); // 19px per line + 16px padding
+
+            // Sync React state for future renders
+            setEditorHeight(newHeightPx);
+
+            // Sync DOM immediately to avoid visual flicker during React render queue
             if (containerRef.current) {
-                const newHeight = `${Math.max(40, contentHeight + 4)}px`;
-                if (containerRef.current.style.height !== newHeight) {
-                    containerRef.current.style.height = newHeight;
+                const newHeightStr = `${newHeightPx}px`;
+                if (containerRef.current.style.height !== newHeightStr) {
+                    containerRef.current.style.height = newHeightStr;
                     editor.layout();
                 }
             }
@@ -146,7 +156,7 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
     };
 
     return (
-        <div ref={containerRef} className="w-full bg-[#09090b] border border-white/5 rounded-xl shadow-inner overflow-hidden no-drag" style={{ minHeight: '40px', height: `${initialHeight}px` }}>
+        <div ref={containerRef} className="w-full bg-[#09090b] border border-white/5 rounded-xl shadow-inner overflow-hidden no-drag" style={{ minHeight: '40px', height: `${editorHeight}px` }}>
             <Editor
                 height="100%"
                 defaultLanguage={language}
@@ -172,11 +182,11 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
                     padding: { top: 8, bottom: 8 },
                     scrollbar: {
                         vertical: 'hidden',
-                        horizontal: 'hidden',
+                        horizontal: 'auto',
                         alwaysConsumeMouseWheel: false
                     },
                     readOnly: false,
-                    wordWrap: 'on',
+                    wordWrap: 'off',
                     fixedOverflowWidgets: true,
                     overviewRulerLanes: 0,
                     hideCursorInOverviewRuler: true,

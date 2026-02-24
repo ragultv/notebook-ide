@@ -60,32 +60,13 @@ export async function executionRoutes(fastify: FastifyInstance) {
                 await kernelManager.startKernel(id);
             }
 
-            const result = await kernelManager.executeCode(id, code);
-
-            // Send output
-            if (result.stdout) {
+            const result = await kernelManager.executeCode(id, code, (streamEvent) => {
                 const outputData = {
                     type: 'output',
-                    output: {
-                        type: 'stream',
-                        stream: 'stdout',
-                        data: result.stdout
-                    }
+                    output: streamEvent
                 };
                 reply.raw.write(`data: ${JSON.stringify(outputData)}\n\n`);
-            }
-
-            if (result.stderr) {
-                const outputData = {
-                    type: 'output',
-                    output: {
-                        type: 'stream',
-                        stream: 'stderr',
-                        data: result.stderr
-                    }
-                };
-                reply.raw.write(`data: ${JSON.stringify(outputData)}\n\n`);
-            }
+            });
 
             // Send complete with transformed result
             const completeData = {
@@ -102,6 +83,38 @@ export async function executionRoutes(fastify: FastifyInstance) {
             reply.raw.write(`data: ${JSON.stringify(errorData)}\n\n`);
         } finally {
             reply.raw.end();
+        }
+    });
+
+    fastify.post('/input', async (request, reply) => {
+        try {
+            const { notebookId, value } = request.body as { notebookId: string; value: string };
+            const id = notebookId || 'default';
+            kernelManager.sendInput(id, value);
+            return { success: true };
+        } catch (error: any) {
+            reply.code(500).send({ error: error.message });
+        }
+    });
+
+    fastify.post('/interrupt', async (request, reply) => {
+        try {
+            const { notebookId } = request.body as { notebookId: string };
+            const id = notebookId || 'default';
+            kernelManager.interruptKernel(id);
+            return { success: true };
+        } catch (error: any) {
+            reply.code(500).send({ error: error.message });
+        }
+    });
+    fastify.post('/resize', async (request, reply) => {
+        try {
+            const { notebookId, cols, rows } = request.body as { notebookId: string; cols: number; rows: number };
+            const id = notebookId || 'default';
+            kernelManager.resizeTerminal(id, cols, rows);
+            return { success: true };
+        } catch (error: any) {
+            reply.code(500).send({ error: error.message });
         }
     });
 

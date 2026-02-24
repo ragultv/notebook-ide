@@ -15,10 +15,11 @@ export interface ExecutionRequest {
 
 // Rich output types - like Jupyter
 export interface RichOutput {
-  type: 'text' | 'image' | 'html' | 'error' | 'stream';
-  data: string;
+  type: 'text' | 'image' | 'html' | 'error' | 'stream' | 'input_request' | 'terminal_output';
+  data?: string;
   mimeType?: string;
   stream?: 'stdout' | 'stderr';
+  prompt?: string;
 }
 
 export interface ExecutionResult {
@@ -233,8 +234,25 @@ export const controllerClient = {
     });
   },
 
-  async interrupt(): Promise<{ status: string }> {
-    return request('/execution/interrupt', { method: 'POST' });
+  async interrupt(notebookId: string): Promise<{ status: string }> {
+    return request('/execution/interrupt', {
+      method: 'POST',
+      body: JSON.stringify({ notebookId })
+    });
+  },
+
+  async sendInput(notebookId: string, value: string): Promise<{ success: boolean }> {
+    return request('/execution/input', {
+      method: 'POST',
+      body: JSON.stringify({ notebookId, value })
+    });
+  },
+
+  async resizeTerminal(notebookId: string, cols: number, rows: number): Promise<{ success: boolean }> {
+    return request('/execution/resize', {
+      method: 'POST',
+      body: JSON.stringify({ notebookId, cols, rows })
+    });
   },
 
   // Code Completion

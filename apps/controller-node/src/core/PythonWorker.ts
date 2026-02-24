@@ -156,7 +156,7 @@ export class PythonWorker extends EventEmitter {
         });
     }
 
-    public async execute(code: string, timeoutMs: number = 0): Promise<ExecutionResult> {
+    public async execute(code: string, timeoutMs: number = 0, onStream?: (streamEvent: any) => void): Promise<ExecutionResult> {
         if (!this.process || !this.isReady) {
             throw new Error('Worker not running');
         }
@@ -171,6 +171,13 @@ export class PythonWorker extends EventEmitter {
                     if (!line.trim()) continue;
                     try {
                         const response = JSON.parse(line);
+
+                        // Handle streaming and interaction output
+                        if ((response.type === 'stream' || response.type === 'input_request') && onStream) {
+                            onStream(response);
+                            continue;
+                        }
+
                         if (response.status && response.status !== 'ready') { // Valid result has a status
                             cleanup();
                             resolve(response as ExecutionResult);
@@ -264,6 +271,18 @@ export class PythonWorker extends EventEmitter {
 
             this.process!.stderr!.on('data', onStderr);
         });
+    }
+
+    public sendInput(value: string): void {
+        if (this.process && this.isReady) {
+            this.process.stdin?.write(JSON.stringify({ command: 'INPUT_REPLY', value }) + '\n');
+        }
+    }
+
+    public interrupt(): void {
+        if (this.process && !this.process.killed) {
+            this.process.kill('SIGINT');
+        }
     }
 
     public stop(): void {

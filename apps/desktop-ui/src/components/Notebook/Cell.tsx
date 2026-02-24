@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Play, Trash2, ArrowUp, ArrowDown, MoreHorizontal, Wrench, CheckCircle2, XCircle, Clock, GripVertical, Loader2, Zap, ChevronDown } from 'lucide-react';
 import { CellData, CellStatus, CellOutput } from '../../types';
+import { TerminalOutput } from './TerminalOutput';
 import { controllerClient, RichOutput } from '../../services/controller.client';
 import { useUIStore } from '../../store/ui.store';
 import { TextCell } from './TextCell';
@@ -110,6 +111,11 @@ export const Cell: React.FC<CellProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [showFixPopover, setShowFixPopover] = useState(false);
 
+  // Input states
+  const [isWaitingForInput, setIsWaitingForInput] = useState(false);
+  const [inputPrompt, setInputPrompt] = useState('');
+  const [inputValue, setInputValue] = useState('');
+
   // Streaming: live chunks appearing character by character like Jupyter
   const [streamingChunks, setStreamingChunks] = useState<CellOutput[]>([]);
   // Current executing line (1-indexed), null = backend doesn't send it
@@ -130,6 +136,16 @@ export const Cell: React.FC<CellProps> = ({
   const codeLines = useMemo(() => cell.content.split('\n'), [cell.content]);
   const isCode = cell.type === 'code';
   const isRunning = cell.status === 'running';
+
+  // Combine: during running show streaming chunks live; after completion show cell.outputs
+  const displayOutputs = isRunning ? streamingChunks : (cell.outputs ?? []);
+
+  // Compute terminal mode dynamically based on current output state or cell prefix
+  const isTerminalMode = useMemo(() => {
+    return displayOutputs.some(o => o.type === 'terminal_output') ||
+      (cell.content.trim().startsWith('!'));
+  }, [displayOutputs, cell.content]);
+
 
 
   // Auto-scroll streaming output
@@ -182,7 +198,15 @@ export const Cell: React.FC<CellProps> = ({
       (output: RichOutput & { line?: number }) => {
         // Backend may optionally send line number hint
         if (output.line !== undefined) setCurrentLine(output.line);
-        setStreamingChunks(prev => [...prev, output as CellOutput]);
+
+        if (output.type === 'input_request') {
+          setIsWaitingForInput(true);
+          setInputPrompt(output.prompt || '');
+        } else if (output.type === 'terminal_output') {
+          setStreamingChunks(prev => [...prev, output as CellOutput]);
+        } else {
+          setStreamingChunks(prev => [...prev, output as CellOutput]);
+        }
       },
       // onComplete — final result
       (result) => {
@@ -195,6 +219,7 @@ export const Cell: React.FC<CellProps> = ({
         setKernelStatus('idle');
         setStreamingChunks([]);
         setCurrentLine(null);
+        setIsWaitingForInput(false);
         cancelStreamRef.current = null;
       },
       (error) => {
@@ -202,12 +227,34 @@ export const Cell: React.FC<CellProps> = ({
         setKernelStatus('error');
         setStreamingChunks([]);
         setCurrentLine(null);
+        setIsWaitingForInput(false);
         cancelStreamRef.current = null;
       }
     );
     cancelStreamRef.current = cancel;
   };
 
+  const handleInputSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsWaitingForInput(false);
+
+    // Echo the input into the stream display manually, like a real terminal
+    setStreamingChunks(prev => [...prev, {
+      type: 'stream',
+      stream: 'stdout',
+      data: `${inputPrompt}${inputValue}\n`
+    } as CellOutput]);
+
+    const value = inputValue;
+    setInputValue('');
+    setInputPrompt('');
+
+    try {
+      await controllerClient.sendInput(notebookId, value);
+    } catch (err) {
+      console.error("Failed to send input", err);
+    }
+  };
 
   // ── Fix Error ──
 
@@ -290,8 +337,6 @@ export const Cell: React.FC<CellProps> = ({
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  // Combine: during running show streaming chunks live; after completion show cell.outputs
-  const displayOutputs = isRunning ? streamingChunks : (cell.outputs ?? []);
   const hasOutput = isRunning || displayOutputs.length > 0 || !!cell.output || cell.status === 'error';
 
   return (
@@ -326,19 +371,26 @@ export const Cell: React.FC<CellProps> = ({
       {isCode && (
         <div className="w-10 flex-shrink-0 flex flex-col items-center py-1 select-none z-20 sticky top-2 self-start h-fit">
           <div className="flex flex-col items-center gap-2">
-            {/* Run button */}
+            {/* Run / Stop button */}
             <button
-              onClick={(e) => { e.stopPropagation(); runCell(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (cell.status === 'running') {
+                  controllerClient.interrupt(notebookId).catch(console.error);
+                } else {
+                  runCell();
+                }
+              }}
               className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border
-                ${cell.status !== 'running' && cell.status !== 'success' ? 'bg-[#2b2b2e] border-white/10 hover:bg-white hover:text-black' : ''}
-                ${cell.status === 'running' ? 'bg-green-900/20 text-green-400 border-green-500 ring-2 ring-green-500 animate-pulse' : ''}
+                ${cell.status !== 'running' && cell.status !== 'success' ? 'bg-[#2b2b2e] border-white/10 hover:bg-white hover:text-black group/btn' : ''}
+                ${cell.status === 'running' ? 'bg-red-900/20 text-red-500 border-red-500 hover:bg-red-900/40 hover:scale-105' : ''}
                 ${cell.status === 'success' ? 'bg-green-950/40 text-green-500 border-green-800 hover:border-green-500 shadow-lg shadow-green-950/50' : ''}
                 ${cell.status === 'error' ? 'bg-red-900/20 text-red-500 border-red-500' : ''}
               `}
-              title="Run cell (Shift+Enter)"
+              title={cell.status === 'running' ? "Interrupt Execution" : "Run cell (Shift+Enter)"}
             >
               {cell.status === 'running'
-                ? <div className="w-3.5 h-3.5 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
+                ? <div className="w-2.5 h-2.5 bg-red-500 rounded-sm" />
                 : <Play className="w-3.5 h-3.5 fill-current" />
               }
             </button>
@@ -421,63 +473,86 @@ export const Cell: React.FC<CellProps> = ({
             </div>
 
             {/* Scrollable output area — chunks appear live during streaming */}
-            <div className="max-h-[500px] overflow-y-auto p-4 space-y-0.5">
-              {displayOutputs.map((output, idx) => (
-                <OutputItem key={idx} output={output} />
-              ))}
+            {isTerminalMode ? (
+              <TerminalOutput
+                notebookId={notebookId}
+                streamData={displayOutputs.map(o => o.data || '')}
+                isRunning={isRunning}
+              />
+            ) : (
+              <div className="max-h-[500px] overflow-y-auto p-4 space-y-0.5">
+                {displayOutputs.map((output, idx) => (
+                  <OutputItem key={idx} output={output} />
+                ))}
 
-              {/* Fallback: plain text output (non-streaming result) */}
-              {!isRunning && !displayOutputs.length && cell.output && !cell.error && (
-                <div className="text-gray-300 whitespace-pre-wrap break-words text-[13px] leading-5">{cell.output}</div>
-              )}
+                {/* Interactive Input Form */}
+                {isWaitingForInput && (
+                  <form onSubmit={handleInputSubmit} className="mt-2 flex items-center gap-2 font-mono text-sm bg-black/60 p-2 rounded-md border border-[#30363d] focus-within:border-[#58a6ff] transition-colors">
+                    <span className="text-[#58a6ff] whitespace-pre">{inputPrompt}</span>
+                    <input
+                      type="text"
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      autoFocus
+                      className="flex-1 bg-transparent text-[#e6edf3] outline-none border-none placeholder-gray-600"
+                      placeholder="Type input and press Enter..."
+                    />
+                  </form>
+                )}
 
-              {/* Error output */}
-              {cell.status === 'error' && cell.error && (
-                <div className="text-red-400 whitespace-pre-wrap break-words text-[13px] leading-5 mt-2 bg-red-950/20 p-3 rounded-lg border border-red-500/20 overflow-x-auto">
-                  {cell.error}
-                </div>
-              )}
+                {/* Fallback: plain text output (non-streaming result) */}
+                {!isRunning && !displayOutputs.length && cell.output && !cell.error && (
+                  <div className="text-gray-300 whitespace-pre-wrap break-words text-[13px] leading-5">{cell.output}</div>
+                )}
 
-              {/* Fix with AI button */}
-              {cell.status === 'error' && onFixError && (
-                <div className="relative mt-3">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowFixPopover(!showFixPopover); }}
-                    disabled={isFixing}
-                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold bg-sim-red text-white rounded-full hover:bg-sim-redHover transition-colors shadow-lg shadow-red-900/50 disabled:opacity-50"
-                  >
-                    {isFixing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
-                    {isFixing ? 'Processing...' : 'Fix with AI'}
-                    <ChevronDown className={`w-3 h-3 transition-transform ${showFixPopover ? 'rotate-180' : ''}`} />
-                  </button>
+                {/* Error output */}
+                {cell.status === 'error' && cell.error && (
+                  <div className="text-red-400 whitespace-pre-wrap break-words text-[13px] leading-5 mt-2 bg-red-950/20 p-3 rounded-lg border border-red-500/20 overflow-x-auto">
+                    {cell.error}
+                  </div>
+                )}
 
-                  {showFixPopover && (
-                    <div className="absolute left-0 bottom-full mb-2 flex bg-[#1e1e20] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden divide-x divide-white/10">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleFixError('chat'); }}
-                        className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
-                      >
-                        <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-400"><MoreHorizontal className="w-4 h-4" /></div>
-                        <div className="font-bold">Chat</div>
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleFixError('auto'); }}
-                        className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
-                      >
-                        <div className="p-1.5 rounded-md bg-green-500/10 text-green-400"><Zap className="w-4 h-4" /></div>
-                        <div className="font-bold">Auto-Fix</div>
-                      </button>
-                    </div>
-                  )}
-                  {showFixPopover && (
-                    <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setShowFixPopover(false); }} />
-                  )}
-                </div>
-              )}
+                {/* Fix with AI button */}
+                {cell.status === 'error' && onFixError && (
+                  <div className="relative mt-3">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowFixPopover(!showFixPopover); }}
+                      disabled={isFixing}
+                      className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold bg-sim-red text-white rounded-full hover:bg-sim-redHover transition-colors shadow-lg shadow-red-900/50 disabled:opacity-50"
+                    >
+                      {isFixing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
+                      {isFixing ? 'Processing...' : 'Fix with AI'}
+                      <ChevronDown className={`w-3 h-3 transition-transform ${showFixPopover ? 'rotate-180' : ''}`} />
+                    </button>
 
-              {/* Scroll anchor */}
-              <div ref={outputEndRef} />
-            </div>
+                    {showFixPopover && (
+                      <div className="absolute left-0 bottom-full mb-2 flex bg-[#1e1e20] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden divide-x divide-white/10">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleFixError('chat'); }}
+                          className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
+                        >
+                          <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-400"><MoreHorizontal className="w-4 h-4" /></div>
+                          <div className="font-bold">Chat</div>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleFixError('auto'); }}
+                          className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
+                        >
+                          <div className="p-1.5 rounded-md bg-green-500/10 text-green-400"><Zap className="w-4 h-4" /></div>
+                          <div className="font-bold">Auto-Fix</div>
+                        </button>
+                      </div>
+                    )}
+                    {showFixPopover && (
+                      <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setShowFixPopover(false); }} />
+                    )}
+                  </div>
+                )}
+
+                {/* Scroll anchor */}
+                <div ref={outputEndRef} />
+              </div>
+            )}
           </div>
         )}
       </div>
