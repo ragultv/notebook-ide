@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, User, CornerDownLeft, Zap, ChevronDown, Wrench, Paperclip, AlertTriangle, Check, Ban, File as FileIcon, Code, Plus, Loader2, MessageSquarePlus, MessageCircle, Bot, ListChecks } from 'lucide-react';
+import { X, Send, User, CornerDownLeft, Zap, ChevronDown, Wrench, Paperclip, AlertTriangle, Check, Ban, File as FileIcon, Code, Plus, Loader2, MessageSquarePlus, MessageCircle, Bot, ListChecks, History } from 'lucide-react';
 import { controllerClient } from '../../services/controller.client';
 import { CellData, ProjectFile } from '../../types';
 import { ModelSelector } from '../ModelSelector';
@@ -22,6 +22,7 @@ interface RightSidebarProps {
   projectFiles: ProjectFile[];
   activeCellId?: string | null;
   onOpenManageModels: () => void;
+  onOpenChatHistory?: () => void;
   modelsRefreshTrigger?: number;
   width: number;
   isResizing: boolean;
@@ -70,6 +71,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   projectFiles,
   activeCellId,
   onOpenManageModels,
+  onOpenChatHistory,
   modelsRefreshTrigger,
   width,
   isResizing,
@@ -761,34 +763,46 @@ ${cellContext}
                     className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold transition-colors ${selectedMode === m
                       ? 'bg-sim-red text-white'
                       : 'text-white/50 hover:text-white/80 hover:bg-white/5'
-                      }`}
-                    title={m === 'ask' ? 'Ask questions only, no edits' : m === 'agent' ? 'Ask when unclear, then act' : 'Show plan first, execute on confirm'}
-                  >
-                    {m === 'ask' && <MessageCircle className="w-3 h-3" />}
-                    {m === 'agent' && <Bot className="w-3 h-3" />}
-                    {m === 'plan' && <ListChecks className="w-3 h-3" />}
-                    {m.charAt(0).toUpperCase() + m.slice(1)}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  {(messages.length > 0 || sessionId) && (
-                    <button
-                      onClick={() => { setSessionId(null); setMessages([]); }}
-                      disabled={isLoading}
-                      className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
-                      title="New chat"
-                    >
-                      <MessageSquarePlus className="w-4 h-4" />
-                    </button>
-                  )}
-                  <ModelSelector onOpenManage={onOpenManageModels} refreshTrigger={modelsRefreshTrigger} />
+                  }`}
+                  title={m === 'ask' ? 'Ask questions only, no edits' : m === 'agent' ? 'Ask when unclear, then act' : 'Show plan first, execute on confirm'}
+                >
+                  {m === 'ask' && <MessageCircle className="w-3 h-3" />}
+                  {m === 'agent' && <Bot className="w-3 h-3" />}
+                  {m === 'plan' && <ListChecks className="w-3 h-3" />}
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              {(messages.length > 0 || sessionId) && (
+                <button
+                  onClick={() => { setSessionId(null); setMessages([]); }}
+                  disabled={isLoading}
+                  className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
+                  title="New chat"
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                </button>
+              )}
+              <ModelSelector onOpenManage={onOpenManageModels} refreshTrigger={modelsRefreshTrigger} />
+              {onOpenChatHistory && (
+                <>
                   <div className="h-4 w-[1px] bg-white/5 mx-1" />
-                  <button className="p-1.5 text-white/30 hover:text-white/60 transition-colors" title="Voice query (Coming Soon)">
-                    {/* Placeholder icon or future feature */}
+                  <button
+                    onClick={onOpenChatHistory}
+                    className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
+                    title="Chat History"
+                  >
+                    <History className="w-4 h-4" />
                   </button>
-                </div>
+                </>
+              )}
+              <div className="h-4 w-[1px] bg-white/5 mx-1" />
+              <button className="p-1.5 text-white/30 hover:text-white/60 transition-colors" title="Voice query (Coming Soon)">
+                {/* Placeholder icon or future feature */}
+              </button>
+            </div>
 
                 <button
                   onClick={handleSend}

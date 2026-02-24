@@ -2,6 +2,7 @@ import React from 'react';
 import { Notebook } from './Notebook/Notebook';
 import { FilePreview } from './FilePreview';
 import { ManageModelsDialog } from './ManageModelsDialog';
+import { ChatHistory } from './ChatHistory';
 import MemoryMap from './MemoryMap';
 import { TabBar } from './TabBar';
 import { Tab, ProjectFile, CellData } from '../types';
@@ -17,6 +18,8 @@ interface MainContentProps {
   handleCloseTab: (id: string) => void;
   updateCells: React.Dispatch<React.SetStateAction<CellData[]>>;
   setActiveCellId: React.Dispatch<React.SetStateAction<string | null>>;
+  onCreateNotebook?: (nameOrCells?: string | CellData[], initialCells?: CellData[], path?: string) => string | null;
+  updateNotebookCellsById?: (notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
   onModelsChanged?: () => void;
 }
 
@@ -31,6 +34,8 @@ export const MainContent: React.FC<MainContentProps> = ({
   handleCloseTab,
   updateCells,
   setActiveCellId,
+  onCreateNotebook,
+  updateNotebookCellsById,
   onModelsChanged,
 }) => {
   return (
@@ -47,6 +52,27 @@ export const MainContent: React.FC<MainContentProps> = ({
         ) : activeTabId === 'manage-models' ? (
           <div className="w-full h-full bg-sim-bg">
             <ManageModelsDialog onModelsChanged={onModelsChanged} />
+          </div>
+        ) : activeTabId === 'chat-history' ? (
+          <div className="w-full h-full bg-sim-bg">
+            <ChatHistory
+              onCreateNotebook={onCreateNotebook}
+              onSwitchToNotebook={(notebookId) => {
+                handleActivateTab(notebookId);
+              }}
+              getNotebookId={() => activeFile?.id || null}
+              files={files}
+              getNotebookCells={(notebookId) => {
+                return files.find(f => f.id === notebookId)?.cells;
+              }}
+              updateNotebookCells={(notebookId, cells) => {
+                if (updateNotebookCellsById) {
+                  updateNotebookCellsById(notebookId, cells);
+                } else {
+                  console.error('[MainContent] updateNotebookCellsById not provided');
+                }
+              }}
+            />
           </div>
         ) : activeTab?.type === 'image' || activeTab?.type === 'data' || activeTab?.type === 'other' ? (
           <FilePreview
