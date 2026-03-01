@@ -1,5 +1,9 @@
-# Isolated Kernel - Production-grade process isolation for notebooks
-# Each notebook gets its own worker process for true isolation
+"""
+isolated_kernel.py
+
+Provides production-grade process isolation for notebooks.
+Each notebook gets its own worker process for true isolation.
+"""
 
 import subprocess
 import sys
@@ -28,7 +32,16 @@ IS_WINDOWS = sys.platform == 'win32'
 
 @dataclass
 class ResourceMetrics:
-    """Real-time resource usage metrics"""
+    """
+    Real-time resource usage metrics for a kernel process.
+
+    Attributes:
+        peak_memory_mb (float): Maximum memory used in MB.
+        avg_memory_mb (float): Average memory usage in MB.
+        peak_cpu_percent (float): Peak CPU utilization percentage.
+        avg_cpu_percent (float): Average CPU utilization percentage.
+        samples_count (int): Number of metrics samples collected.
+    """
     peak_memory_mb: float = 0.0
     avg_memory_mb: float = 0.0
     peak_cpu_percent: float = 0.0
@@ -38,6 +51,19 @@ class ResourceMetrics:
 
 @dataclass
 class ExecutionResult:
+    """
+    Result object containing details about a code execution.
+
+    Attributes:
+        status (str): Status of execution ('success', 'error', 'timeout', etc.).
+        stdout (str): Captured standard output.
+        stderr (str): Captured standard error.
+        error_details (str | None): Detailed error message if failed.
+        execution_time (float): Time taken for execution in seconds.
+        metrics (ResourceMetrics): Resource usage statistics during execution.
+        namespace_vars (Dict[str, str]): Summary of variables in the namespace.
+        outputs (List[Dict[str, Any]]): List of rich outputs (images, etc.).
+    """
     status: str  # 'success' | 'error' | 'timeout' | 'killed' | 'crashed'
     stdout: str = ""
     stderr: str = ""
@@ -49,7 +75,13 @@ class ExecutionResult:
 
 
 class ResourceMonitor:
-    """Monitors resource usage in real-time during execution"""
+    """
+    Monitors resource usage in real-time during execution using psutil.
+
+    Args:
+        pid (int): Process ID to monitor.
+        interval (float): Monitoring polling interval in seconds.
+    """
     
     def __init__(self, pid: int, interval: float = 0.05):
         self.pid = pid
@@ -59,7 +91,12 @@ class ResourceMonitor:
         self._thread = None
         
     def start(self):
-        """Start monitoring in background thread"""
+        """
+        Start monitoring in a background thread.
+        
+        Note:
+            Does nothing if psutil is not available.
+        """
         if not PSUTIL_AVAILABLE:
             return
         self._stop_event.clear()
@@ -67,7 +104,12 @@ class ResourceMonitor:
         self._thread.start()
     
     def stop(self) -> ResourceMetrics:
-        """Stop monitoring and return collected metrics"""
+        """
+        Stop monitoring and return collected metrics.
+
+        Returns:
+            ResourceMetrics: The collected memory and CPU usage metrics.
+        """
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=1)
@@ -118,13 +160,22 @@ class ResourceMonitor:
 
 class TrulyIsolatedKernel:
     """
-    Production-ready isolated kernel with:
+    Production-ready isolated kernel with process isolation.
+    
+    Features:
     - Real-time resource monitoring
     - Memory/CPU limits
-    - Proper cleanup
-    - Crash recovery
-    - Namespace inspection
-    - Uses subprocess instead of multiprocessing for PyInstaller compatibility
+        - Proper cleanup and crash recovery
+        - Namespace inspection via JSON-RPC
+        - Uses subprocess for platform compatibility (incl. PyInstaller)
+
+    Args:
+        notebook_id (str): Unique identifier for the notebook.
+        timeout (int): Global execution timeout in seconds.
+        max_memory_mb (int | None): RAM limit per process in MB.
+        monitor_interval (float): Poll interval for resource monitoring.
+        python_path (str | None): Path to the executable; defaults to sys.executable.
+        device (str): Compute device selection ('cpu' or 'cuda').
     """
     
     def __init__(
@@ -152,7 +203,15 @@ class TrulyIsolatedKernel:
         logger.info(f"Created isolated kernel for notebook {notebook_id} (device={device})")
 
     def _start_worker(self):
-        """Spawns the isolated worker process using subprocess"""
+        """
+        Spawns the isolated worker process using subprocess.
+        
+        Initializes the communication pipe via stdin/stdout and waits 
+        for the 'ready' signal from the worker.
+
+        Raises:
+            RuntimeError: If worker script is missing or fails to initialize.
+        """
         # Get path to worker_entry.py
         worker_script = Path(__file__).parent / "worker_entry.py"
         
@@ -192,11 +251,21 @@ class TrulyIsolatedKernel:
         logger.info(f"Worker process started with PID {self.worker.pid}")
 
     def _is_alive(self) -> bool:
-        """Check if worker process is still alive"""
+        """
+        Check if the worker process is still alive and running.
+
+        Returns:
+            bool: True if process exists and is not exited, False otherwise.
+        """
         return self.worker is not None and self.worker.poll() is None
 
     def suspend(self):
-        """Suspend the worker process at the OS level to save CPU without clearing RAM"""
+        """
+        Suspend the worker process at the OS level.
+        
+        Stops CPU usage while preserving RAM contents mapping.
+        Requires psutil to be available.
+        """
         if self._is_alive() and PSUTIL_AVAILABLE and not self.is_suspended:
             try:
                 psutil.Process(self.worker.pid).suspend()
@@ -216,7 +285,16 @@ class TrulyIsolatedKernel:
                 logger.warning(f"Failed to resume kernel {self.notebook_id}: {e}")
 
     def execute(self, code: str, output_callback: Optional[Callable] = None) -> ExecutionResult:
-        """Execute code with real-time monitoring and proper error handling"""
+        """
+        Execute code with real-time monitoring and error handling.
+
+        Args:
+            code (str): The Python source code to execute.
+            output_callback (Callable | None): Optional callback for streaming output chunks.
+
+        Returns:
+            ExecutionResult: Contains status, stdout, stderr, and resource metrics.
+        """
         
         self.last_activity = time.time()
         if self.is_suspended:
@@ -308,7 +386,13 @@ class TrulyIsolatedKernel:
                 metrics=monitor.metrics
             )
     def _read_result(self, stderr_stream, output_callback=None):
-        """Helper to read result from stderr in a separate thread"""
+        """
+        Listen to the worker's stderr stream for JSON-RPC messages.
+
+        Args:
+            stderr_stream (IO): The stream to read from.
+            output_callback (Callable | None): Callback for intermediate output streams.
+        """
         try:
             while True:
                 # Read line from stderr
@@ -359,7 +443,12 @@ class TrulyIsolatedKernel:
             }
 
     def get_namespace_info(self) -> Dict[str, str]:
-        """Get current namespace variable summary (from last execution)"""
+        """
+        Retrieve summary info of variables in the last execution's namespace.
+
+        Returns:
+            Dict[str, str]: Map of variable names to their string representations.
+        """
         return {}
 
     def shutdown(self):

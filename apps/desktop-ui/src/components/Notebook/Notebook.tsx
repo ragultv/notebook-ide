@@ -2,6 +2,7 @@ import React, { useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Cell } from './Cell';
 import { AddCellDivider } from './AddCellDivider';
+import { NotebookWSProvider } from './NotebookWSContext';
 import { CellData, CellStatus, CellOutput } from '../../types';
 
 interface NotebookProps {
@@ -24,6 +25,9 @@ export const Notebook: React.FC<NotebookProps> = ({
   onFixError,
 }) => {
   const [executionCounter, setExecutionCounter] = React.useState(1);
+  // cellMoveVersion increments on every move — combined with position in the key,
+  // ensures cells are fully unmounted+remounted on reorder (avoids Monaco reconnectPassiveEffects crash).
+  const [cellMoveVersion, setCellMoveVersion] = React.useState(0);
 
   const addCell = useCallback((index: number, type: 'code' | 'markdown') => {
     const newCell: CellData = {
@@ -78,10 +82,12 @@ export const Notebook: React.FC<NotebookProps> = ({
       const newCells = [...cells];
       [newCells[index - 1], newCells[index]] = [newCells[index], newCells[index - 1]];
       setCells(newCells);
+      setCellMoveVersion(v => v + 1);
     } else if (direction === 'down' && index < cells.length - 1) {
       const newCells = [...cells];
       [newCells[index + 1], newCells[index]] = [newCells[index], newCells[index + 1]];
       setCells(newCells);
+      setCellMoveVersion(v => v + 1);
     }
   }, [cells, setCells]);
 
@@ -89,55 +95,59 @@ export const Notebook: React.FC<NotebookProps> = ({
   const moveCellToIndex = useCallback((fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
     const newCells = [...cells];
-    // Remove from old position
     const [movedCell] = newCells.splice(fromIndex, 1);
-    // Insert at new position
     newCells.splice(toIndex, 0, movedCell);
     setCells(newCells);
+    setCellMoveVersion(v => v + 1);
   }, [cells, setCells]);
 
   return (
-    <div
-      className="flex-1 overflow-y-auto bg-sim-bg w-full relative custom-scrollbar"
-      onClick={() => setActiveCellId(null)}
-    >
-      <div className="max-w-[900px] mx-auto min-h-full p-4 md:p-8 pb-32">
-        {cells.map((cell, index) => (
-          <React.Fragment key={cell.id}>
-            {/* Divider before cell */}
-            <AddCellDivider
-              visible={activeCellId === cell.id}
-              onAddCode={() => addCell(index, 'code')}
-              onAddText={() => addCell(index, 'markdown')}
-            />
+    <NotebookWSProvider notebookId={notebookId}>
+      <div
+        className="flex-1 overflow-y-auto bg-sim-bg w-full relative custom-scrollbar"
+        onClick={() => setActiveCellId(null)}
+      >
+        <div className="max-w-[900px] mx-auto min-h-full p-4 md:p-8 pb-32">
+          {cells.map((cell, index) => (
+            // Key includes position (index) AND move-version so React fully
+            // unmounts+remounts Monaco when a cell is moved, instead of calling
+            // reconnectPassiveEffects — which crashes Monaco's background tokenizer.
+            <React.Fragment key={`${cell.id}-${index}-${cellMoveVersion}`}>
+              {/* Divider before cell */}
+              <AddCellDivider
+                visible={activeCellId === cell.id}
+                onAddCode={() => addCell(index, 'code')}
+                onAddText={() => addCell(index, 'markdown')}
+              />
 
-            <Cell
-              cell={cell}
-              index={index}
-              notebookId={notebookId}
-              notebookName={notebookName}
-              isActive={activeCellId === cell.id}
-              onActivate={() => setActiveCellId(cell.id)}
-              onDeactivate={() => setActiveCellId(null)}
-              onUpdate={updateCell}
-              onOutputUpdate={updateCellOutput}
-              onDelete={deleteCell}
-              onMoveUp={(id) => moveCell(id, 'up')}
-              onMoveDown={(id) => moveCell(id, 'down')}
-              onMove={moveCellToIndex}
-              onFixError={onFixError ? async (idx, err, content) => await onFixError(idx, err, content, cells, cell.id) : undefined}
-              allCells={cells}
-            />
-          </React.Fragment>
-        ))}
+              <Cell
+                cell={cell}
+                index={index}
+                notebookId={notebookId}
+                notebookName={notebookName}
+                isActive={activeCellId === cell.id}
+                onActivate={() => setActiveCellId(cell.id)}
+                onDeactivate={() => setActiveCellId(null)}
+                onUpdate={updateCell}
+                onOutputUpdate={updateCellOutput}
+                onDelete={deleteCell}
+                onMoveUp={(id) => moveCell(id, 'up')}
+                onMoveDown={(id) => moveCell(id, 'down')}
+                onMove={moveCellToIndex}
+                onFixError={onFixError ? async (idx, err, content) => await onFixError(idx, err, content, cells, cell.id) : undefined}
+                allCells={cells}
+              />
+            </React.Fragment>
+          ))}
 
-        {/* Final Divider */}
-        <AddCellDivider
-          visible={true}
-          onAddCode={() => addCell(cells.length, 'code')}
-          onAddText={() => addCell(cells.length, 'markdown')}
-        />
+          {/* Final Divider */}
+          <AddCellDivider
+            visible={true}
+            onAddCode={() => addCell(cells.length, 'code')}
+            onAddText={() => addCell(cells.length, 'markdown')}
+          />
+        </div>
       </div>
-    </div>
+    </NotebookWSProvider>
   );
 };

@@ -21,7 +21,7 @@ const ToolBtn: React.FC<{ icon: React.ComponentType<any>; onClick: (e: any) => v
 );
 
 // Markdown Renderer
-const renderMarkdown = (text: string) => {
+export const renderMarkdown = (text: string) => {
     if (!text) return { __html: '<span class="text-gray-600 italic">Empty markdown cell</span>' };
 
     let html = text

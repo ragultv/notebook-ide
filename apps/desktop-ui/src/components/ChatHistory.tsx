@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Search, MessageSquare, Clock, FileText, User, Bot, Loader2, Play, Check } from 'lucide-react';
 import { controllerClient } from '../services/controller.client';
+import { CellData } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -129,7 +130,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
         // Not valid JSON
       }
     }
-    
+
     // Try inline operations format
     const inlineMatch = content.match(/"operations"\s*:\s*(\[[\s\S]*?\])/);
     if (inlineMatch) {
@@ -142,7 +143,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
         // Not valid JSON
       }
     }
-    
+
     // Try unquoted operations format
     const unquotedMatch = content.match(/operations"\s*:\s*(\[[\s\S]*?\])/);
     if (unquotedMatch) {
@@ -155,7 +156,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
         // Not valid JSON
       }
     }
-    
+
     return null;
   };
 
@@ -163,13 +164,13 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
   const cleanUserMessage = (content: string): string => {
     // Remove system context blocks
     let cleaned = content;
-    
+
     // Remove === SYSTEM CONTEXT === blocks
     cleaned = cleaned.replace(/=== SYSTEM CONTEXT ===[\s\S]*?=== END CONTEXT ===/g, '').trim();
-    
+
     // Remove USER QUERY: prefix if present
     cleaned = cleaned.replace(/^USER QUERY:\s*/i, '').trim();
-    
+
     // If message starts with "Notebook:" or contains "Current cells:", it's likely context
     if (cleaned.includes('Notebook:') && cleaned.includes('Current cells:')) {
       // Extract just the query part after the context
@@ -180,7 +181,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
       // If no explicit USER QUERY, return empty or a placeholder
       return cleaned.split('USER QUERY:').pop()?.trim() || cleaned;
     }
-    
+
     return cleaned;
   };
 
@@ -206,10 +207,10 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
 
     try {
       console.log('[ChatHistory] Starting to apply operations:', operations.length);
-      
+
       // Process operations first to build the cells array
       const newCells: Array<{ id: string; type: 'code' | 'markdown'; content: string; status: 'idle' }> = [];
-      
+
       // Process operations in order to build the cells array
       for (const op of operations) {
         try {
@@ -230,7 +231,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
               const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
               const content = (op.params.content || '').replace(/\\n/g, '\n');
               const index = op.params.cellIndex;
-              
+
               // Ensure we have enough cells
               while (newCells.length <= index) {
                 newCells.push({
@@ -240,7 +241,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
                   status: 'idle',
                 });
               }
-              
+
               newCells[index] = {
                 ...newCells[index],
                 content,
@@ -281,17 +282,17 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
 
       console.log('[ChatHistory] Processed', newCells.length, 'cells from operations');
       console.log('[ChatHistory] First cell preview:', newCells[0]?.content?.slice(0, 100));
-      
+
       // Create a new notebook with the cells already set (avoids timing issues)
       const newNotebookId = onCreateNotebook(newCells);
-      
+
       if (!newNotebookId) {
         alert('Failed to create new notebook.');
         return;
       }
 
       console.log('[ChatHistory] Created new notebook with cells:', newNotebookId);
-      
+
       // Switch to the new notebook tab
       if (onSwitchToNotebook) {
         onSwitchToNotebook(newNotebookId);
@@ -349,11 +350,10 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
                   <button
                     key={session.id}
                     onClick={() => setSelectedSessionId(session.id)}
-                    className={`w-full text-left p-3 rounded-md mb-2 transition-colors ${
-                      selectedSessionId === session.id
+                    className={`w-full text-left p-3 rounded-md mb-2 transition-colors ${selectedSessionId === session.id
                         ? 'bg-sim-selection text-white'
                         : 'bg-sim-bg hover:bg-white/5 text-sim-text'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <div className="flex-1 min-w-0">
@@ -404,16 +404,14 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
                         return (
                           <div
                             key={message.id}
-                            className={`flex gap-3 ${
-                              message.role === 'user' ? 'justify-end' : 'justify-start'
-                            }`}
+                            className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'
+                              }`}
                           >
                             <div
-                              className={`max-w-[80%] rounded-lg p-3 ${
-                                message.role === 'user'
+                              className={`max-w-[80%] rounded-lg p-3 ${message.role === 'user'
                                   ? 'bg-sim-selection text-white'
                                   : 'bg-sim-surface border border-sim-border text-sim-text'
-                              }`}
+                                }`}
                             >
                               <div className="flex items-center gap-2 mb-2">
                                 {message.role === 'user' ? (

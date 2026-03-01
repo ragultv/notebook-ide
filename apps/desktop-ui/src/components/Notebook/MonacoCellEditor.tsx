@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import Editor, { useMonaco, loader } from "@monaco-editor/react";
+import React, { useEffect, useRef, useCallback } from 'react';
+import Editor, { useMonaco } from "@monaco-editor/react";
 import controllerClient from '../../services/controller.client';
-
 import { CellData } from '../../types';
 
 interface MonacoCellEditorProps {
@@ -14,6 +13,16 @@ interface MonacoCellEditorProps {
     language?: string;
     allCells?: CellData[];
     cellIndex?: number;
+}
+
+// Line height Monaco uses at fontSize 13 with padding 8+8
+const LINE_HEIGHT = 19;
+const PADDING_V = 16; // top 8 + bottom 8
+const MIN_HEIGHT = 38; // single blank line
+
+/** Compute pixel height for N logical lines (before word-wrap reflow). */
+function calcHeight(lineCount: number): number {
+    return Math.max(MIN_HEIGHT, lineCount * LINE_HEIGHT + PADDING_V);
 }
 
 export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
@@ -31,10 +40,7 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
     const editorRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Calculate initial height based on content to prevent jumping
-    const initialLineCount = value.split('\n').length;
-    const initialHeight = Math.max(40, initialLineCount * 19 + 16);
-
+    // ── Theme ──────────────────────────────────────────────────────────────────
     const handleEditorWillMount = (monaco: any) => {
         monaco.editor.defineTheme('notebook-dark', {
             base: 'vs-dark',
@@ -47,113 +53,170 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
         });
     };
 
-    // Keep focus logic for when isActive changes on an already mounted component
+    // ── Height sync ────────────────────────────────────────────────────────────
+    /**
+     * The only correct way to auto-size Monaco is:
+     *   1. Read editor.getContentHeight() — the authoritative measure post-wrap.
+     *   2. Set container height to that value.
+     *   3. Call editor.layout() so Monaco knows the new container size.
+     *
+     * We run this inside requestAnimationFrame to let the DOM flush first,
+     * and guard against infinite loops by comparing the last set height.
+     */
+    const lastHeightRef = useRef<number>(0);
+    const rafRef = useRef<number | null>(null);
+
+    const syncHeight = useCallback(() => {
+        const editor = editorRef.current;
+        const container = containerRef.current;
+        if (!editor || !container) return;
+
+        if (rafRef.current !== null) {
+            cancelAnimationFrame(rafRef.current);
+        }
+
+        rafRef.current = requestAnimationFrame(() => {
+            rafRef.current = null;
+            // Guard against unmounted/disposed editors
+            if (!mountedRef.current || !editor || editor._isDisposed || !container || !document.body.contains(container)) return;
+            try {
+                const contentHeight = Math.max(MIN_HEIGHT, editor.getContentHeight());
+                if (contentHeight !== lastHeightRef.current) {
+                    lastHeightRef.current = contentHeight;
+                    container.style.height = `${contentHeight}px`;
+                    // Force Monaco to re-layout within the new container dimensions
+                    editor.layout({ width: container.offsetWidth, height: contentHeight });
+                }
+            } catch (err) {
+                // Ignore layout errors on unmounted editors
+            }
+        });
+    }, []);
+
+    // Clean up pending RAFs on unmount
+    useEffect(() => {
+        return () => {
+            if (rafRef.current !== null) {
+                cancelAnimationFrame(rafRef.current);
+            }
+        };
+    }, []);
+
+    // ── Focus ──────────────────────────────────────────────────────────────────
     useEffect(() => {
         if (isActive && editorRef.current) {
             editorRef.current.focus();
         }
     }, [isActive]);
 
+    // ── Completions ────────────────────────────────────────────────────────────
     useEffect(() => {
-        if (monaco) {
-            // Register completion provider for python
-            const provider = monaco.languages.registerCompletionItemProvider('python', {
-                provideCompletionItems: async (model, position) => {
-                    const code = model.getValue();
-                    const offset = model.getOffsetAt(position);
+        if (!monaco) return;
 
-                    // Gather context code from previous cells
-                    const contextCode = allCells
-                        .slice(0, cellIndex)
-                        .map(c => c.content)
-                        .join('\n');
+        const provider = monaco.languages.registerCompletionItemProvider('python', {
+            provideCompletionItems: async (model: any, position: any) => {
+                const code = model.getValue();
+                const offset = model.getOffsetAt(position);
+                const contextCode = allCells
+                    .slice(0, cellIndex)
+                    .map((c: CellData) => c.content)
+                    .join('\n');
 
-                    try {
-                        const { completions } = await controllerClient.getCompletions({
-                            code,
-                            cursorPos: offset,
-                            notebookId,
-                            contextCode
-                        });
+                try {
+                    const { completions } = await controllerClient.getCompletions({
+                        code, cursorPos: offset, notebookId, contextCode
+                    });
 
-                        const word = model.getWordUntilPosition(position);
-                        const range = {
-                            startLineNumber: position.lineNumber,
-                            endLineNumber: position.lineNumber,
-                            startColumn: word.startColumn,
-                            endColumn: word.endColumn
-                        };
+                    const word = model.getWordUntilPosition(position);
+                    const range = {
+                        startLineNumber: position.lineNumber,
+                        endLineNumber: position.lineNumber,
+                        startColumn: word.startColumn,
+                        endColumn: word.endColumn,
+                    };
 
-                        const items = completions.map((c: any) => ({
+                    return {
+                        suggestions: completions.map((c: any) => ({
                             label: c.name,
                             kind: mapJediTypeToMonacoKind(monaco, c.type),
                             insertText: c.name,
                             detail: c.description,
                             documentation: c.docstring,
-                            range: range
-                        }));
+                            range,
+                        }))
+                    };
+                } catch {
+                    return { suggestions: [] };
+                }
+            },
+            triggerCharacters: ['.']
+        });
 
-                        return { suggestions: items };
-                    } catch (error) {
-                        console.error('Completion error:', error);
-                        return { suggestions: [] };
-                    }
-                },
-                triggerCharacters: ['.']
-            });
-
-            return () => provider.dispose();
-        }
+        return () => provider.dispose();
     }, [monaco, notebookId, allCells, cellIndex]);
 
+    // ── Mount / Unmount guards ─────────────────────────────────────────────────
+    const mountedRef = useRef(true);
+    useEffect(() => {
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
+
+    // ── Mount ──────────────────────────────────────────────────────────────────
     const handleEditorDidMount = (editor: any, monaco: any) => {
         editorRef.current = editor;
 
-        // Auto-activate when focused
         editor.onDidFocusEditorText(() => {
             if (onActivate) onActivate();
         });
 
-        // Add command for Shift+Enter to run cell
         editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
             onRun();
         });
 
-        // Immediate focus if cell is already active (happens on newly added cells)
         if (isActive) {
             editor.focus();
-            // Sometimes one focus isn't enough during the layout pass
-            setTimeout(() => editor.focus(), 10);
+            setTimeout(() => {
+                // The editor might have been destroyed while waiting for this timeout (e.g., cell was moved)
+                if (mountedRef.current && !editor._isDisposed) {
+                    try { editor.focus(); } catch (e) { }
+                }
+            }, 10);
         }
 
-        // Precise height management
-        const updateHeight = () => {
-            const contentHeight = editor.getContentHeight();
-            if (containerRef.current) {
-                const newHeight = `${Math.max(40, contentHeight + 4)}px`;
-                if (containerRef.current.style.height !== newHeight) {
-                    containerRef.current.style.height = newHeight;
-                    editor.layout();
-                }
+        // Sync height on every content-size change (new lines, word-wrap reflow, etc.)
+        editor.onDidContentSizeChange(() => {
+            if (mountedRef.current && !editor._isDisposed) syncHeight();
+        });
+
+        // Initial sync after the editor has finished its first layout pass
+        // Two frames: first for Monaco's own init, second for our container resize.
+        requestAnimationFrame(() => {
+            if (mountedRef.current) {
+                requestAnimationFrame(() => {
+                    if (mountedRef.current && !editor._isDisposed) syncHeight();
+                });
             }
-        };
-
-        updateHeight();
-        editor.onDidContentSizeChange(updateHeight);
-
-        // Prevent unwanted scrolling during paste/init
-        editor.setScrollTop(0);
+        });
     };
 
+    // ── Render ─────────────────────────────────────────────────────────────────
+    // Initial height = line count × line-height. This prevents a jarring jump
+    // from 38 px to full height before onDidContentSizeChange fires.
+    const initialHeight = calcHeight(value.split('\n').length);
+
     return (
-        <div ref={containerRef} className="w-full bg-[#09090b] border border-white/5 rounded-xl shadow-inner overflow-hidden no-drag" style={{ minHeight: '40px', height: `${initialHeight}px` }}>
+        <div
+            ref={containerRef}
+            className="w-full bg-[#09090b] border border-white/5 rounded-xl shadow-inner overflow-hidden no-drag"
+            style={{ height: `${initialHeight}px` }}
+        >
             <Editor
                 height="100%"
                 defaultLanguage={language}
                 value={value}
-                onChange={(val) => {
-                    onChange(val || '');
-                }}
+                onChange={(val) => onChange(val || '')}
                 theme="notebook-dark"
                 onMount={handleEditorDidMount}
                 beforeMount={handleEditorWillMount}
@@ -168,14 +231,15 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
                     folding: false,
                     lineDecorationsWidth: 10,
                     lineNumbersMinChars: 3,
-                    automaticLayout: true,
+                    // ↓ Must be FALSE — true makes Monaco fight our manual layout calls
+                    automaticLayout: false,
                     padding: { top: 8, bottom: 8 },
                     scrollbar: {
                         vertical: 'hidden',
                         horizontal: 'hidden',
-                        alwaysConsumeMouseWheel: false
+                        alwaysConsumeMouseWheel: false,
+                        handleMouseWheel: false,
                     },
-                    readOnly: false,
                     wordWrap: 'on',
                     fixedOverflowWidgets: true,
                     overviewRulerLanes: 0,
@@ -184,12 +248,14 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
                     contextmenu: false,
                     links: false,
                     renderWhitespace: 'none',
-                    occurrencesHighlight: 'off'
+                    occurrencesHighlight: 'off',
                 }}
             />
         </div>
     );
 };
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function mapJediTypeToMonacoKind(monaco: any, type: string) {
     switch (type) {
@@ -203,10 +269,4 @@ function mapJediTypeToMonacoKind(monaco: any, type: string) {
         case 'statement': return monaco.languages.CompletionItemKind.Variable;
         default: return monaco.languages.CompletionItemKind.Variable;
     }
-}
-
-function getWordAtOffset(code: string, offset: number) {
-    const before = code.slice(0, offset);
-    const match = before.match(/([a-zA-Z_][a-zA-Z0-9_]*)$/);
-    return match ? match[1] : '';
 }

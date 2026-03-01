@@ -15,10 +15,13 @@ export interface ExecutionRequest {
 
 // Rich output types - like Jupyter
 export interface RichOutput {
-  type: 'text' | 'image' | 'html' | 'error' | 'stream';
-  data: string;
+  type: 'text' | 'image' | 'html' | 'error' | 'stream' | 'widget' | 'result' | 'display';
+  data: string | Record<string, any>;  // Can be string or MIME bundle object
   mimeType?: string;
   stream?: 'stdout' | 'stderr';
+  // Widget-specific fields
+  commId?: string;
+  targetName?: string;
 }
 
 export interface ExecutionResult {
@@ -166,7 +169,11 @@ export const controllerClient = {
     req: ExecutionRequest,
     onOutput: (output: RichOutput) => void,
     onComplete: (result: ExecutionResult) => void,
-    onError: (error: string) => void
+    onError: (error: string) => void,
+    onInputRequest?: (executionId: string, prompt: string) => void,
+    onCommOpen?: (commId: string, targetName: string, data: any, metadata: any) => void,
+    onCommMsg?: (commId: string, data: any) => void,
+    onCommClose?: (commId: string) => void
   ): () => void {
     const abortController = new AbortController();
 
@@ -209,6 +216,14 @@ export const controllerClient = {
                 onComplete(data.result);
               } else if (data.type === 'error') {
                 onError(data.error);
+              } else if (data.type === 'input_request' && onInputRequest) {
+                onInputRequest(data.execution_id, data.prompt);
+              } else if (data.type === 'comm_open' && onCommOpen) {
+                onCommOpen(data.comm_id, data.target_name, data.data, data.metadata);
+              } else if (data.type === 'comm_msg' && onCommMsg) {
+                onCommMsg(data.comm_id, data.data);
+              } else if (data.type === 'comm_close' && onCommClose) {
+                onCommClose(data.comm_id);
               }
             } catch (e) {
               // Ignore parse errors
@@ -224,6 +239,32 @@ export const controllerClient = {
 
     // Return cancel function
     return () => abortController.abort();
+  },
+
+  // Send input reply for input() prompts
+  async sendStdinReply(notebookId: string, executionId: string, value: string): Promise<void> {
+    const response = await fetch(`${BASE_URL}/execution/stdin_reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notebookId, executionId, value }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+  },
+
+  // Send comm message to kernel (for widget interactions)
+  async sendCommMsg(notebookId: string, commId: string, data: any): Promise<void> {
+    const response = await fetch(`${BASE_URL}/execution/comm_msg`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notebookId, commId, data }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
   },
 
   async runAll(cells: ExecutionRequest[]): Promise<ExecutionResult[]> {
