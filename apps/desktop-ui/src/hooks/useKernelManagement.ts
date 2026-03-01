@@ -49,7 +49,7 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
     };
 
     pollMetrics();
-    const interval = setInterval(pollMetrics, 1000);
+    const interval = setInterval(pollMetrics, 3000); // Poll metrics every 3 seconds
     return () => clearInterval(interval);
   }, [activeFileId, setKernelMetrics, clearKernelMetrics, recordMetricSnapshot]);
 

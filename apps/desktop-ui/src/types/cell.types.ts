@@ -3,14 +3,16 @@ export type CellType = 'code' | 'markdown';
 
 export type CellStatus = 'idle' | 'running' | 'success' | 'error' | 'pending';
 
-export type OutputType = 'text' | 'image' | 'html' | 'error' | 'stream' | 'input_request' | 'terminal_output';
+export type OutputType = 'text' | 'image' | 'html' | 'error' | 'stream' | 'widget' | 'result' | 'display';
 
 export interface CellOutput {
   type: OutputType;
-  data?: string;
+  data: string | Record<string, any>;  // Can be string or MIME bundle object
   mimeType?: string;
   stream?: 'stdout' | 'stderr';
-  prompt?: string;
+  // Widget-specific fields
+  commId?: string;
+  targetName?: string;
 }
 
 export interface CellData {

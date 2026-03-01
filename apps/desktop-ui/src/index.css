@@ -1,6 +1,10 @@
+/* ipywidgets styles — required for widget rendering to look correct */
+@import '@jupyter-widgets/controls/css/widgets-base.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 
 body {
   margin: 0;

@@ -1,0 +1,95 @@
+/**
+ * Pre-warmed Kernel Pool — eliminates cold-start latency.
+ * When a notebook claims a kernel, we immediately warm another.
+ */
+
+import { BridgeProcess } from './BridgeProcess.js';
+import { v4 as uuidv4 } from 'uuid';
+
+const POOL_SIZE = 2;
+const pool: BridgeProcess[] = [];
+let isInitializing = false;
+
+export async function initPool(pythonPath: string = 'python'): Promise<void> {
+    if (isInitializing) return;
+    isInitializing = true;
+    
+    console.log('[KernelPool] Initializing with size:', POOL_SIZE);
+    
+    for (let i = 0; i < POOL_SIZE; i++) {
+        try {
+            await addToPool(pythonPath);
+        } catch (e) {
+            console.error('[KernelPool] Failed to add kernel to pool:', e);
+        }
+    }
+    
+    console.log('[KernelPool] Initialized with', pool.length, 'kernels');
+    isInitializing = false;
+}
+
+async function addToPool(pythonPath: string): Promise<void> {
+    const tempId = `pool_${uuidv4()}`;
+    const bridge = new BridgeProcess(tempId, pythonPath);
+    
+    try {
+        await bridge.start();
+        pool.push(bridge);
+        console.log('[KernelPool] Added kernel to pool, size:', pool.length);
+    } catch (e) {
+        console.error('[KernelPool] Failed to start pooled kernel:', e);
+        throw e;
+    }
+}
+
+export async function claimFromPool(
+    notebookId: string, 
+    pythonPath: string = 'python'
+): Promise<BridgeProcess> {
+    if (pool.length > 0) {
+        const bridge = pool.shift()!;
+        
+        // Update the bridge's notebook ID
+        bridge.notebookId = notebookId;
+        
+        // Send command to bridge to update its notebook ID
+        bridge.send({ type: 'set_notebook_id', notebook_id: notebookId });
+        
+        // Immediately warm a replacement (non-blocking)
+        addToPool(pythonPath).catch(err => {
+            console.error('[KernelPool] Failed to warm replacement kernel:', err);
+        });
+        
+        console.log('[KernelPool] Claimed kernel for', notebookId, ', pool size:', pool.length);
+        return bridge;
+    }
+    
+    // Pool empty — cold start
+    console.log('[KernelPool] Pool empty, cold starting kernel for', notebookId);
+    const bridge = new BridgeProcess(notebookId, pythonPath);
+    await bridge.start();
+    return bridge;
+}
+
+export function getPoolStatus(): { size: number; maxSize: number } {
+    return {
+        size: pool.length,
+        maxSize: POOL_SIZE
+    };
+}
+
+export async function drainPool(): Promise<void> {
+    console.log('[KernelPool] Draining pool...');
+    
+    while (pool.length > 0) {
+        const bridge = pool.shift()!;
+        try {
+            bridge.send({ type: 'shutdown', notebook_id: bridge.notebookId });
+            setTimeout(() => bridge.kill(), 500);
+        } catch (e) {
+            // Ignore errors during shutdown
+        }
+    }
+    
+    console.log('[KernelPool] Pool drained');
+}

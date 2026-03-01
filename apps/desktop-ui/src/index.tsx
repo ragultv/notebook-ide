@@ -9,8 +9,9 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+// NOTE: React.StrictMode is intentionally omitted.
+// Monaco Editor is incompatible with StrictMode's double-invoke behavior in React 18:
+// setModel() triggers background tokenization via requestIdleCallback, which then fires
+// a render pass before the editor's domNode is re-attached to the document.
+// This causes: "Cannot read properties of undefined (reading 'domNode')"
+root.render(<App />);

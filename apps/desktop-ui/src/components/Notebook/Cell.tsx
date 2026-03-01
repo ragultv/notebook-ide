@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Play, Trash2, ArrowUp, ArrowDown, MoreHorizontal, Wrench, CheckCircle2, XCircle, Clock, GripVertical, Loader2, Zap, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Play, Trash2, ArrowUp, ArrowDown, MoreHorizontal, Wrench, CheckCircle2, XCircle, GripVertical, Loader2, Zap, ChevronDown, StopCircle, Terminal, CornerDownLeft } from 'lucide-react';
 import { CellData, CellStatus, CellOutput } from '../../types';
-import { TerminalOutput } from './TerminalOutput';
-import { controllerClient, RichOutput } from '../../services/controller.client';
+import { controllerClient } from '../../services/controller.client';
 import { useUIStore } from '../../store/ui.store';
-import { TextCell } from './TextCell';
+import { TextCell, renderMarkdown } from './TextCell';
 import { MonacoCellEditor } from './MonacoCellEditor';
+import { WidgetRenderer, extractWidgetInfo } from './WidgetRenderer';
+import { handleCommOpen, handleCommMsg, handleCommClose } from '../../services/widget.service';
+import { useNotebookWS } from './NotebookWSContext';
 
 interface CellProps {
   cell: CellData;
@@ -25,27 +27,20 @@ interface CellProps {
   allCells?: CellData[];
 }
 
-// ── helpers ────────────────────────────────────────────────────────────────────
+// ── Strip ANSI escape codes from strings so they render cleanly in <div> ──────
 
-const parseErrorLine = (error: string | undefined): number | null => {
-  if (!error) return null;
-  const match = error.match(/line (\d+)/i);
-  return match ? parseInt(match[1], 10) : null;
-};
-
-const simpleFallbackHighlight = (code: string) => {
-  let html = code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  html = html.replace(/\b(def|class|return|if|else|elif|while|for|in|import|from|as|try|except|finally|with|lambda|async|await)\b/g, '<span style="color:#c678dd">$1</span>');
-  html = html.replace(/\b(print|len|range|str|int|float|list|dict|set|tuple|type|isinstance)\b/g, '<span style="color:#61afef">$1</span>');
-  html = html.replace(/\b(\d+)\b/g, '<span style="color:#d19a66">$1</span>');
-  html = html.replace(/('.*?'|".*?")/g, '<span style="color:#98c379">$1</span>');
-  html = html.replace(/(#.*)/g, '<span style="color:#5c6370;font-style:italic">$1</span>');
-  return html;
-};
+function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+}
 
 // ── OutputItem ────────────────────────────────────────────────────────────────
 
 const OutputItem: React.FC<{ output: CellOutput }> = ({ output }) => {
+  // Explicit widget type
+  if (output.type === 'widget' && output.commId) {
+    return <WidgetRenderer commId={output.commId} targetName={output.targetName} />;
+  }
   if (output.type === 'image' && output.data) {
     return (
       <div className="flex justify-center py-2">
@@ -54,48 +49,126 @@ const OutputItem: React.FC<{ output: CellOutput }> = ({ output }) => {
     );
   }
   if (output.type === 'html' && output.data) {
-    return <div className="prose prose-invert max-w-full" dangerouslySetInnerHTML={{ __html: output.data }} />;
+    // Check for widget view in HTML MIME bundle
+    try {
+      const dataObj = typeof output.data === 'string' ? {} : output.data;
+      const widgetInfo = extractWidgetInfo(dataObj as Record<string, any>);
+      if (widgetInfo) {
+        return <WidgetRenderer commId={widgetInfo.modelId} />;
+      }
+    } catch (e) { }
+    return <div className="prose prose-invert max-w-full" dangerouslySetInnerHTML={{ __html: output.data as string }} />;
   }
+
+  if (output.type === 'text' || output.type === 'stream' || output.type === 'result' || output.type === 'display') {
+    let displayText = output.data;
+
+    // Evaluate rich MIME bundles sent in display_data or execute_result
+    if (typeof displayText === 'object' && displayText !== null) {
+      const bundle: any = displayText;
+
+      // 1. Interactive Widgets
+      if (bundle['application/vnd.jupyter.widget-view+json']) {
+        const modelId = bundle['application/vnd.jupyter.widget-view+json']?.model_id;
+        const htmlFallback = bundle['text/html'] as string | undefined;
+        if (modelId) return <WidgetRenderer commId={modelId} htmlFallback={htmlFallback} />;
+        return <div className="text-gray-400 text-sm italic p-2">[Widget — model not ready]</div>;
+      }
+
+      // 2. HTML
+      if (bundle['text/html']) {
+        return <div className="prose prose-invert max-w-full" dangerouslySetInnerHTML={{ __html: bundle['text/html'] }} />;
+      }
+
+      // 3. Images (PNG)
+      if (bundle['image/png']) {
+        return (
+          <div className="flex justify-center py-2">
+            <img src={`data:image/png;base64,${bundle['image/png']}`} alt="Output" className="max-w-full h-auto rounded-lg shadow-sm" />
+          </div>
+        );
+      }
+
+      // 4. Images (JPEG)
+      if (bundle['image/jpeg']) {
+        return (
+          <div className="flex justify-center py-2">
+            <img src={`data:image/jpeg;base64,${bundle['image/jpeg']}`} alt="Output" className="max-w-full h-auto rounded-lg shadow-sm" />
+          </div>
+        );
+      }
+
+      // 5. Images (SVG)
+      if (bundle['image/svg+xml']) {
+        return (
+          <div className="flex justify-center py-2" dangerouslySetInnerHTML={{ __html: bundle['image/svg+xml'] }} />
+        );
+      }
+
+      // 6. Markdown
+      if (bundle['text/markdown']) {
+        return (
+          <div className="prose prose-invert prose-sm max-w-none text-gray-200 leading-relaxed font-sans"
+            dangerouslySetInnerHTML={renderMarkdown(bundle['text/markdown'])}
+          />
+        );
+      }
+
+      // 7. LaTeX / Math
+      if (bundle['text/latex']) {
+        // Simple LaTeX render fallback using TextCell's renderMarkdown math syntax,
+        // or just displaying the raw LaTeX cleanly
+        return (
+          <div className="font-mono text-yellow-500 py-2 overflow-x-auto whitespace-pre">
+            {bundle['text/latex']}
+          </div>
+        );
+      }
+
+      // 8. JSON
+      if (bundle['application/json']) {
+        return (
+          <div className="bg-[#1e1e20] p-3 rounded-lg border border-white/10 m-2 overflow-x-auto text-[13px] font-mono text-sim-red">
+            <pre className="break-words whitespace-pre-wrap m-0">
+              {JSON.stringify(bundle['application/json'], null, 2)}
+            </pre>
+          </div>
+        );
+      }
+
+      // 9. Plain Text fallback
+      if (bundle['text/plain']) {
+        displayText = bundle['text/plain'];
+      } else {
+        displayText = JSON.stringify(bundle, null, 2);
+      }
+    }
+
+    return (
+      <div className={`whitespace-pre-wrap break-words font-mono text-[13px] leading-5 ${output.stream === 'stderr' ? 'text-yellow-300' : 'text-gray-300'}`}>
+        {String(displayText)}
+      </div>
+    );
+  }
+
   return (
-    <div className={`whitespace-pre-wrap break-words font-mono text-[13px] leading-5 ${output.stream === 'stderr' ? 'text-yellow-300' : 'text-gray-300'}`}>
-      {output.data}
+    <div className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-gray-300">
+      {String(output.data || '')}
     </div>
   );
 };
 
-// ── ToolBtn ────────────────────────────────────────────────────────────────────
+// ── ToolBtn ───────────────────────────────────────────────────────────────────
 
-const ToolBtn: React.FC<{ icon: React.ComponentType<any>; onClick: (e: any) => void; label: string }> = ({ icon: Icon, onClick, label }) => (
-  <button onClick={(e) => { e.stopPropagation(); onClick(e); }} title={label} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+const ToolBtn: React.FC<{ icon: React.ComponentType<any>; onClick: (e: any) => void; label: string; danger?: boolean }> = ({ icon: Icon, onClick, label, danger }) => (
+  <button
+    onClick={(e) => { e.stopPropagation(); onClick(e); }}
+    title={label}
+    className={`p-2 rounded-full transition-colors ${danger ? 'text-red-400 hover:text-white hover:bg-red-500/20' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
+  >
     <Icon className="w-4 h-4" />
   </button>
 );
-
-// ── Running-line gutter icon ───────────────────────────────────────────────────
-// Shows a solid green ▶ next to whichever line is currently executing.
-// currentLine is 1-indexed; undefined means we don't know (just pulse everything).
-
-const GutterRunIcon: React.FC<{ lineNum: number; currentLine: number | null; isRunning: boolean }> = ({
-  lineNum, currentLine, isRunning,
-}) => {
-  const isThis = isRunning && (currentLine === null ? lineNum === 1 : currentLine === lineNum);
-  if (!isRunning) return null;
-  if (currentLine !== null && currentLine !== lineNum) return null;
-  // If currentLine is null (no tracking from backend) show a dot on line 1 only
-  if (currentLine === null && lineNum !== 1) return null;
-
-  return (
-    <span
-      className="inline-flex items-center justify-center w-full h-[1.6rem]"
-      title={`Executing line ${lineNum}`}
-    >
-      {/* Solid filled dark-green play triangle */}
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M1.5 1 L9 5 L1.5 9 Z" fill="#22c55e" />
-      </svg>
-    </span>
-  );
-};
 
 // ── Cell ──────────────────────────────────────────────────────────────────────
 
@@ -111,51 +184,36 @@ export const Cell: React.FC<CellProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [showFixPopover, setShowFixPopover] = useState(false);
 
-  // Input states
-  const [isWaitingForInput, setIsWaitingForInput] = useState(false);
-  const [inputPrompt, setInputPrompt] = useState('');
-  const [inputValue, setInputValue] = useState('');
-
-  // Streaming: live chunks appearing character by character like Jupyter
+  // Live streaming chunks during execution
   const [streamingChunks, setStreamingChunks] = useState<CellOutput[]>([]);
-  // Current executing line (1-indexed), null = backend doesn't send it
-  const [currentLine, setCurrentLine] = useState<number | null>(null);
   // Live elapsed time while cell is running (ms)
   const [elapsedMs, setElapsedMs] = useState(0);
-  // Animated sweep line index (when backend sends no line info)
-  const [animatedLine, setAnimatedLine] = useState(1);
+  // Input request state for input() prompts
+  const [inputRequest, setInputRequest] = useState<{ executionId: string; prompt: string; password: boolean } | null>(null);
+  const [inputValue, setInputValue] = useState('');
+  // Active widgets for this cell
+  const [activeWidgets, setActiveWidgets] = useState<Array<{ commId: string; targetName: string }>>([]);
 
+  // Track current execution
+  const currentExecIdRef = useRef<string | null>(null);
   const startTimeRef = useRef<number>(0);
-  const cancelStreamRef = useRef<(() => void) | null>(null);
   const outputEndRef = useRef<HTMLDivElement>(null);
 
-  const { kernelStatus, setKernelStatus, runtimeType } = useUIStore();
-  const device = runtimeType === 'gpu' ? 'cuda' : 'cpu';
-
-  const errorLine = useMemo(() => parseErrorLine(cell.error), [cell.error]);
-  const codeLines = useMemo(() => cell.content.split('\n'), [cell.content]);
+  const { setKernelStatus } = useUIStore();
   const isCode = cell.type === 'code';
   const isRunning = cell.status === 'running';
 
-  // Combine: during running show streaming chunks live; after completion show cell.outputs
-  const displayOutputs = isRunning ? streamingChunks : (cell.outputs ?? []);
+  // ── Shared WebSocket from Notebook-level context (single connection per notebook) ─
+  const { execute, interrupt, sendStdin, sendCommMsg, on, connected } = useNotebookWS();
 
-  // Compute terminal mode dynamically based on current output state or cell prefix
-  const isTerminalMode = useMemo(() => {
-    return displayOutputs.some(o => o.type === 'terminal_output') ||
-      (cell.content.trim().startsWith('!'));
-  }, [displayOutputs, cell.content]);
-
-
-
-  // Auto-scroll streaming output
+  // ── Auto-scroll output while streaming ──────────────────────────────────────
   useEffect(() => {
     if (outputEndRef.current && isRunning) {
       outputEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [streamingChunks, isRunning]);
 
-  // ── Live elapsed timer while running ───────────────────────────────────────
+  // ── Live elapsed timer while running ────────────────────────────────────────
   useEffect(() => {
     if (!isRunning) { setElapsedMs(0); return; }
     startTimeRef.current = performance.now();
@@ -165,98 +223,134 @@ export const Cell: React.FC<CellProps> = ({
     return () => clearInterval(interval);
   }, [isRunning]);
 
-  // ── Animated line indicator (when backend doesn't send line info) ───────────
-  // Sweeps through code lines at ~1.5s/line so the gutter looks alive.
-  // If the backend DOES send real line numbers (currentLine != null), we use those.
+  // ── Listen for WebSocket messages relevant to this cell ──────────────────────
   useEffect(() => {
-    if (!isRunning || currentLine !== null) { setAnimatedLine(1); return; }
-    const nonEmptyCount = Math.max(1, codeLines.filter(l => l.trim()).length);
-    setAnimatedLine(1);
-    const interval = setInterval(() => {
-      setAnimatedLine(prev => prev < nonEmptyCount ? prev + 1 : nonEmptyCount);
-    }, 1500);
-    return () => clearInterval(interval);
-  }, [isRunning, currentLine, codeLines]);
+    const cleanups: (() => void)[] = [];
 
-  // ── Run ──
+    // Output chunks (stream, result, display)
+    cleanups.push(on('output', (msg: any) => {
+      if (msg.execution_id !== currentExecIdRef.current) return;
+      const output = msg.output;
+      if (!output) return;
 
-  const runCell = async () => {
+      if (output.type === 'stream') {
+        setStreamingChunks(prev => [...prev, {
+          type: 'stream',
+          data: output.data,
+          stream: output.stream,
+        }]);
+      } else if (output.type === 'result' || output.type === 'display') {
+        // Always push display outputs — OutputItem handles widget MIME, HTML, images etc.
+        // Do NOT skip widget MIME here; kernel sends display_data only for the root widget.
+        setStreamingChunks(prev => [...prev, {
+          type: output.type,
+          data: output.data,
+        }]);
+      }
+    }));
+
+    // Execution complete (success)
+    cleanups.push(on('execution_complete', (msg: any) => {
+      if (msg.execution_id !== currentExecIdRef.current) return;
+      const result = msg.result || {};
+      const outputs = result.outputs?.length ? result.outputs as CellOutput[] : undefined;
+      const duration = result.execution_time ? result.execution_time : undefined;  // seconds
+      onOutputUpdate(cell.id, result.output || '', 'success', undefined, result.executionCount, outputs, duration);
+      setKernelStatus('idle');
+      setStreamingChunks([]);
+      setInputRequest(null);
+      currentExecIdRef.current = null;
+    }));
+
+    // Execution error
+    cleanups.push(on('execution_error', (msg: any) => {
+      if (msg.execution_id !== currentExecIdRef.current) return;
+      // Strip ANSI codes from error text since it's displayed in plain HTML
+      const clean = stripAnsi(msg.error || 'Execution failed');
+      onOutputUpdate(cell.id, '', 'error', clean, undefined, undefined, undefined);
+      setKernelStatus('error');
+      setStreamingChunks([]);
+      setInputRequest(null);
+      currentExecIdRef.current = null;
+    }));
+
+    // Input prompt
+    cleanups.push(on('input_request', (msg: any) => {
+      if (msg.execution_id !== currentExecIdRef.current) return;
+      setInputRequest({
+        executionId: msg.execution_id,
+        prompt: msg.prompt || '> ',
+        password: msg.password || false,
+      });
+    }));
+
+    // Widget comm messages — register models with widget.service so WidgetRenderer can find them.
+    // Do NOT add to activeWidgets here: sub-widgets (Button, HTML, Label…) all emit comm_open.
+    // Only ROOT widgets get displayed, and only via display_data MIME in the output stream above.
+    cleanups.push(on('comm_open', async (msg: any) => {
+      const commId = msg.comm_id;
+      const targetName = msg.target_name;
+      await handleCommOpen(commId, targetName, msg.data, msg.metadata,
+        (cid: string, d: any) => sendCommMsg(cid, d));
+    }));
+
+    cleanups.push(on('comm_msg', (msg: any) => {
+      handleCommMsg(msg.comm_id, msg.data);
+    }));
+
+    cleanups.push(on('comm_close', (msg: any) => {
+      handleCommClose(msg.comm_id);
+    }));
+
+    return () => cleanups.forEach(c => c());
+  }, [cell.id, on, onOutputUpdate, notebookId, setKernelStatus]);
+
+  // ── Run ──────────────────────────────────────────────────────────────────────
+
+  const runCell = useCallback(async () => {
     if (cell.type === 'markdown') return;
     if (!cell.content.trim()) return;
-    if (cancelStreamRef.current) cancelStreamRef.current();
 
     setStreamingChunks([]);
-    setCurrentLine(null);
     setElapsedMs(0);
-    setAnimatedLine(1);
+    setInputRequest(null);
+    setInputValue('');
+    setActiveWidgets([]);
     onOutputUpdate(cell.id, '', 'running', undefined, undefined, [], undefined);
     setKernelStatus('busy');
 
-    const cancel = controllerClient.runCellStream(
-      { cellId: cell.id, code: cell.content, notebookId, device },
-      // onOutput — each SSE chunk: append immediately for live streaming
-      (output: RichOutput & { line?: number }) => {
-        // Backend may optionally send line number hint
-        if (output.line !== undefined) setCurrentLine(output.line);
-
-        if (output.type === 'input_request') {
-          setIsWaitingForInput(true);
-          setInputPrompt(output.prompt || '');
-        } else if (output.type === 'terminal_output') {
-          setStreamingChunks(prev => [...prev, output as CellOutput]);
-        } else {
-          setStreamingChunks(prev => [...prev, output as CellOutput]);
-        }
-      },
-      // onComplete — final result
-      (result) => {
-        const outputs = result.outputs?.length ? result.outputs : undefined;
-        if (result.success) {
-          onOutputUpdate(cell.id, result.output || '', 'success', undefined, result.executionCount, outputs, result.duration);
-        } else {
-          onOutputUpdate(cell.id, '', 'error', result.error, result.executionCount, outputs, result.duration);
-        }
-        setKernelStatus('idle');
-        setStreamingChunks([]);
-        setCurrentLine(null);
-        setIsWaitingForInput(false);
-        cancelStreamRef.current = null;
-      },
-      (error) => {
-        onOutputUpdate(cell.id, '', 'error', error);
-        setKernelStatus('error');
-        setStreamingChunks([]);
-        setCurrentLine(null);
-        setIsWaitingForInput(false);
-        cancelStreamRef.current = null;
-      }
-    );
-    cancelStreamRef.current = cancel;
-  };
-
-  const handleInputSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsWaitingForInput(false);
-
-    // Echo the input into the stream display manually, like a real terminal
-    setStreamingChunks(prev => [...prev, {
-      type: 'stream',
-      stream: 'stdout',
-      data: `${inputPrompt}${inputValue}\n`
-    } as CellOutput]);
-
-    const value = inputValue;
-    setInputValue('');
-    setInputPrompt('');
-
+    // execute() sends the WS message and returns a Promise that resolves with
+    // the server-assigned execution_id (from the execution_started message).
+    // We must await it so currentExecIdRef is set before any output arrives.
     try {
-      await controllerClient.sendInput(notebookId, value);
-    } catch (err) {
-      console.error("Failed to send input", err);
+      const execId = await execute(cell.id, cell.content);
+      currentExecIdRef.current = execId;
+    } catch (e) {
+      onOutputUpdate(cell.id, '', 'error', 'Failed to start execution', undefined, [], undefined);
+      setKernelStatus('error');
     }
-  };
+  }, [cell.id, cell.type, cell.content, execute, onOutputUpdate, setKernelStatus]);
 
-  // ── Fix Error ──
+  // ── Input submission ──────────────────────────────────────────────────────────
+
+  const handleInputSubmit = useCallback(() => {
+    if (!inputRequest) return;
+    sendStdin(inputRequest.executionId, inputValue);
+    // Echo input to streaming output (except passwords)
+    if (!inputRequest.password) {
+      setStreamingChunks(prev => [...prev, { type: 'text', data: inputValue + '\n', stream: 'stdout' }]);
+    }
+    setInputRequest(null);
+    setInputValue('');
+  }, [inputRequest, inputValue, sendStdin]);
+
+  // ── Interrupt ─────────────────────────────────────────────────────────────────
+
+  const handleInterrupt = useCallback(() => {
+    interrupt();
+  }, [interrupt]);
+
+  // ── Fix Error ──────────────────────────────────────────────────────────────────
 
   const handleFixError = async (mode: 'chat' | 'auto') => {
     if (!onFixError || !cell.error) return;
@@ -285,10 +379,9 @@ export const Cell: React.FC<CellProps> = ({
     }
   };
 
-  // ── Duration formatting ──
+  // ── Duration formatting ────────────────────────────────────────────────────────
 
   const formatDuration = (ms: number) => {
-    // Input is now milliseconds from elapsedMs or seconds*1000 from backend
     if (ms < 1) return '<1ms';
     if (ms < 1000) return `${Math.round(ms)}ms`;
     const s = ms / 1000;
@@ -296,17 +389,12 @@ export const Cell: React.FC<CellProps> = ({
     return `${Math.floor(s / 60)}m ${(s % 60).toFixed(1)}s`;
   };
 
-  // Backend sends duration in seconds; convert to ms for display
   const formatBackendDuration = (s: number) => {
     if (s === 0) return '0ms';
     return formatDuration(s * 1000);
   };
 
-  // The display line while running — real from backend or animated fallback
-  const displayLine = currentLine ?? animatedLine;
-
-
-  // ── Drag ──
+  // ── Drag ──────────────────────────────────────────────────────────────────────
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('application/json', JSON.stringify({
@@ -335,8 +423,10 @@ export const Cell: React.FC<CellProps> = ({
     }
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────────
 
+  // During running show streaming chunks live; after completion show cell.outputs
+  const displayOutputs = isRunning ? streamingChunks : (cell.outputs ?? []);
   const hasOutput = isRunning || displayOutputs.length > 0 || !!cell.output || cell.status === 'error';
 
   return (
@@ -372,42 +462,44 @@ export const Cell: React.FC<CellProps> = ({
         <div className="w-10 flex-shrink-0 flex flex-col items-center py-1 select-none z-20 sticky top-2 self-start h-fit">
           <div className="flex flex-col items-center gap-2">
             {/* Run / Stop button */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (cell.status === 'running') {
-                  controllerClient.interrupt(notebookId).catch(console.error);
-                } else {
-                  runCell();
-                }
-              }}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border
-                ${cell.status !== 'running' && cell.status !== 'success' ? 'bg-[#2b2b2e] border-white/10 hover:bg-white hover:text-black group/btn' : ''}
-                ${cell.status === 'running' ? 'bg-red-900/20 text-red-500 border-red-500 hover:bg-red-900/40 hover:scale-105' : ''}
-                ${cell.status === 'success' ? 'bg-green-950/40 text-green-500 border-green-800 hover:border-green-500 shadow-lg shadow-green-950/50' : ''}
-                ${cell.status === 'error' ? 'bg-red-900/20 text-red-500 border-red-500' : ''}
-              `}
-              title={cell.status === 'running' ? "Interrupt Execution" : "Run cell (Shift+Enter)"}
-            >
-              {cell.status === 'running'
-                ? <div className="w-2.5 h-2.5 bg-red-500 rounded-sm" />
-                : <Play className="w-3.5 h-3.5 fill-current" />
-              }
-            </button>
-            {cell.status === 'running' && (
+            {isRunning ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleInterrupt(); }}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border bg-red-900/20 text-red-400 border-red-500 ring-2 ring-red-500 hover:bg-red-900/40"
+                title="Interrupt kernel"
+              >
+                <StopCircle className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); runCell(); }}
+                disabled={!connected}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border
+                  ${!connected ? 'opacity-40 cursor-not-allowed bg-[#2b2b2e] border-white/10' : ''}
+                  ${cell.status === 'success' ? 'bg-green-950/40 text-green-500 border-green-800 hover:border-green-500 shadow-lg shadow-green-950/50' : ''}
+                  ${cell.status === 'error' ? 'bg-red-900/20 text-red-500 border-red-500' : ''}
+                  ${cell.status !== 'running' && cell.status !== 'success' && cell.status !== 'error' && connected ? 'bg-[#2b2b2e] border-white/10 hover:bg-white hover:text-black' : ''}
+                `}
+                title={connected ? 'Run cell (Shift+Enter)' : 'Kernel not connected'}
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+              </button>
+            )}
+
+            {isRunning && (
               <div className="flex flex-col items-center mt-1">
                 <span className="text-[10px] font-mono text-green-400 tabular-nums">
                   {formatDuration(elapsedMs)}
                 </span>
               </div>
             )}
-            {cell.status === 'success' && (
+            {cell.status === 'success' && !isRunning && (
               <div className="flex flex-col items-center mt-1" title={`Executed in ${formatBackendDuration(cell.duration || 0)}`}>
                 <CheckCircle2 className="w-3 h-3 text-green-500 mb-0.5" />
                 <span className="text-[10px] font-mono text-gray-400">{formatBackendDuration(cell.duration || 0)}</span>
               </div>
             )}
-            {cell.status === 'error' && (
+            {cell.status === 'error' && !isRunning && (
               <div className="flex flex-col items-center mt-1">
                 <XCircle className="w-3 h-3 text-red-500 mb-0.5" />
                 {(cell.duration ?? 0) > 0 && (
@@ -445,14 +537,12 @@ export const Cell: React.FC<CellProps> = ({
         {/* ── Output Section ── */}
         {isCode && hasOutput && (
           <div className="text-sm font-mono rounded-xl bg-black/40 border border-white/5 shadow-inner overflow-hidden">
-            {/* Jupyter-style output header bar */}
+            {/* Header bar */}
             <div className="flex items-center gap-2 px-4 py-1.5 border-b border-white/5 bg-black/20">
               {isRunning ? (
                 <>
                   <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping" />
-                  <span className="text-[10px] text-green-400 font-mono font-semibold tracking-widest uppercase">
-                    {currentLine !== null ? `Running · line ${currentLine}` : 'Running'}
-                  </span>
+                  <span className="text-[10px] text-green-400 font-mono font-semibold tracking-widest uppercase">Running</span>
                 </>
               ) : cell.status === 'error' ? (
                 <>
@@ -472,38 +562,23 @@ export const Cell: React.FC<CellProps> = ({
               )}
             </div>
 
-            {/* Scrollable output area — chunks appear live during streaming */}
-            {isTerminalMode ? (
-              <TerminalOutput
-                notebookId={notebookId}
-                streamData={displayOutputs.map(o => o.data || '')}
-                isRunning={isRunning}
-              />
-            ) : (
-              <div className="max-h-[500px] overflow-y-auto p-4 space-y-0.5">
-                {displayOutputs.map((output, idx) => (
-                  <OutputItem key={idx} output={output} />
-                ))}
+            {/* Scrollable output area */}
+            <div className="max-h-[500px] overflow-y-auto p-4 space-y-0.5">
+              {displayOutputs.map((output, idx) => (
+                <OutputItem key={idx} output={output} />
+              ))}
 
-                {/* Interactive Input Form */}
-                {isWaitingForInput && (
-                  <form onSubmit={handleInputSubmit} className="mt-2 flex items-center gap-2 font-mono text-sm bg-black/60 p-2 rounded-md border border-[#30363d] focus-within:border-[#58a6ff] transition-colors">
-                    <span className="text-[#58a6ff] whitespace-pre">{inputPrompt}</span>
-                    <input
-                      type="text"
-                      value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
-                      autoFocus
-                      className="flex-1 bg-transparent text-[#e6edf3] outline-none border-none placeholder-gray-600"
-                      placeholder="Type input and press Enter..."
-                    />
-                  </form>
-                )}
+              {/* Fallback: plain text output (non-streaming result) */}
+              {!isRunning && !displayOutputs.length && cell.output && !cell.error && (
+                <div className="text-gray-300 whitespace-pre-wrap break-words text-[13px] leading-5">{cell.output}</div>
+              )}
 
-                {/* Fallback: plain text output (non-streaming result) */}
-                {!isRunning && !displayOutputs.length && cell.output && !cell.error && (
-                  <div className="text-gray-300 whitespace-pre-wrap break-words text-[13px] leading-5">{cell.output}</div>
-                )}
+              {/* Error output — ANSI stripped */}
+              {cell.status === 'error' && cell.error && (
+                <div className="text-red-400 whitespace-pre-wrap break-words text-[13px] leading-5 mt-2 bg-red-950/20 p-3 rounded-lg border border-red-500/20 overflow-x-auto">
+                  {stripAnsi(cell.error)}
+                </div>
+              )}
 
                 {/* Error output */}
                 {cell.status === 'error' && cell.error && (
@@ -512,47 +587,34 @@ export const Cell: React.FC<CellProps> = ({
                   </div>
                 )}
 
-                {/* Fix with AI button */}
-                {cell.status === 'error' && onFixError && (
-                  <div className="relative mt-3">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setShowFixPopover(!showFixPopover); }}
-                      disabled={isFixing}
-                      className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold bg-sim-red text-white rounded-full hover:bg-sim-redHover transition-colors shadow-lg shadow-red-900/50 disabled:opacity-50"
-                    >
-                      {isFixing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
-                      {isFixing ? 'Processing...' : 'Fix with AI'}
-                      <ChevronDown className={`w-3 h-3 transition-transform ${showFixPopover ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    {showFixPopover && (
-                      <div className="absolute left-0 bottom-full mb-2 flex bg-[#1e1e20] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden divide-x divide-white/10">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleFixError('chat'); }}
-                          className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
-                        >
-                          <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-400"><MoreHorizontal className="w-4 h-4" /></div>
-                          <div className="font-bold">Chat</div>
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleFixError('auto'); }}
-                          className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
-                        >
-                          <div className="p-1.5 rounded-md bg-green-500/10 text-green-400"><Zap className="w-4 h-4" /></div>
-                          <div className="font-bold">Auto-Fix</div>
-                        </button>
-                      </div>
-                    )}
-                    {showFixPopover && (
-                      <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setShowFixPopover(false); }} />
-                    )}
+              {/* Simplified Input prompt for input() */}
+              {inputRequest && (
+                <div className="mt-4 p-4 bg-black/40 border border-white/10 rounded-xl flex flex-col gap-3 group transition-all">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Terminal className="w-3.5 h-3.5 text-gray-400 group-focus-within:text-blue-400 transition-colors" />
+                    <span className="text-[12px] text-gray-200 font-medium">{inputRequest.prompt}</span>
                   </div>
-                )}
+                  <div className="relative">
+                    <input
+                      type={inputRequest.password ? 'password' : 'text'}
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleInputSubmit()}
+                      autoFocus
+                      className="w-full bg-black/40 border border-white/10 focus:border-blue-500/50 rounded-lg px-3 py-2 text-[13px] text-white font-mono outline-none transition-all placeholder:text-gray-600 shadow-inner"
+                      placeholder="Type response and press Enter..."
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 opacity-40 group-focus-within:opacity-100 transition-opacity">
+                      <span className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">Press Enter</span>
+                      <CornerDownLeft className="w-3 h-3 text-gray-500" />
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                {/* Scroll anchor */}
-                <div ref={outputEndRef} />
-              </div>
-            )}
+              {/* Scroll anchor */}
+              <div ref={outputEndRef} />
+            </div>
           </div>
         )}
       </div>
@@ -565,9 +627,9 @@ export const Cell: React.FC<CellProps> = ({
         <ToolBtn icon={ArrowUp} onClick={() => onMoveUp(cell.id)} label="Up" />
         <ToolBtn icon={ArrowDown} onClick={() => onMoveDown(cell.id)} label="Down" />
         <div className="w-[1px] h-4 bg-white/10 mx-1" />
-        <ToolBtn icon={Trash2} onClick={() => onDelete(cell.id)} label="Delete" />
+        <ToolBtn icon={Trash2} onClick={() => onDelete(cell.id)} label="Delete" danger />
         <ToolBtn icon={MoreHorizontal} onClick={() => { }} label="More" />
       </div>
-    </div >
+    </div>
   );
 };

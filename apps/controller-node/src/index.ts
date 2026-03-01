@@ -8,6 +8,7 @@ import { filesRoutes } from './routes/files.js';
 import { aiRoutes } from './routes/ai.js';
 import { modelsRoutes } from './routes/models.js';
 import { memoryRoutes } from './routes/memory.js';
+import { websocketRoutes } from './routes/websocket.js';
 import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { KernelManager } from './core/KernelManager.js';
@@ -77,6 +78,7 @@ const start = async () => {
         await server.register(aiRoutes, { prefix: '/ai' });
         await server.register(modelsRoutes, { prefix: '/ai/models' });
         await server.register(memoryRoutes, { prefix: '/api/memory' });
+        await server.register(websocketRoutes);
 
         // Health check route
         server.get('/', async () => {

@@ -1,5 +1,9 @@
-# Kernel Manager - Manages Python kernel lifecycle with notebook isolation
-# Uses TrulyIsolatedKernel for process-level isolation per notebook
+"""
+kernel_manager.py
+
+Manages Python kernel lifecycle with notebook isolation.
+Uses TrulyIsolatedKernel for process-level isolation per notebook.
+"""
 
 import asyncio
 import io
@@ -28,6 +32,9 @@ USE_ISOLATED_KERNELS = os.getenv('USE_ISOLATED_KERNELS', 'true').lower() == 'tru
 
 
 class KernelStatus(str, Enum):
+    """
+    Enumeration of possible kernel states.
+    """
     DISCONNECTED = "disconnected"
     STARTING = "starting"
     IDLE = "idle"
@@ -37,6 +44,15 @@ class KernelStatus(str, Enum):
 
 @dataclass
 class RichOutput:
+    """
+    Container for rich output data (images, HTML, etc.).
+
+    Attributes:
+        type (str): Output type ('text', 'image', 'html', 'error', 'stream').
+        data (str): The actual data content (often base64 or raw string).
+        mimeType (str | None): Optional MIME type for the data.
+        stream (str | None): Stream source ('stdout' or 'stderr') if type is 'stream'.
+    """
     type: str  # 'text', 'image', 'html', 'error', 'stream'
     data: str
     mimeType: Optional[str] = None
@@ -58,7 +74,19 @@ class ExecutionLog:
 
 @dataclass
 class ExecutionRequest:
-    """Request queued for execution."""
+    """
+    Data associated with a queued code execution request.
+
+    Args:
+        notebook_id (str): ID of the notebook making the request.
+        cell_id (str): ID of the cell to execute.
+        code (str): Source code to run.
+        future (asyncio.Future): Future to resolve with the execution result.
+        streaming (bool): Whether to stream output in real-time.
+        output_callback (Callable | None): Optional callback for output chunks.
+        submitted_at (float): Timing info for queue wait tracking.
+        device (str): Device selection ('cpu' or 'cuda').
+    """
     notebook_id: str
     cell_id: str
     code: str
@@ -106,7 +134,12 @@ class StreamCapture:
 
 
 class KernelManager:
-    """Manages Python kernel process with per-notebook isolation using TrulyIsolatedKernel."""
+    """
+    Orchestrates Python kernel processes with per-notebook isolation.
+    
+    Manages a pool of TrulyIsolatedKernel instances, handles an asynchronous 
+    execution queue, and provides APIs for kernel lifecycle management.
+    """
     
     def __init__(self):
         self.state = KernelState()
@@ -138,6 +171,9 @@ class KernelManager:
     
     @property
     def status(self) -> KernelStatus:
+        """
+        Global status indicator for the manager.
+        """
         return self.state.status
     
     @property
@@ -145,7 +181,18 @@ class KernelManager:
         return self.state.execution_count
     
     def _get_isolated_kernel(self, notebook_id: str, device: str = 'cpu') -> TrulyIsolatedKernel:
-        """Get or create isolated kernel for a notebook. Restarts if device changed."""
+        """
+        Get or create isolated kernel for a notebook. 
+        
+        Restarts the kernel if the requested device has changed.
+
+        Args:
+            notebook_id (str): Unique notebook identifier.
+            device (str): Requested compute device ('cpu' or 'cuda').
+
+        Returns:
+            TrulyIsolatedKernel: The kernel instance for this notebook.
+        """
         existing = self.notebook_kernels.get(notebook_id)
         if existing is not None:
             # If device changed, shut down and recreate the kernel so CUDA env is correct
@@ -281,7 +328,12 @@ class KernelManager:
                 logger.error(f"[Kernel] Auto-suspend error: {e}")
     
     async def start(self) -> dict:
-        """Start the kernel."""
+        """
+        Start the kernel manager and background worker tasks.
+
+        Returns:
+            dict: Initialization status and ID.
+        """
         if self.state.status in [KernelStatus.IDLE, KernelStatus.BUSY]:
             return self._get_info()
         
@@ -415,7 +467,18 @@ class KernelManager:
     # === Execution Methods (queued) ===
     
     async def execute(self, code: str, cell_id: str, notebook_id: str = "default", device: str = 'cpu') -> dict:
-        """Execute code in the kernel (queued, non-streaming)."""
+        """
+        Queue code for execution in the kernel (non-streaming).
+
+        Args:
+            code (str): Source code to execute.
+            cell_id (str): Source cell identifier.
+            notebook_id (str): Target notebook ID.
+            device (str): Device to use for execution.
+
+        Returns:
+            dict: The final execution result.
+        """
         if self.state.status == KernelStatus.DISCONNECTED:
             await self.start()
         
