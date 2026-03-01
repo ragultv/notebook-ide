@@ -580,42 +580,12 @@ export const Cell: React.FC<CellProps> = ({
                 </div>
               )}
 
-              {/* Fix with AI button */}
-              {cell.status === 'error' && onFixError && (
-                <div className="relative mt-3">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowFixPopover(!showFixPopover); }}
-                    disabled={isFixing}
-                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold bg-sim-red text-white rounded-full hover:bg-sim-redHover transition-colors shadow-lg shadow-red-900/50 disabled:opacity-50"
-                  >
-                    {isFixing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
-                    {isFixing ? 'Processing...' : 'Fix with AI'}
-                    <ChevronDown className={`w-3 h-3 transition-transform ${showFixPopover ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {showFixPopover && (
-                    <div className="absolute left-0 bottom-full mb-2 flex bg-[#1e1e20] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden divide-x divide-white/10">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleFixError('chat'); }}
-                        className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
-                      >
-                        <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-400"><MoreHorizontal className="w-4 h-4" /></div>
-                        <div className="font-bold">Chat</div>
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleFixError('auto'); }}
-                        className="flex flex-col items-center gap-1.5 px-4 py-3 text-xs text-gray-300 hover:text-white hover:bg-white/5 transition-colors min-w-[100px]"
-                      >
-                        <div className="p-1.5 rounded-md bg-green-500/10 text-green-400"><Zap className="w-4 h-4" /></div>
-                        <div className="font-bold">Auto-Fix</div>
-                      </button>
-                    </div>
-                  )}
-                  {showFixPopover && (
-                    <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setShowFixPopover(false); }} />
-                  )}
-                </div>
-              )}
+                {/* Error output */}
+                {cell.status === 'error' && cell.error && (
+                  <div className="text-red-400 whitespace-pre-wrap break-words text-[13px] leading-5 mt-2 bg-red-950/20 p-3 rounded-lg border border-red-500/20 overflow-x-auto">
+                    {cell.error}
+                  </div>
+                )}
 
               {/* Simplified Input prompt for input() */}
               {inputRequest && (

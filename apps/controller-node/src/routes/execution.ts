@@ -163,6 +163,38 @@ export async function executionRoutes(fastify: FastifyInstance) {
         }
     });
 
+    fastify.post('/input', async (request, reply) => {
+        try {
+            const { notebookId, value } = request.body as { notebookId: string; value: string };
+            const id = notebookId || 'default';
+            kernelManager.sendInput(id, value);
+            return { success: true };
+        } catch (error: any) {
+            reply.code(500).send({ error: error.message });
+        }
+    });
+
+    fastify.post('/interrupt', async (request, reply) => {
+        try {
+            const { notebookId } = request.body as { notebookId: string };
+            const id = notebookId || 'default';
+            kernelManager.interruptKernel(id);
+            return { success: true };
+        } catch (error: any) {
+            reply.code(500).send({ error: error.message });
+        }
+    });
+    fastify.post('/resize', async (request, reply) => {
+        try {
+            const { notebookId, cols, rows } = request.body as { notebookId: string; cols: number; rows: number };
+            const id = notebookId || 'default';
+            kernelManager.resizeTerminal(id, cols, rows);
+            return { success: true };
+        } catch (error: any) {
+            reply.code(500).send({ error: error.message });
+        }
+    });
+
     fastify.post('/complete', async (request, reply) => {
         try {
             const { code, cursorPos, notebookId, contextCode } = request.body as { code: string; cursorPos: number; notebookId: string; contextCode?: string };

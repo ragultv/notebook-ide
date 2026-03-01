@@ -463,6 +463,35 @@ export class KernelManager extends EventEmitter {
         return Array.from(this.kernels.values()).map(k => k.info);
     }
 
+    public interruptKernel(notebookId: string): void {
+        const state = this.kernels.get(notebookId);
+        if (state) {
+            if (state.activeTerminal) {
+                state.activeTerminal.stop();
+            } else {
+                state.worker.interrupt();
+            }
+        }
+    }
+
+    public sendInput(notebookId: string, value: string): void {
+        const state = this.kernels.get(notebookId);
+        if (state) {
+            if (state.activeTerminal) {
+                state.activeTerminal.sendInput(value);
+            } else {
+                state.worker.sendInput(value);
+            }
+        }
+    }
+
+    public resizeTerminal(notebookId: string, cols: number, rows: number): void {
+        const state = this.kernels.get(notebookId);
+        if (state && state.activeTerminal) {
+            state.activeTerminal.resize(cols, rows);
+        }
+    }
+
     public async getKernelMetrics(notebookId: string): Promise<KernelMetrics> {
         const state = this.kernels.get(notebookId);
 

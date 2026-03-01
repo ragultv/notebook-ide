@@ -15,7 +15,8 @@ interface RightSidebarProps {
   onMoveCell: (fromIndex: number, toIndex: number) => void;
   onEditCell: (index: number, content: string, type?: 'code' | 'markdown') => void;
   onAddPackages: (packages: string[]) => void;
-  onCreateNotebook: (name: string) => void;
+  onCreateNotebook: (nameOrCells?: string | CellData[], initialCells?: CellData[], path?: string) => string | null;
+  updateNotebookCellsById?: (notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
   onDeleteNotebook: (name?: string) => void;
   notebookCells: CellData[];
   notebookName: string;
@@ -75,7 +76,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   modelsRefreshTrigger,
   width,
   isResizing,
-  onStartResizing
+  onStartResizing,
+  updateNotebookCellsById
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -185,18 +187,80 @@ ${cellContext}
     const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): string[] => {
       const actionDescriptions: string[] = [];
       console.log('[RightSidebar.runOperations] Executing operations:', ops);
-      ops.forEach((op, idx) => {
+
+      // Step 1: Pre-process notebook creations and group their initial cells
+      const notebooksToCreate: Record<string, CellData[]> = {};
+      const operationsToRun: Array<{ type: string; params: Record<string, any> }> = [];
+      let currentCreatedNotebook: string | null = null;
+
+      for (const op of ops) {
+        if (op.type === 'create_notebook') {
+          const name = op.params.name;
+          notebooksToCreate[name] = [];
+          currentCreatedNotebook = name;
+          operationsToRun.push(op); // keep it so we can execute it later
+        } else if (op.type === 'add_cell' && (op.params.notebookName || currentCreatedNotebook)) {
+          const targetNotebook = op.params.notebookName || currentCreatedNotebook;
+          if (notebooksToCreate[targetNotebook]) {
+            const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
+            notebooksToCreate[targetNotebook].push({
+              id: crypto.randomUUID(),
+              type: cellType,
+              content: op.params.content ?? '',
+              status: 'idle'
+            });
+          } else {
+            operationsToRun.push(op);
+          }
+        } else {
+          if (op.type !== 'add_cell') {
+            currentCreatedNotebook = null; // reset if doing something else
+          }
+          operationsToRun.push(op);
+        }
+      }
+
+      // Step 2: Execute operations
+      const createdNotebookIds: Record<string, string> = {}; // keep track of names to IDs
+
+      operationsToRun.forEach((op, idx) => {
         try {
-          console.log(`[RightSidebar.runOperations] Executing operation ${idx + 1}/${ops.length}: ${op.type}`, op.params);
+          console.log(`[RightSidebar.runOperations] Executing operation ${idx + 1}/${operationsToRun.length}: ${op.type}`, op.params);
           switch (op.type) {
-            case 'create_notebook':
-              onCreateNotebook(op.params.name);
-              actionDescriptions.push(`Created notebook: ${op.params.name}`);
+            case 'create_notebook': {
+              const name = op.params.name;
+              const initialCells = notebooksToCreate[name] || undefined;
+              const newId = onCreateNotebook(name, initialCells);
+              if (newId) createdNotebookIds[name] = newId;
+              actionDescriptions.push(`Created notebook: ${name}${initialCells?.length ? ` with ${initialCells.length} cells` : ''}`);
               break;
+            }
             case 'add_cell': {
               const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
-              console.log(`[RightSidebar.runOperations] Calling onAddCell with content length=${(op.params.content ?? '').length}, type=${cellType}`);
-              onAddCell(op.params.content ?? '', cellType);
+              const targetNotebookName = op.params.notebookName;
+
+              const isTargetingCurrent = !targetNotebookName || targetNotebookName === notebookName || targetNotebookName === notebookName + '.ipynb';
+
+              if (isTargetingCurrent) {
+                console.log(`[RightSidebar.runOperations] Calling onAddCell with content length=${(op.params.content ?? '').length}, type=${cellType}`);
+                onAddCell(op.params.content ?? '', cellType);
+              } else if (updateNotebookCellsById) {
+                // Resolve ID (it might be newly created or pre-existing)
+                const targetNotebookId = createdNotebookIds[targetNotebookName] || projectFiles.find(f => f.name === targetNotebookName || f.name === targetNotebookName + '.ipynb')?.id;
+                if (targetNotebookId) {
+                  updateNotebookCellsById(targetNotebookId, prev => [...prev, {
+                    id: crypto.randomUUID(),
+                    type: cellType,
+                    content: op.params.content ?? '',
+                    status: 'idle'
+                  }]);
+                } else {
+                  throw new Error(`Target notebook "${targetNotebookName}" not found`);
+                }
+              } else {
+                throw new Error(`Target notebook "${targetNotebookName}" specified, but updateNotebookCellsById is not available`);
+              }
+
               const preview = (op.params.content || '').slice(0, 50).replace(/\n/g, ' ');
               actionDescriptions.push(`Added ${cellType} cell${preview ? `: ${preview}${(op.params.content?.length || 0) > 50 ? '...' : ''}` : ''}`);
               console.log(`[RightSidebar.runOperations] onAddCell called successfully`);
@@ -355,9 +419,11 @@ ${cellContext}
         const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): void => {
           ops.forEach((op) => {
             switch (op.type) {
-              case 'create_notebook':
-                onCreateNotebook(op.params.name);
+              case 'create_notebook': {
+                const name = op.params.name;
+                onCreateNotebook(name);
                 break;
+              }
               case 'add_cell': {
                 const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
                 onAddCell(op.params.content ?? '', cellType);
@@ -763,46 +829,46 @@ ${cellContext}
                     className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold transition-colors ${selectedMode === m
                       ? 'bg-sim-red text-white'
                       : 'text-white/50 hover:text-white/80 hover:bg-white/5'
-                  }`}
-                  title={m === 'ask' ? 'Ask questions only, no edits' : m === 'agent' ? 'Ask when unclear, then act' : 'Show plan first, execute on confirm'}
-                >
-                  {m === 'ask' && <MessageCircle className="w-3 h-3" />}
-                  {m === 'agent' && <Bot className="w-3 h-3" />}
-                  {m === 'plan' && <ListChecks className="w-3 h-3" />}
-                  {m.charAt(0).toUpperCase() + m.slice(1)}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              {(messages.length > 0 || sessionId) && (
-                <button
-                  onClick={() => { setSessionId(null); setMessages([]); }}
-                  disabled={isLoading}
-                  className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
-                  title="New chat"
-                >
-                  <MessageSquarePlus className="w-4 h-4" />
-                </button>
-              )}
-              <ModelSelector onOpenManage={onOpenManageModels} refreshTrigger={modelsRefreshTrigger} />
-              {onOpenChatHistory && (
-                <>
-                  <div className="h-4 w-[1px] bg-white/5 mx-1" />
-                  <button
-                    onClick={onOpenChatHistory}
-                    className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
-                    title="Chat History"
+                      }`}
+                    title={m === 'ask' ? 'Ask questions only, no edits' : m === 'agent' ? 'Ask when unclear, then act' : 'Show plan first, execute on confirm'}
                   >
-                    <History className="w-4 h-4" />
+                    {m === 'ask' && <MessageCircle className="w-3 h-3" />}
+                    {m === 'agent' && <Bot className="w-3 h-3" />}
+                    {m === 'plan' && <ListChecks className="w-3 h-3" />}
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
                   </button>
-                </>
-              )}
-              <div className="h-4 w-[1px] bg-white/5 mx-1" />
-              <button className="p-1.5 text-white/30 hover:text-white/60 transition-colors" title="Voice query (Coming Soon)">
-                {/* Placeholder icon or future feature */}
-              </button>
-            </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  {(messages.length > 0 || sessionId) && (
+                    <button
+                      onClick={() => { setSessionId(null); setMessages([]); }}
+                      disabled={isLoading}
+                      className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
+                      title="New chat"
+                    >
+                      <MessageSquarePlus className="w-4 h-4" />
+                    </button>
+                  )}
+                  <ModelSelector onOpenManage={onOpenManageModels} refreshTrigger={modelsRefreshTrigger} />
+                  {onOpenChatHistory && (
+                    <>
+                      <div className="h-4 w-[1px] bg-white/5 mx-1" />
+                      <button
+                        onClick={onOpenChatHistory}
+                        className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
+                        title="Chat History"
+                      >
+                        <History className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                  <div className="h-4 w-[1px] bg-white/5 mx-1" />
+                  <button className="p-1.5 text-white/30 hover:text-white/60 transition-colors" title="Voice query (Coming Soon)">
+                    {/* Placeholder icon or future feature */}
+                  </button>
+                </div>
 
                 <button
                   onClick={handleSend}

@@ -36,6 +36,28 @@ def _write_response(data: dict):
     sys.__stderr__.flush()
 
 
+import builtins
+_original_input = builtins.input
+
+def custom_input(prompt=""):
+    _write_response({
+        "type": "input_request",
+        "prompt": str(prompt)
+    })
+    line = sys.stdin.readline()
+    if not line:
+        return ""
+    try:
+        req = json.loads(line)
+        if req.get("command") == "INPUT_REPLY":
+            return req.get("value", "")
+    except Exception:
+        pass
+    return line.strip("\n")
+
+builtins.input = custom_input
+
+
 def _magic_run(cmd: str):
     """Helper to run magic commands like !pip with real-time output streaming"""
     import subprocess
@@ -211,7 +233,9 @@ def execute_with_capture(code_str: str, namespace: dict):
         
         try:
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                _write_response({"type": "execution_start"})
                 exec(processed_code, namespace)
+                _write_response({"type": "execution_end"})
         finally:
             # Restore original Popen
             subprocess.Popen = original_popen
@@ -282,6 +306,17 @@ def execute_with_capture(code_str: str, namespace: dict):
             'stdout': stdout_buffer.getvalue(),
             'stderr': stderr_buffer.getvalue(),
             'error_details': "MemoryError: Process exceeded memory limit",
+            'duration': time.perf_counter() - start_time,
+            'namespace_vars': {},
+            'outputs': []
+        }
+        
+    except KeyboardInterrupt:
+        return {
+            'status': 'error',
+            'stdout': stdout_buffer.getvalue(),
+            'stderr': stderr_buffer.getvalue(),
+            'error_details': "KeyboardInterrupt: Execution interrupted by user",
             'duration': time.perf_counter() - start_time,
             'namespace_vars': {},
             'outputs': []

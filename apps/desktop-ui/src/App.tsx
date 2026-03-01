@@ -160,6 +160,7 @@ const App: React.FC = () => {
           notebookName={notebook.activeFile?.name || 'Untitled'}
           projectFiles={notebook.files}
           activeCellId={cells.activeCellId}
+          updateNotebookCellsById={notebook.updateNotebookCellsById}
           onOpenManageModels={() => {
             const manageModelsTab = tabs.tabs.find(t => t.id === 'manage-models');
             if (!manageModelsTab) {
