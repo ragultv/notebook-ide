@@ -16,8 +16,12 @@ const kernelManager = KernelManager.getInstance();
 const connections = new Map<string, WebSocket>();
 
 export async function websocketRoutes(fastify: FastifyInstance) {
-    // Initialize kernel pool on startup
-    await kernelManager.initializePool();
+    // Initialize kernel pool in the background — do NOT await here because it may
+    // take several seconds when Python/Jupyter is starting up, causing Fastify's
+    // plugin timeout (AVV_ERR_PLUGIN_EXEC_TIMEOUT) to trigger.
+    kernelManager.initializePool().catch((err: any) => {
+        console.error('[WebSocket] Kernel pool initialization failed:', err?.message ?? err);
+    });
 
     fastify.get('/ws/:notebookId', { websocket: true }, async (socket: WebSocket, req: any) => {
         const notebookId = req.params.notebookId;

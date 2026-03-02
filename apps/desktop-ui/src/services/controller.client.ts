@@ -62,7 +62,7 @@ export interface AllKernelMetrics {
   running_count: number;
 }
 
-export type AIMode = 'ask' | 'agent' | 'plan';
+export type AIMode = 'ask' | 'agent' | 'agentic' | 'plan';
 
 export interface AIRequest {
   prompt: string;
@@ -314,12 +314,19 @@ export const controllerClient = {
   /**
    * Streaming AI Assistant (SSE). Callbacks are invoked as events arrive.
    * onPlanReady: for plan mode, operations are ready but not executed; user confirms first.
+   * onThinking: when AI is thinking/generating
+   * onStepStart/onStepComplete: for agentic mode execution steps
+   * onOperation: when an operation is parsed
    * Pass signal for cancellation.
    */
   async askAIStream(
     req: AIRequest,
     callbacks: {
-      onChunk: (delta: string) => void;
+      onChunk: (delta: string, isOperation?: boolean) => void;
+      onThinking?: (thinking: boolean) => void;
+      onOperation?: (operation: { type: string; params: Record<string, any> }) => void;
+      onStepStart?: (step: { index: number; description: string; type: string }) => void;
+      onStepComplete?: (step: { index: number; output?: string; success: boolean }) => void;
       onOperations?: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
       onPlanReady?: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
       onDone: (payload: { sessionId?: string; tokenInfo?: AIResponse['tokenInfo'] }) => void;
@@ -362,7 +369,11 @@ export const controllerClient = {
           if (!data) continue;
           try {
             const payload = JSON.parse(data);
-            if (event === 'chunk' && payload.delta != null) callbacks.onChunk(payload.delta);
+            if (event === 'chunk' && payload.delta != null) callbacks.onChunk(payload.delta, payload.isOperation);
+            else if (event === 'thinking' && typeof payload.thinking === 'boolean' && callbacks.onThinking) callbacks.onThinking(payload.thinking);
+            else if (event === 'operation' && payload.type && callbacks.onOperation) callbacks.onOperation(payload);
+            else if (event === 'step_start' && typeof payload.index === 'number' && callbacks.onStepStart) callbacks.onStepStart(payload);
+            else if (event === 'step_complete' && typeof payload.index === 'number' && callbacks.onStepComplete) callbacks.onStepComplete(payload);
             else if (event === 'operations' && Array.isArray(payload.operations) && callbacks.onOperations) callbacks.onOperations(payload.operations);
             else if (event === 'plan_ready' && Array.isArray(payload.operations) && callbacks.onPlanReady) callbacks.onPlanReady(payload.operations);
             else if (event === 'done') callbacks.onDone(payload);
@@ -380,7 +391,11 @@ export const controllerClient = {
         if (data) {
           try {
             const payload = JSON.parse(data);
-            if (event === 'plan_ready' && Array.isArray(payload.operations) && callbacks.onPlanReady) callbacks.onPlanReady(payload.operations);
+            if (event === 'thinking' && typeof payload.thinking === 'boolean' && callbacks.onThinking) callbacks.onThinking(payload.thinking);
+            else if (event === 'operation' && payload.type && callbacks.onOperation) callbacks.onOperation(payload);
+            else if (event === 'step_start' && typeof payload.index === 'number' && callbacks.onStepStart) callbacks.onStepStart(payload);
+            else if (event === 'step_complete' && typeof payload.index === 'number' && callbacks.onStepComplete) callbacks.onStepComplete(payload);
+            else if (event === 'plan_ready' && Array.isArray(payload.operations) && callbacks.onPlanReady) callbacks.onPlanReady(payload.operations);
             else if (event === 'done') callbacks.onDone(payload);
             else if (event === 'error' && payload.message) callbacks.onError(payload.message);
           } catch (_) { }
@@ -589,6 +604,89 @@ export const controllerClient = {
 
   async getChatMessages(sessionId: string): Promise<{ messages: Array<{ id: number; session_id: string; role: 'user' | 'assistant' | 'system'; content: string; token_estimate: number | null; created_at: number }> }> {
     return request(`/ai/chat/sessions/${encodeURIComponent(sessionId)}/messages`);
+  },
+
+  // Execute plan (Continue from PLAN mode)
+  async executePlan(
+    sessionId: string,
+    operations: Array<{ type: string; params: Record<string, any> }>,
+    context?: {
+      notebookName?: string;
+      cells?: Array<{ type: string; content: string }>;
+    },
+    callbacks?: {
+      onThinking?: (thinking: boolean) => void;
+      onStepStart?: (step: { index: number; description: string; type: string }) => void;
+      onStepComplete?: (step: { index: number; output?: string; success: boolean }) => void;
+      onOperation?: (operation: { type: string; params: Record<string, any> }) => void;
+      onDone: (payload: { sessionId?: string }) => void;
+      onError: (message: string) => void;
+    },
+    signal?: AbortSignal
+  ): Promise<void> {
+    const res = await fetch(`${BASE_URL}/ai/agent/execute-plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, operations, context }),
+      signal,
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      callbacks?.onError?.(err || `HTTP ${res.status}`);
+      return;
+    }
+    const reader = res.body?.getReader();
+    if (!reader) {
+      callbacks?.onError?.('No response body');
+      return;
+    }
+    const decoder = new TextDecoder();
+    let buf = '';
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const events = buf.split('\n\n');
+        buf = events.pop() ?? '';
+        for (const raw of events) {
+          let event = '';
+          let data = '';
+          for (const line of raw.split('\n')) {
+            if (line.startsWith('event: ')) event = line.slice(7).trim();
+            else if (line.startsWith('data: ')) data = line.slice(6);
+          }
+          if (!data) continue;
+          try {
+            const payload = JSON.parse(data);
+            if (event === 'thinking' && typeof payload.thinking === 'boolean' && callbacks?.onThinking) callbacks.onThinking(payload.thinking);
+            else if (event === 'step_start' && typeof payload.index === 'number' && callbacks?.onStepStart) callbacks.onStepStart(payload);
+            else if (event === 'step_complete' && typeof payload.index === 'number' && callbacks?.onStepComplete) callbacks.onStepComplete(payload);
+            else if (event === 'operation' && payload.type && callbacks?.onOperation) callbacks.onOperation(payload);
+            else if (event === 'done') callbacks?.onDone(payload);
+            else if (event === 'error' && payload.message) callbacks?.onError(payload.message);
+          } catch (_) { }
+        }
+      }
+      if (buf.trim()) {
+        let event = '';
+        let data = '';
+        for (const line of buf.split('\n')) {
+          if (line.startsWith('event: ')) event = line.slice(7).trim();
+          else if (line.startsWith('data: ')) data = line.slice(6);
+        }
+        if (data) {
+          try {
+            const payload = JSON.parse(data);
+            if (event === 'done') callbacks?.onDone(payload);
+            else if (event === 'error' && payload.message) callbacks?.onError(payload.message);
+          } catch (_) { }
+        }
+      }
+    } catch (e: any) {
+      if (e?.name === 'AbortError') callbacks?.onError?.('Cancelled');
+      else callbacks?.onError?.(e?.message ?? 'Stream failed');
+    }
   },
 };
 

@@ -463,34 +463,24 @@ export class KernelManager extends EventEmitter {
         return Array.from(this.kernels.values()).map(k => k.info);
     }
 
-    public interruptKernel(notebookId: string): void {
-        const state = this.kernels.get(notebookId);
-        if (state) {
-            if (state.activeTerminal) {
-                state.activeTerminal.stop();
-            } else {
-                state.worker.interrupt();
-            }
-        }
-    }
-
+    /** Forward raw input to the kernel bridge (used by /input route) */
     public sendInput(notebookId: string, value: string): void {
         const state = this.kernels.get(notebookId);
         if (state) {
-            if (state.activeTerminal) {
-                state.activeTerminal.sendInput(value);
-            } else {
-                state.worker.sendInput(value);
-            }
+            state.bridge.send({
+                type: 'stdin_reply',
+                notebook_id: notebookId,
+                execution_id: '',
+                value,
+            });
         }
     }
 
-    public resizeTerminal(notebookId: string, cols: number, rows: number): void {
-        const state = this.kernels.get(notebookId);
-        if (state && state.activeTerminal) {
-            state.activeTerminal.resize(cols, rows);
-        }
+    /** No-op terminal resize — placeholder for pty-based terminal support */
+    public resizeTerminal(_notebookId: string, _cols: number, _rows: number): void {
+        // Terminal resize is handled via the dedicated terminal WebSocket route
     }
+
 
     public async getKernelMetrics(notebookId: string): Promise<KernelMetrics> {
         const state = this.kernels.get(notebookId);

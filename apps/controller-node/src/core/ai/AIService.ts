@@ -3,7 +3,6 @@ import { HumanMessage, SystemMessage, AIMessage } from '@langchain/core/messages
 import { PROVIDERS, DEFAULT_PROVIDER, DEFAULT_MODEL, ProviderConfig, ModelInfo } from './providers.js';
 import { SYSTEM_PROMPT, ERROR_FIX_PROMPT, getSystemPrompt, AIMode } from './prompts.js';
 import { getOrCreateSession, appendMessage, getRecentMessages } from './MemoryStore.js';
-import { retrieve, formatRetrievedContext, indexChunks } from './RAGService.js';
 import { validateOperations } from './operationsSchema.js';
 import { config } from '../../config.js';
 
@@ -101,6 +100,9 @@ export class AIService {
             return this.clients.get(cacheKey)!;
         }
 
+        console.log(`[AIService.getClient] Creating client for provider=${provider}, model=${model}`);
+        console.log(`[AIService.getClient] API keys loaded:`, Array.from(this.apiKeys.entries()));
+
         // Handle local providers (ollama, oprel)
         if (provider === 'ollama' || provider === 'oprel') {
             try {
@@ -180,7 +182,8 @@ export class AIService {
         provider?: string,
         model?: string,
         sessionId?: string | null,
-        mode?: AIMode
+        mode?: AIMode,
+        systemPromptOverride?: string
     ): Promise<AIResponse> {
         const useProvider = provider || this.currentProvider;
         const useModel = model || this.currentModel;
@@ -189,6 +192,9 @@ export class AIService {
         const client = await this.getClient(useProvider, useModel);
         if (!client) {
             const providerConfig = PROVIDERS[useProvider];
+            console.error(`[AIService.generate] Failed to get client for ${useProvider}:${useModel}`);
+            console.error(`[AIService.generate] Provider config:`, providerConfig);
+            console.error(`[AIService.generate] Has API key in map:`, this.apiKeys.has(useProvider));
             if (!providerConfig) {
                 throw new Error(`Unknown AI provider: ${useProvider}`);
             }
@@ -208,14 +214,6 @@ export class AIService {
             maxTokens: this.getModelContextReserve(useProvider, useModel),
         });
 
-        let ragContext = '';
-        try {
-            const chunks = await retrieve(resolvedSessionId, prompt, { topK: 20, afterRerank: 8 });
-            ragContext = formatRetrievedContext(chunks);
-        } catch (e) {
-            // RAG optional: continue without retrieved context
-        }
-
         let contextStr = '';
         if (context?.notebookName) {
             contextStr += `Notebook: ${context.notebookName}\n\n`;
@@ -227,9 +225,8 @@ export class AIService {
             });
         }
 
-        const systemContentBase =
-            (ragContext ? ragContext + '\n' : '') +
-            (useMode ? getSystemPrompt(useMode) : SYSTEM_PROMPT);
+        // Build system prompt � use agent-provided override if set, else mode-specific from prompts.ts
+        const systemContentBase = systemPromptOverride ?? (useMode ? getSystemPrompt(useMode) : SYSTEM_PROMPT);
 
         const maxPasses = Math.max(1, config.continuation.maxPasses || 1);
         const modelContext = this.getModelContextSize(useProvider, useModel);
@@ -354,12 +351,7 @@ export class AIService {
         appendMessage(resolvedSessionId, 'user', contextStr + prompt);
         appendMessage(resolvedSessionId, 'assistant', fullRawText);
 
-        try {
-            await indexChunks(resolvedSessionId, 'message', contextStr + prompt, { embed: true });
-            await indexChunks(resolvedSessionId, 'message', fullRawText, { embed: true });
-        } catch (_) {
-            // Indexing optional
-        }
+        // No RAG indexing - the new agent uses introspection-based memory instead
 
         return {
             text,
@@ -379,7 +371,10 @@ export class AIService {
         model: string | undefined,
         sessionId: string | null | undefined,
         callbacks: GenerateStreamCallbacks,
-        mode?: AIMode
+        mode?: AIMode,
+
+        systemPromptOverride?: string
+
     ): Promise<void> {
         const useProvider = provider || this.currentProvider;
         const useModel = model || this.currentModel;
@@ -406,12 +401,6 @@ export class AIService {
             maxTokens: this.getModelContextReserve(useProvider, useModel),
         });
 
-        let ragContext = '';
-        try {
-            const chunks = await retrieve(resolvedSessionId, prompt, { topK: 20, afterRerank: 8 });
-            ragContext = formatRetrievedContext(chunks);
-        } catch (_) {}
-
         let contextStr = '';
         if (context?.notebookName) contextStr += `Notebook: ${context.notebookName}\n\n`;
         if (context?.cells?.length) {
@@ -421,9 +410,8 @@ export class AIService {
             });
         }
 
-        const systemContentBase =
-            (ragContext ? ragContext + '\n' : '') +
-            (useMode ? getSystemPrompt(useMode) : SYSTEM_PROMPT);
+        // Build system prompt use agent-provided override if set, else mode-specific from prompts.ts
+        const systemContentBase = systemPromptOverride ?? (useMode ? getSystemPrompt(useMode) : SYSTEM_PROMPT);
 
         const maxPasses = Math.max(1, config.continuation.maxPasses || 1);
         const modelContext = this.getModelContextSize(useProvider, useModel);
@@ -442,7 +430,7 @@ export class AIService {
         // Helper to detect and emit operations from accumulated buffer
         const detectAndEmitOperations = (text: string, startOffset: number = 0, currentPass: number = 0) => {
             if (useMode === 'ask') return;
-            
+
             // Try to extract JSON array from various formats
             const extractJsonArray = (matchText: string): string | null => {
                 // Format 1: Code block with ```json or ```operations
@@ -450,19 +438,19 @@ export class AIService {
                 if (codeBlockMatch) {
                     return codeBlockMatch[1].trim();
                 }
-                
+
                 // Format 2: "operations": [ ... ]
                 const inlineMatch = matchText.match(/"operations"\s*:\s*(\[[\s\S]*?\])/);
                 if (inlineMatch) {
                     return inlineMatch[1].trim();
                 }
-                
+
                 // Format 3: operations": [ ... ] (without quotes)
                 const unquotedMatch = matchText.match(/operations"\s*:\s*(\[[\s\S]*?\])/);
                 if (unquotedMatch) {
                     return unquotedMatch[1].trim();
                 }
-                
+
                 // Format 4: Just a JSON array [ ... ]
                 const arrayMatch = matchText.match(/(\[[\s\S]*?\])/);
                 if (arrayMatch) {
@@ -472,16 +460,16 @@ export class AIService {
                         return candidate;
                     }
                 }
-                
+
                 return null;
             };
-            
+
             // Pattern 1: Code blocks
             const codeBlockRegex = /```(?:json|operations)?\s*\n[\s\S]*?\n```/g;
             let match;
             let foundBlocks = 0;
             const processedRanges: Array<{ start: number; end: number }> = [];
-            
+
             // First, try code blocks
             while ((match = codeBlockRegex.exec(text)) !== null) {
                 foundBlocks++;
@@ -489,11 +477,11 @@ export class AIService {
                 const blockEndInText = match.index + match[0].length;
                 const blockStartInGlobal = startOffset + blockStartInText;
                 const blockEndInGlobal = startOffset + blockEndInText;
-                
+
                 processedRanges.push({ start: blockStartInGlobal, end: blockEndInGlobal });
-                
+
                 console.log(`[AIService.generateStream] Found code block at global pos ${blockStartInGlobal}-${blockEndInGlobal}, lastEmitted=${lastEmittedOpsEndIndex}`);
-                
+
                 if (blockEndInGlobal > lastEmittedOpsEndIndex) {
                     const jsonStr = extractJsonArray(match[0]);
                     if (jsonStr) {
@@ -519,9 +507,9 @@ export class AIService {
                                             }
                                             return !isDuplicate;
                                         });
-                                    
+
                                     console.log(`[AIService.generateStream] After deduplication: ${ops.length} operations (from ${validated.data.length} total)`);
-                                    
+
                                     if (ops.length > 0) {
                                         console.log(`[AIService.generateStream] Emitting ${ops.length} operations (mode=${useMode}, pass=${currentPass + 1})`, ops.map(op => `${op.type}(${JSON.stringify(op.params).slice(0, 50)}...)`));
                                         if (useMode === 'plan') {
@@ -548,7 +536,7 @@ export class AIService {
                     console.log(`[AIService.generateStream] Skipping block - already emitted (blockEnd=${blockEndInGlobal} <= lastEmitted=${lastEmittedOpsEndIndex})`);
                 }
             }
-            
+
             // Pattern 2: Inline "operations": [ ... ] format (not in code blocks)
             // Find all occurrences of "operations": [ or operations": [
             const inlinePattern = /"?operations"?\s*:\s*\[/g;
@@ -556,18 +544,18 @@ export class AIService {
             while ((inlineMatch = inlinePattern.exec(text)) !== null) {
                 const arrayStartPos = inlineMatch.index + inlineMatch[0].length - 1; // Position of '['
                 const blockStartInGlobal = startOffset + inlineMatch.index;
-                
+
                 // Skip if this range was already processed as a code block
-                const alreadyProcessed = processedRanges.some(r => 
+                const alreadyProcessed = processedRanges.some(r =>
                     blockStartInGlobal >= r.start && blockStartInGlobal <= r.end
                 );
                 if (alreadyProcessed) continue;
-                
+
                 // Find the matching closing bracket by counting brackets
                 let bracketCount = 0;
                 let arrayEndPos = arrayStartPos;
                 let foundEnd = false;
-                
+
                 for (let i = arrayStartPos; i < text.length; i++) {
                     if (text[i] === '[') bracketCount++;
                     if (text[i] === ']') bracketCount--;
@@ -577,21 +565,21 @@ export class AIService {
                         break;
                     }
                 }
-                
+
                 if (!foundEnd) {
                     console.log(`[AIService.generateStream] Could not find closing bracket for inline operations array starting at ${blockStartInGlobal}`);
                     continue;
                 }
-                
+
                 const blockEndInGlobal = startOffset + arrayEndPos + 1;
-                
+
                 console.log(`[AIService.generateStream] Found inline operations at global pos ${blockStartInGlobal}-${blockEndInGlobal}, lastEmitted=${lastEmittedOpsEndIndex}`);
-                
+
                 if (blockEndInGlobal > lastEmittedOpsEndIndex) {
                     try {
                         // Extract the JSON array (from the opening '[' to the closing ']')
                         const jsonStr = text.slice(arrayStartPos, arrayEndPos + 1);
-                        
+
                         const parsed = JSON.parse(jsonStr);
                         console.log(`[AIService.generateStream] Parsed inline JSON: ${Array.isArray(parsed) ? `${parsed.length} operations` : 'not an array'}`);
                         if (Array.isArray(parsed)) {
@@ -612,7 +600,7 @@ export class AIService {
                                         }
                                         return !isDuplicate;
                                     });
-                                
+
                                 if (ops.length > 0) {
                                     console.log(`[AIService.generateStream] Emitting ${ops.length} inline operations (mode=${useMode}, pass=${currentPass + 1})`);
                                     if (useMode === 'plan') {
@@ -674,12 +662,12 @@ export class AIService {
                         typeof content === 'string'
                             ? content
                             : Array.isArray(content)
-                            ? (content as any[])
-                                  .map((c) =>
-                                      typeof c === 'string' ? c : (c as any)?.text ?? ''
-                                  )
-                                  .join('')
-                            : String(content ?? '');
+                                ? (content as any[])
+                                    .map((c) =>
+                                        typeof c === 'string' ? c : (c as any)?.text ?? ''
+                                    )
+                                    .join('')
+                                : String(content ?? '');
                     if (!delta) continue;
                     buffer += delta;
                     globalBuffer += delta;
@@ -751,12 +739,7 @@ export class AIService {
 
         appendMessage(resolvedSessionId, 'user', contextStr + prompt);
         appendMessage(resolvedSessionId, 'assistant', globalBuffer);
-        try {
-            await indexChunks(resolvedSessionId, 'message', contextStr + prompt, {
-                embed: true,
-            });
-            await indexChunks(resolvedSessionId, 'message', globalBuffer, { embed: true });
-        } catch (_) {}
+        // No RAG indexing - the agent uses introspection-based memory instead
 
         callbacks.onDone({ sessionId: resolvedSessionId, tokenInfo });
     }

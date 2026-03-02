@@ -4,7 +4,7 @@
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
         "outDir": "./dist",
-        "rootDir": "./src",
+        "rootDir": "../../",
         "strict": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
@@ -12,9 +12,13 @@
         "resolveJsonModule": true
     },
     "include": [
-        "src/**/*"
+        "src/**/*",
+        "../../agent/src/**/*"
     ],
     "exclude": [
-        "node_modules"
+        "node_modules",
+        "../../agent/node_modules",
+        "../../agent/src/**/*.test.ts",
+        "../../agent/src/**/*.spec.ts"
     ]
 }

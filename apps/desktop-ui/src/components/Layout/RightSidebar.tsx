@@ -143,6 +143,126 @@ ${cellContext}
 `;
   };
 
+  const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): string[] => {
+    const actionDescriptions: string[] = [];
+    console.log('[RightSidebar.runOperations] Executing operations:', ops);
+
+    // Step 1: Pre-process notebook creations and group their initial cells
+    const notebooksToCreate: Record<string, CellData[]> = {};
+    const operationsToRun: Array<{ type: string; params: Record<string, any> }> = [];
+    let currentCreatedNotebook: string | null = null;
+
+    for (const op of ops) {
+      if (op.type === 'create_notebook') {
+        const name = op.params.name;
+        notebooksToCreate[name] = [];
+        currentCreatedNotebook = name;
+        operationsToRun.push(op); // keep it so we can execute it later
+      } else if (op.type === 'add_cell' && (op.params.notebookName || currentCreatedNotebook)) {
+        const targetNotebook = op.params.notebookName || currentCreatedNotebook;
+        if (notebooksToCreate[targetNotebook]) {
+          const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
+          notebooksToCreate[targetNotebook].push({
+            id: crypto.randomUUID(),
+            type: cellType,
+            content: op.params.content ?? '',
+            status: 'idle'
+          });
+        } else {
+          operationsToRun.push(op);
+        }
+      } else {
+        if (op.type !== 'add_cell') {
+          currentCreatedNotebook = null; // reset if doing something else
+        }
+        operationsToRun.push(op);
+      }
+    }
+
+    // Step 2: Execute operations
+    const createdNotebookIds: Record<string, string> = {}; // keep track of names to IDs
+
+    operationsToRun.forEach((op, idx) => {
+      try {
+        console.log(`[RightSidebar.runOperations] Executing operation ${idx + 1}/${operationsToRun.length}: ${op.type}`, op.params);
+        switch (op.type) {
+          case 'create_notebook': {
+            const name = op.params.name;
+            const initialCells = notebooksToCreate[name] || undefined;
+            const newId = onCreateNotebook(name, initialCells);
+            if (newId) createdNotebookIds[name] = newId;
+            actionDescriptions.push(`Created notebook: ${name}${initialCells?.length ? ` with ${initialCells.length} cells` : ''}`);
+            break;
+          }
+          case 'add_cell': {
+            const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
+            const targetNotebookName = op.params.notebookName;
+
+            const isTargetingCurrent = !targetNotebookName || targetNotebookName === notebookName || targetNotebookName === notebookName + '.ipynb';
+
+            if (isTargetingCurrent) {
+              console.log(`[RightSidebar.runOperations] Calling onAddCell with content length=${(op.params.content ?? '').length}, type=${cellType}`);
+              onAddCell(op.params.content ?? '', cellType);
+            } else if (updateNotebookCellsById) {
+              // Resolve ID (it might be newly created or pre-existing)
+              const targetNotebookId = createdNotebookIds[targetNotebookName] || projectFiles.find(f => f.name === targetNotebookName || f.name === targetNotebookName + '.ipynb')?.id;
+              if (targetNotebookId) {
+                updateNotebookCellsById(targetNotebookId, prev => [...prev, {
+                  id: crypto.randomUUID(),
+                  type: cellType,
+                  content: op.params.content ?? '',
+                  status: 'idle'
+                }]);
+              } else {
+                throw new Error(`Target notebook "${targetNotebookName}" not found`);
+              }
+            } else {
+              throw new Error(`Target notebook "${targetNotebookName}" specified, but updateNotebookCellsById is not available`);
+            }
+
+            const preview = (op.params.content || '').slice(0, 50).replace(/\n/g, ' ');
+            actionDescriptions.push(`Added ${cellType} cell${preview ? `: ${preview}${(op.params.content?.length || 0) > 50 ? '...' : ''}` : ''}`);
+            console.log(`[RightSidebar.runOperations] onAddCell called successfully`);
+            break;
+          }
+          case 'move_cell':
+            onMoveCell(op.params.fromIndex, op.params.toIndex);
+            actionDescriptions.push(`Moved cell ${op.params.fromIndex} → ${op.params.toIndex}`);
+            break;
+          case 'delete_cell':
+            onDeleteCell(op.params.cellIndex);
+            actionDescriptions.push(`Deleted cell ${op.params.cellIndex}`);
+            break;
+          case 'delete_notebook':
+            setMessages(prev => [...prev, {
+              id: (Date.now() + Math.random()).toString(),
+              role: 'ai',
+              text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
+              pendingConfirmation: { type: 'delete_notebook', name: op.params.name }
+            }]);
+            break;
+          case 'edit_cell': {
+            const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
+            onEditCell(op.params.cellIndex, op.params.content ?? '', editType);
+            actionDescriptions.push(`Edited cell ${op.params.cellIndex}`);
+            break;
+          }
+          case 'add_package':
+            onAddPackages(op.params.packages || []);
+            actionDescriptions.push(`Added packages: ${(op.params.packages || []).join(', ')}`);
+            break;
+          default:
+            console.warn(`[RightSidebar.runOperations] Unknown operation type: ${op.type}`);
+        }
+      } catch (err: any) {
+        console.error(`[RightSidebar.runOperations] Error executing operation ${op.type}:`, err);
+        actionDescriptions.push(`Error executing ${op.type}: ${err.message}`);
+      }
+    });
+    console.log(`[RightSidebar.runOperations] Completed, ${actionDescriptions.length} actions executed`);
+    return actionDescriptions;
+  };
+
   const handleSend = async () => {
     if ((!inputValue.trim() && attachedFiles.length === 0) || isLoading) return;
 
@@ -183,126 +303,6 @@ ${cellContext}
       streaming: true,
       mode: currentMode,
     }]);
-
-    const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): string[] => {
-      const actionDescriptions: string[] = [];
-      console.log('[RightSidebar.runOperations] Executing operations:', ops);
-
-      // Step 1: Pre-process notebook creations and group their initial cells
-      const notebooksToCreate: Record<string, CellData[]> = {};
-      const operationsToRun: Array<{ type: string; params: Record<string, any> }> = [];
-      let currentCreatedNotebook: string | null = null;
-
-      for (const op of ops) {
-        if (op.type === 'create_notebook') {
-          const name = op.params.name;
-          notebooksToCreate[name] = [];
-          currentCreatedNotebook = name;
-          operationsToRun.push(op); // keep it so we can execute it later
-        } else if (op.type === 'add_cell' && (op.params.notebookName || currentCreatedNotebook)) {
-          const targetNotebook = op.params.notebookName || currentCreatedNotebook;
-          if (notebooksToCreate[targetNotebook]) {
-            const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
-            notebooksToCreate[targetNotebook].push({
-              id: crypto.randomUUID(),
-              type: cellType,
-              content: op.params.content ?? '',
-              status: 'idle'
-            });
-          } else {
-            operationsToRun.push(op);
-          }
-        } else {
-          if (op.type !== 'add_cell') {
-            currentCreatedNotebook = null; // reset if doing something else
-          }
-          operationsToRun.push(op);
-        }
-      }
-
-      // Step 2: Execute operations
-      const createdNotebookIds: Record<string, string> = {}; // keep track of names to IDs
-
-      operationsToRun.forEach((op, idx) => {
-        try {
-          console.log(`[RightSidebar.runOperations] Executing operation ${idx + 1}/${operationsToRun.length}: ${op.type}`, op.params);
-          switch (op.type) {
-            case 'create_notebook': {
-              const name = op.params.name;
-              const initialCells = notebooksToCreate[name] || undefined;
-              const newId = onCreateNotebook(name, initialCells);
-              if (newId) createdNotebookIds[name] = newId;
-              actionDescriptions.push(`Created notebook: ${name}${initialCells?.length ? ` with ${initialCells.length} cells` : ''}`);
-              break;
-            }
-            case 'add_cell': {
-              const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
-              const targetNotebookName = op.params.notebookName;
-
-              const isTargetingCurrent = !targetNotebookName || targetNotebookName === notebookName || targetNotebookName === notebookName + '.ipynb';
-
-              if (isTargetingCurrent) {
-                console.log(`[RightSidebar.runOperations] Calling onAddCell with content length=${(op.params.content ?? '').length}, type=${cellType}`);
-                onAddCell(op.params.content ?? '', cellType);
-              } else if (updateNotebookCellsById) {
-                // Resolve ID (it might be newly created or pre-existing)
-                const targetNotebookId = createdNotebookIds[targetNotebookName] || projectFiles.find(f => f.name === targetNotebookName || f.name === targetNotebookName + '.ipynb')?.id;
-                if (targetNotebookId) {
-                  updateNotebookCellsById(targetNotebookId, prev => [...prev, {
-                    id: crypto.randomUUID(),
-                    type: cellType,
-                    content: op.params.content ?? '',
-                    status: 'idle'
-                  }]);
-                } else {
-                  throw new Error(`Target notebook "${targetNotebookName}" not found`);
-                }
-              } else {
-                throw new Error(`Target notebook "${targetNotebookName}" specified, but updateNotebookCellsById is not available`);
-              }
-
-              const preview = (op.params.content || '').slice(0, 50).replace(/\n/g, ' ');
-              actionDescriptions.push(`Added ${cellType} cell${preview ? `: ${preview}${(op.params.content?.length || 0) > 50 ? '...' : ''}` : ''}`);
-              console.log(`[RightSidebar.runOperations] onAddCell called successfully`);
-              break;
-            }
-            case 'move_cell':
-              onMoveCell(op.params.fromIndex, op.params.toIndex);
-              actionDescriptions.push(`Moved cell ${op.params.fromIndex} → ${op.params.toIndex}`);
-              break;
-            case 'delete_cell':
-              onDeleteCell(op.params.cellIndex);
-              actionDescriptions.push(`Deleted cell ${op.params.cellIndex}`);
-              break;
-            case 'delete_notebook':
-              setMessages(prev => [...prev, {
-                id: (Date.now() + Math.random()).toString(),
-                role: 'ai',
-                text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
-                pendingConfirmation: { type: 'delete_notebook', name: op.params.name }
-              }]);
-              break;
-            case 'edit_cell': {
-              const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
-              onEditCell(op.params.cellIndex, op.params.content ?? '', editType);
-              actionDescriptions.push(`Edited cell ${op.params.cellIndex}`);
-              break;
-            }
-            case 'add_package':
-              onAddPackages(op.params.packages || []);
-              actionDescriptions.push(`Added packages: ${(op.params.packages || []).join(', ')}`);
-              break;
-            default:
-              console.warn(`[RightSidebar.runOperations] Unknown operation type: ${op.type}`);
-          }
-        } catch (err: any) {
-          console.error(`[RightSidebar.runOperations] Error executing operation ${op.type}:`, err);
-          actionDescriptions.push(`Error executing ${op.type}: ${err.message}`);
-        }
-      });
-      console.log(`[RightSidebar.runOperations] Completed, ${actionDescriptions.length} actions executed`);
-      return actionDescriptions;
-    };
 
     const stripOperationsBlock = (t: string): string => {
       let out = t.replace(/```(?:json|operations)?\s*\n[\s\S]*?\n```/g, '').trim();
@@ -416,47 +416,55 @@ ${cellContext}
           text: `Notebook "${actionData.name || 'Current'}" deleted successfully.`
         }]);
       } else if (actionData.type === 'plan_execute') {
-        const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): void => {
-          ops.forEach((op) => {
-            switch (op.type) {
-              case 'create_notebook': {
-                const name = op.params.name;
-                onCreateNotebook(name);
-                break;
+        // Execute plan via agentic mode with streaming
+        const executePlaceholderId = `execute-${Date.now()}`;
+        setMessages(prev => [...prev, {
+          id: executePlaceholderId,
+          role: 'ai',
+          text: 'Executing plan...',
+          streaming: true,
+        }]);
+
+        controllerClient.executePlan(
+          sessionId ?? 'default',
+          actionData.operations,
+          { notebookName, cells: notebookCells.map(c => ({ type: c.type, content: c.content })) },
+          {
+            onStepStart: (step) => {
+              setMessages(prev => prev.map(m => m.id === executePlaceholderId
+                ? { ...m, text: `**Step ${step.index + 1}:** ${step.description}` }
+                : m));
+            },
+            onStepComplete: (step) => {
+              const status = step.success ? '✅' : '❌';
+              const output = step.output ? `\n${step.output.slice(0, 200)}${step.output.length > 200 ? '...' : ''}` : '';
+              setMessages(prev => prev.map(m => m.id === executePlaceholderId
+                ? { ...m, text: m.text + ` ${status}${output}` }
+                : m));
+            },
+            onOperation: (operation) => {
+              const descriptions = runOperations([operation]);
+              if (descriptions.length > 0) {
+                setMessages(prev => prev.map(m => m.id === executePlaceholderId
+                  ? { ...m, text: m.text + `\n**Applied:** ${descriptions.join('; ')}` }
+                  : m));
               }
-              case 'add_cell': {
-                const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
-                onAddCell(op.params.content ?? '', cellType);
-                break;
-              }
-              case 'move_cell':
-                onMoveCell(op.params.fromIndex, op.params.toIndex);
-                break;
-              case 'delete_cell':
-                onDeleteCell(op.params.cellIndex);
-                break;
-              case 'edit_cell': {
-                const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
-                onEditCell(op.params.cellIndex, op.params.content ?? '', editType);
-                break;
-              }
-              case 'add_package':
-                onAddPackages(op.params.packages || []);
-                break;
-              case 'delete_notebook':
-                setMessages(prev => [...prev, {
-                  id: (Date.now() + Math.random()).toString(),
-                  role: 'ai',
-                  text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
-                  pendingConfirmation: { type: 'delete_notebook', name: op.params.name }
-                }]);
-                break;
-            }
-          });
-        };
-        runOperations(actionData.operations);
+            },
+            onDone: () => {
+              setMessages(prev => prev.map(m => m.id === executePlaceholderId
+                ? { ...m, text: m.text + '\n\n**Plan executed successfully.**', streaming: false }
+                : m));
+            },
+            onError: (message) => {
+              setMessages(prev => prev.map(m => m.id === executePlaceholderId
+                ? { ...m, text: `Error executing plan: ${message}`, streaming: false }
+                : m));
+            },
+          }
+        );
+
         setMessages(prev => prev.map(m =>
-          m.id === messageId ? { ...m, text: m.text + '\n\n**Plan executed successfully.**', pendingConfirmation: undefined } : m
+          m.id === messageId ? { ...m, text: m.text + '\n\n**Plan execution started...**', pendingConfirmation: undefined } : m
         ));
       }
     } else if (!accepted) {
