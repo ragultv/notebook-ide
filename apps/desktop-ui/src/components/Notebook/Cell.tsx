@@ -129,7 +129,7 @@ export const Cell: React.FC<CellProps> = ({
   const cancelStreamRef = useRef<(() => void) | null>(null);
   const outputEndRef = useRef<HTMLDivElement>(null);
 
-  const { kernelStatus, setKernelStatus, runtimeType } = useUIStore();
+  const { kernelStatus, setKernelStatus, runtimeType, kernelLanguage } = useUIStore();
   const device = runtimeType === 'gpu' ? 'cuda' : 'cpu';
 
   const errorLine = useMemo(() => parseErrorLine(cell.error), [cell.error]);
@@ -192,46 +192,70 @@ export const Cell: React.FC<CellProps> = ({
     onOutputUpdate(cell.id, '', 'running', undefined, undefined, [], undefined);
     setKernelStatus('busy');
 
-    const cancel = controllerClient.runCellStream(
-      { cellId: cell.id, code: cell.content, notebookId, device },
-      // onOutput — each SSE chunk: append immediately for live streaming
-      (output: RichOutput & { line?: number }) => {
-        // Backend may optionally send line number hint
-        if (output.line !== undefined) setCurrentLine(output.line);
-
-        if (output.type === 'input_request') {
-          setIsWaitingForInput(true);
-          setInputPrompt(output.prompt || '');
-        } else if (output.type === 'terminal_output') {
-          setStreamingChunks(prev => [...prev, output as CellOutput]);
-        } else {
-          setStreamingChunks(prev => [...prev, output as CellOutput]);
-        }
-      },
-      // onComplete — final result
-      (result) => {
-        const outputs = result.outputs?.length ? result.outputs : undefined;
+    console.log('[Cell] running using kernelLanguage=', kernelLanguage);
+    if (kernelLanguage === 'mojo') {
+      // Mojo backend currently doesn't stream, so we execute and wait for completion.
+      try {
+        const result = await controllerClient.runMojoCell(notebookId, cell.content);
+        const outputs = result.output ? [{ type: 'terminal_output', data: result.output }] : [];
         if (result.success) {
-          onOutputUpdate(cell.id, result.output || '', 'success', undefined, result.executionCount, outputs, result.duration);
+          onOutputUpdate(cell.id, result.output || '', 'success', undefined, undefined, outputs, undefined);
+          setKernelStatus('idle');
         } else {
-          onOutputUpdate(cell.id, '', 'error', result.error, result.executionCount, outputs, result.duration);
+          onOutputUpdate(cell.id, '', 'error', result.error || 'Mojo execution failed', undefined, outputs, undefined);
+          setKernelStatus('error');
         }
-        setKernelStatus('idle');
-        setStreamingChunks([]);
-        setCurrentLine(null);
-        setIsWaitingForInput(false);
-        cancelStreamRef.current = null;
-      },
-      (error) => {
-        onOutputUpdate(cell.id, '', 'error', error);
+      } catch (error) {
+        onOutputUpdate(cell.id, '', 'error', (error as Error).message);
         setKernelStatus('error');
-        setStreamingChunks([]);
-        setCurrentLine(null);
-        setIsWaitingForInput(false);
-        cancelStreamRef.current = null;
       }
-    );
-    cancelStreamRef.current = cancel;
+
+      setStreamingChunks([]);
+      setCurrentLine(null);
+      setIsWaitingForInput(false);
+      cancelStreamRef.current = null;
+    } else {
+      const cancel = controllerClient.runCellStream(
+        { cellId: cell.id, code: cell.content, notebookId, device },
+        // onOutput — each SSE chunk: append immediately for live streaming
+        (output: RichOutput & { line?: number }) => {
+          // Backend may optionally send line number hint
+          if (output.line !== undefined) setCurrentLine(output.line);
+
+          if (output.type === 'input_request') {
+            setIsWaitingForInput(true);
+            setInputPrompt(output.prompt || '');
+          } else if (output.type === 'terminal_output') {
+            setStreamingChunks(prev => [...prev, output as CellOutput]);
+          } else {
+            setStreamingChunks(prev => [...prev, output as CellOutput]);
+          }
+        },
+        // onComplete — final result
+        (result) => {
+          const outputs = result.outputs?.length ? result.outputs : undefined;
+          if (result.success) {
+            onOutputUpdate(cell.id, result.output || '', 'success', undefined, result.executionCount, outputs, result.duration);
+          } else {
+            onOutputUpdate(cell.id, '', 'error', result.error, result.executionCount, outputs, result.duration);
+          }
+          setKernelStatus('idle');
+          setStreamingChunks([]);
+          setCurrentLine(null);
+          setIsWaitingForInput(false);
+          cancelStreamRef.current = null;
+        },
+        (error) => {
+          onOutputUpdate(cell.id, '', 'error', error);
+          setKernelStatus('error');
+          setStreamingChunks([]);
+          setCurrentLine(null);
+          setIsWaitingForInput(false);
+          cancelStreamRef.current = null;
+        }
+      );
+      cancelStreamRef.current = cancel;
+    }
   };
 
   const handleInputSubmit = async (e: React.FormEvent) => {

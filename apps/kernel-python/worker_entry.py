@@ -58,43 +58,68 @@ def custom_input(prompt=""):
 builtins.input = custom_input
 
 
-def _magic_run(cmd: str):
-    """Helper to run magic commands like !pip with real-time output streaming"""
+def _magic_run(cmd: str, timeout_seconds: float = 300):
+    """Helper to run magic commands like !pip with real-time output streaming.
+
+    Returns the full output and raises on failure with the captured output included.
+    """
     import subprocess
     import threading
-    
+
     # Special handling for pip to ensure we use the same python environment
     if cmd.strip().startswith('pip '):
         cmd = f'"{sys.executable}" -m {cmd}'
-    
+
     # Use Popen for real-time streaming output
     process = subprocess.Popen(
-        cmd, 
-        shell=True, 
-        stdout=subprocess.PIPE, 
+        cmd,
+        shell=True,
+        stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,  # Merge stderr into stdout for unified streaming
         text=True,
         bufsize=1,  # Line buffered
         universal_newlines=True
     )
-    
+
+    output_lines: list[str] = []
+
     # Stream output line by line in real-time
     def stream_output():
         try:
             for line in iter(process.stdout.readline, ''):
                 if line:
-                    print(line, end='', flush=True)
+                    output_lines.append(line)
+                    # Send real-time output back to the controller
+                    _write_response({
+                        "type": "stream",
+                        "stream": "stdout",
+                        "data": line
+                    })
         except Exception:
             pass
-    
+
     # Run streaming in the current thread (blocking) to ensure output is captured
-    stream_output()
-    
-    # Wait for process to complete
-    return_code = process.wait()
-    
+    stream_thread = threading.Thread(target=stream_output)
+    stream_thread.daemon = True
+    stream_thread.start()
+
+    # Wait for process to complete with a timeout to avoid hangs
+    try:
+        return_code = process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        raise RuntimeError(
+            f"Command timed out after {timeout_seconds}s. Output so far:\n{''.join(output_lines)}"
+        )
+
+    # Ensure the streaming thread is finished
+    stream_thread.join(timeout=1)
+
+    output = ''.join(output_lines)
     if return_code != 0:
-        raise RuntimeError(f"Command failed with exit code {return_code}")
+        raise RuntimeError(f"Command failed with exit code {return_code}. Output:\n{output}")
+
+    return output
 
 
 def execute_with_capture(code_str: str, namespace: dict):
@@ -229,13 +254,115 @@ def execute_with_capture(code_str: str, namespace: dict):
                 else:
                     super().__init__(*args, **kwargs)
         
-        subprocess.Popen = CapturedPopen
-        
+        # Keep a reference to the original Popen so we can restore it after
+        # patching for user code execution. If we don't restore it, pip installs
+        # (and other subprocess usage) can accidentally use our custom Popen.
+        original_popen = subprocess.Popen
+
+        attempted_installs = set()
+        pip_upgraded = False
+
+        def _run_execution():
+            nonlocal stdout_buffer, stderr_buffer
+
+            # Patch subprocess.Popen so user code (and any subprocesses it spawns)
+            # are captured in the worker output.
+            subprocess.Popen = CapturedPopen
+
+            try:
+                stdout_buffer = LiveStream('stdout')
+                stderr_buffer = LiveStream('stderr')
+                with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                    _write_response({"type": "execution_start"})
+                    exec(processed_code, namespace)
+                    _write_response({"type": "execution_end"})
+            finally:
+                # Restore the original Popen after the user code runs
+                subprocess.Popen = original_popen
+
         try:
-            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                _write_response({"type": "execution_start"})
-                exec(processed_code, namespace)
-                _write_response({"type": "execution_end"})
+            try:
+                _run_execution()
+            except ModuleNotFoundError as mnfe:
+                missing = getattr(mnfe, 'name', None) or None
+                if not missing:
+                    msg = str(mnfe)
+                    if "No module named" in msg and "'" in msg:
+                        missing = msg.split("'")[1]
+
+                if missing and missing not in attempted_installs:
+                    attempted_installs.add(missing)
+                    _write_response({
+                        "type": "stream",
+                        "stream": "stderr",
+                        "data": f"Module '{missing}' not found. Installing...\n"
+                    })
+
+                    # Keep pip/up-to-date to improve compatibility for many packages
+                    if not pip_upgraded:
+                        try:
+                            _write_response({
+                                "type": "stream",
+                                "stream": "stderr",
+                                "data": "Ensuring pip/setuptools/wheel are up to date...\n"
+                            })
+                            _magic_run("pip install --upgrade pip setuptools wheel")
+                        except Exception as pip_err:
+                            err_text = str(pip_err)
+                            # If pip is in an externally-managed environment, retry with the breaker flag.
+                            if "externally-managed-environment" in err_text or "externally managed" in err_text:
+                                try:
+                                    _write_response({
+                                        "type": "stream",
+                                        "stream": "stderr",
+                                        "data": "Detected externally-managed environment; retrying upgrade with --break-system-packages...\n"
+                                    })
+                                    _magic_run("pip install --break-system-packages --upgrade pip setuptools wheel")
+                                except Exception as pip_err2:
+                                    raise RuntimeError(
+                                        f"Automatic pip upgrade failed: {pip_err}\nRetry also failed: {pip_err2}"
+                                    ) from pip_err2
+                            else:
+                                raise RuntimeError(
+                                    f"Automatic pip upgrade failed: {pip_err}"
+                                ) from pip_err
+                        pip_upgraded = True
+
+                    try:
+                        _magic_run(f"pip install {missing}")
+                    except Exception as pip_err:
+                        err_text = str(pip_err)
+
+                        # If pip can't find the package on PyPI, give a clear message.
+                        if "No matching distribution found" in err_text:
+                            raise RuntimeError(
+                                f"Auto-install failed: package '{missing}' is not available on PyPI. "
+                                "Check the module name or install it manually if it exists outside PyPI.\n"
+                                f"Pip output:\n{err_text}"
+                            ) from pip_err
+
+                        # In system-managed environments (PEP 668), pip refuses installs.
+                        # Retry once using --break-system-packages to allow installs.
+                        if "externally-managed-environment" in err_text or "externally managed" in err_text:
+                            try:
+                                _write_response({
+                                    "type": "stream",
+                                    "stream": "stderr",
+                                    "data": "Detected externally-managed environment; retrying install with --break-system-packages...\n"
+                                })
+                                _magic_run(f"pip install --break-system-packages {missing}")
+                            except Exception as pip_err2:
+                                raise RuntimeError(
+                                    f"Auto-install failed for module '{missing}': {pip_err}\nRetry also failed: {pip_err2}"
+                                ) from pip_err2
+                        else:
+                            raise RuntimeError(
+                                f"Auto-install failed for module '{missing}': {pip_err}"
+                            ) from pip_err
+
+                    _run_execution()
+                else:
+                    raise
         finally:
             # Restore original Popen
             subprocess.Popen = original_popen

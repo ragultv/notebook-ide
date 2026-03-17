@@ -84,6 +84,8 @@ const App: React.FC = () => {
         onOpenFolder={(_path) => { /* FileExplorer manages project state */ }}
         onConnectKernel={kernel.handleConnectKernel}
         onRestartKernel={kernel.handleRestartKernel}
+        kernelLanguage={kernel.kernelLanguage}
+        setKernelLanguage={kernel.setKernelLanguage}
         onRunAll={() => kernel.handleRunAll(notebook.activeCells, notebook.updateActiveNotebookCells)}
         onOpenMemoryMap={() => {
           const memoryMapTab = tabs.tabs.find(t => t.id === 'memory-map');
@@ -97,6 +99,9 @@ const App: React.FC = () => {
         activeTabId={tabs.activeTabId}
         onActivateTab={tabs.handleActivateTab}
         onCloseTab={tabs.handleCloseTab}
+        pythonVersions={kernel.pythonVersions}
+        selectedPythonPath={kernel.selectedPythonPath}
+        onSelectPythonPath={kernel.setSelectedPythonPath}
       />
 
       <div className="flex-1 flex overflow-hidden relative p-2 gap-2">

@@ -1,4 +1,8 @@
 import { EventEmitter } from 'events';
+import os from 'os';
+import path from 'path';
+import fs from 'fs-extra';
+import { execa } from 'execa';
 import { v4 as uuidv4 } from 'uuid';
 import { PythonWorker, ExecutionResult } from './PythonWorker.js';
 import { TerminalWorker } from './TerminalWorker.js';
@@ -13,6 +17,7 @@ interface InternalKernelState {
     worker: PythonWorker;
     info: KernelInfo;
     notebookId: string;
+    pythonPath?: string;
     activeTerminal?: TerminalWorker;
 }
 
@@ -20,8 +25,124 @@ export class KernelManager extends EventEmitter {
     private static instance: KernelManager;
     private kernels: Map<string, InternalKernelState> = new Map(); // notebookId -> state
 
+    // Venv base directory for per-notebook environments
+    private readonly venvBaseDir: string = path.join(os.tmpdir(), 'notebook-ide-venvs');
+
     private constructor() {
         super();
+        fs.ensureDirSync(this.venvBaseDir);
+    }
+
+    private getVenvDir(notebookId: string): string {
+        return path.join(this.venvBaseDir, notebookId);
+    }
+
+    private getPythonFromVenv(venvDir: string): string {
+        if (process.platform === 'win32') {
+            return path.join(venvDir, 'Scripts', 'python.exe');
+        }
+        return path.join(venvDir, 'bin', 'python');
+    }
+
+    private async findPythonExecutable(): Promise<string> {
+        // Attempt to resolve the most recent python executable available.
+        // On Windows, prefer the python launcher (py) if available.
+        type Candidate = { cmd: string; args: string[] };
+
+        const candidates: Candidate[] = [];
+
+        if (process.platform === 'win32') {
+            // Use py launcher aliases, then try plain python.
+            candidates.push({ cmd: 'py', args: ['-3.14', '--version'] });
+            candidates.push({ cmd: 'py', args: ['-3.13', '--version'] });
+            candidates.push({ cmd: 'py', args: ['-3.12', '--version'] });
+            candidates.push({ cmd: 'py', args: ['-3.11', '--version'] });
+            candidates.push({ cmd: 'py', args: ['-3.10', '--version'] });
+            candidates.push({ cmd: 'py', args: ['-3', '--version'] });
+            candidates.push({ cmd: 'python', args: ['--version'] });
+        } else {
+            candidates.push({ cmd: 'python3.14', args: ['--version'] });
+            candidates.push({ cmd: 'python3.13', args: ['--version'] });
+            candidates.push({ cmd: 'python3.12', args: ['--version'] });
+            candidates.push({ cmd: 'python3.11', args: ['--version'] });
+            candidates.push({ cmd: 'python3.10', args: ['--version'] });
+            candidates.push({ cmd: 'python3.9', args: ['--version'] });
+            candidates.push({ cmd: 'python3.8', args: ['--version'] });
+            candidates.push({ cmd: 'python3.7', args: ['--version'] });
+            candidates.push({ cmd: 'python3', args: ['--version'] });
+            candidates.push({ cmd: 'python', args: ['--version'] });
+        }
+
+        for (const candidate of candidates) {
+            try {
+                const result = await execa(candidate.cmd, candidate.args);
+                if (result.exitCode === 0) {
+                    // Return the raw command for use in venv creation.
+                    if (candidate.cmd === 'py') {
+                        // Preserve the '-3.x' argument so that the same version is used.
+                        return `${candidate.cmd} ${candidate.args.slice(0, -1).join(' ')}`;
+                    }
+                    return candidate.cmd;
+                }
+            } catch {
+                // ignore and try next
+            }
+        }
+
+        throw new Error('No Python executable found on PATH. Please set PYTHON_EXECUTABLE or install Python.');
+    }
+
+    private getVenvMetadataPath(notebookId: string): string {
+        return path.join(this.getVenvDir(notebookId), 'venv_meta.json');
+    }
+
+    private async writeVenvMetadata(notebookId: string, pythonPath: string): Promise<void> {
+        const metaPath = this.getVenvMetadataPath(notebookId);
+        await fs.writeJson(metaPath, {
+            pythonPath,
+            createdAt: new Date().toISOString(),
+        });
+    }
+
+    private async readVenvMetadata(notebookId: string): Promise<{ pythonPath: string; createdAt: string } | null> {
+        const metaPath = this.getVenvMetadataPath(notebookId);
+        try {
+            return await fs.readJson(metaPath);
+        } catch {
+            return null;
+        }
+    }
+
+    private splitPythonCommand(pythonPath: string): { cmd: string; args: string[] } {
+        const parts = pythonPath.trim().split(/\s+/);
+        return { cmd: parts[0], args: parts.slice(1) };
+    }
+
+    private async createVenvForNotebook(notebookId: string, pythonPath: string): Promise<string> {
+        const venvDir = this.getVenvDir(notebookId);
+        const pythonInVenv = this.getPythonFromVenv(venvDir);
+
+        // If venv already exists and has a python binary, reuse it.
+        if (fs.existsSync(pythonInVenv)) {
+            const metadata = await this.readVenvMetadata(notebookId);
+            if (metadata && metadata.pythonPath !== pythonPath) {
+                // If user requested a different base python, recreate the venv.
+                await fs.remove(venvDir);
+            } else {
+                return pythonInVenv;
+            }
+        }
+
+        fs.ensureDirSync(venvDir);
+
+        const { cmd, args } = this.splitPythonCommand(pythonPath);
+        await execa(cmd, [...args, '-m', 'venv', venvDir]);
+
+        // Ensure pip is up-to-date so installs work reliably
+        await execa(pythonInVenv, ['-m', 'pip', 'install', '-U', 'pip', 'setuptools', 'wheel']);
+
+        await this.writeVenvMetadata(notebookId, pythonPath);
+        return pythonInVenv;
     }
 
     public static getInstance(): KernelManager {
@@ -31,17 +152,23 @@ export class KernelManager extends EventEmitter {
         return KernelManager.instance;
     }
 
-    public async startKernel(notebookId: string): Promise<KernelInfo> {
+    public async startKernel(notebookId: string, pythonPath?: string): Promise<KernelInfo> {
         if (this.kernels.has(notebookId)) {
             return this.kernels.get(notebookId)!.info;
         }
 
-        const worker = new PythonWorker(notebookId);
+        // Always create/use a per-notebook venv so installations are isolated and
+        // the notebook can autoinstall packages safely.
+        const basePython = pythonPath ?? await this.findPythonExecutable();
+        const workerPython = await this.createVenvForNotebook(notebookId, basePython);
+
+        const worker = new PythonWorker(notebookId, workerPython);
         const kernelId = uuidv4();
 
         const state: InternalKernelState = {
             worker,
             notebookId,
+            pythonPath,
             info: {
                 id: kernelId,
                 status: 'starting',
@@ -67,6 +194,11 @@ export class KernelManager extends EventEmitter {
         const state = this.kernels.get(notebookId);
         if (state) {
             await state.worker.stop();
+
+            // Keep the per-notebook venv around so it can be reused when the notebook
+            // is reopened. If you want to wipe it completely, use the new
+            // `POST /kernels/cleanup` endpoint (not implemented here).
+
             this.kernels.delete(notebookId);
             this.emit('kernel:stopped', notebookId);
         }
@@ -131,6 +263,10 @@ export class KernelManager extends EventEmitter {
 
     public getAllKernels(): KernelInfo[] {
         return Array.from(this.kernels.values()).map(k => k.info);
+    }
+
+    public async listAvailablePythonVersions(): Promise<Array<{ path: string; version: string }>> {
+        return await PythonWorker.listAvailablePythonVersions();
     }
 
     public interruptKernel(notebookId: string): void {

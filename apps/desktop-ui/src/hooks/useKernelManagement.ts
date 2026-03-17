@@ -1,23 +1,88 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { controllerClient } from '../services/controller.client';
 import { useUIStore, RuntimeType } from '../store/ui.store';
 import { CellData } from '../types';
 
+export type KernelLanguage = 'python' | 'mojo';
+
 interface UseKernelManagementReturn {
-  handleConnectKernel: (runtime: RuntimeType) => Promise<void>;
+  handleConnectKernel: (language: KernelLanguage, runtime: RuntimeType, pythonPath?: string) => Promise<void>;
   handleRestartKernel: () => Promise<void>;
   handleRunAll: (cells: CellData[], updateCells: (cells: CellData[]) => void) => Promise<void>;
+  pythonVersions: Array<{ path: string; version: string }>;
+  selectedPythonPath: string | null;
+  setSelectedPythonPath: (path: string) => void;
+  kernelLanguage: KernelLanguage;
+  setKernelLanguage: (lang: KernelLanguage) => void;
 }
 
 export const useKernelManagement = (activeFileId: string | null): UseKernelManagementReturn => {
   const {
     setKernelStatus, setKernelId, setKernelMetrics,
-    clearKernelMetrics, setRuntimeType, recordMetricSnapshot, runtimeType
+    clearKernelMetrics, setRuntimeType, recordMetricSnapshot, runtimeType,
+    kernelLanguage, setKernelLanguage
   } = useUIStore();
+
+  const [pythonVersions, setPythonVersions] = useState<Array<{ path: string; version: string }>>([]);
+  const [selectedPythonPath, setSelectedPythonPath] = useState<string | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<KernelLanguage>(kernelLanguage);
+
+  // Keep local notebook language in sync with global store language
+  useEffect(() => {
+    setSelectedLanguage(kernelLanguage);
+  }, [kernelLanguage]);
+
+  // Persist selected language per notebook
+  useEffect(() => {
+    if (!activeFileId) return;
+    const stored = localStorage.getItem(`notebook_language_${activeFileId}`);
+    if (stored === 'python' || stored === 'mojo') {
+      setSelectedLanguage(stored);
+      setKernelLanguage(stored);
+    }
+  }, [activeFileId, setKernelLanguage]);
+
+  useEffect(() => {
+    if (!activeFileId) return;
+    localStorage.setItem(`notebook_language_${activeFileId}`, selectedLanguage);
+    setKernelLanguage(selectedLanguage);
+  }, [activeFileId, selectedLanguage, setKernelLanguage]);
+
+  // Persist selected python per notebook (so reopening uses same venv)
+  useEffect(() => {
+    if (!activeFileId) return;
+    const stored = localStorage.getItem(`notebook_python_${activeFileId}`);
+    if (stored) {
+      setSelectedPythonPath(stored);
+    }
+  }, [activeFileId]);
+
+  useEffect(() => {
+    if (!activeFileId || !selectedPythonPath) return;
+    localStorage.setItem(`notebook_python_${activeFileId}`, selectedPythonPath);
+  }, [activeFileId, selectedPythonPath]);
 
   // Derive the compute device from the selected runtime
   // GPU runtime → CUDA (cells run on VRAM), CPU runtime → CPU (cells run on RAM)
   const device = runtimeType === 'gpu' ? 'cuda' : 'cpu';
+
+  // Fetch available Python interpreters (for kernel selection)
+  useEffect(() => {
+    const fetchPythonVersions = async () => {
+      try {
+        const resp = await controllerClient.getPythonVersions();
+        const versions = (resp as any).versions as Array<{ path: string; version: string }>;
+        setPythonVersions(versions);
+        if (versions.length > 0) {
+          setSelectedPythonPath(prev => prev || versions[0].path);
+        }
+      } catch (e) {
+        console.warn('Failed to load python versions', e);
+      }
+    };
+
+    fetchPythonVersions();
+  }, []);
 
   // Metrics polling - records notebook kernel process metrics only (not app-wide)
   useEffect(() => {
@@ -53,19 +118,30 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
     return () => clearInterval(interval);
   }, [activeFileId, setKernelMetrics, clearKernelMetrics, recordMetricSnapshot]);
 
-  const handleConnectKernel = useCallback(async (runtime: RuntimeType) => {
+  const handleConnectKernel = useCallback(async (language: KernelLanguage, runtime: RuntimeType, pythonPath?: string) => {
     try {
+      // Save selected language and runtime
+      setKernelLanguage(language);
       setRuntimeType(runtime);
+
       setKernelStatus('connecting');
-      // The backend kernel will use the selected runtime for all subsequent cell runs
-      await controllerClient.startKernel();
+
+      if (language === 'mojo') {
+        // Start the mojo container for this notebook
+        // In browser builds, process.cwd() isn't available. Let the backend choose a default.
+        await controllerClient.startMojo(activeFileId || 'default');
+      } else {
+        // Python kernel
+        await controllerClient.startKernel(pythonPath);
+      }
+
       setKernelId('default');
       setKernelStatus('idle');
     } catch (error) {
       console.error('Failed to connect kernel:', error);
       setKernelStatus('disconnected');
     }
-  }, [setKernelStatus, setKernelId, setRuntimeType]);
+  }, [setKernelStatus, setKernelId, setKernelLanguage, setRuntimeType, activeFileId]);
 
   const handleRestartKernel = useCallback(async () => {
     try {
@@ -93,12 +169,17 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
       updateCells([...updatedCells]);
 
       try {
-        const result = await controllerClient.runCell({
-          cellId: cell.id,
-          code: cell.content,
-          notebookId,
-          device,  // ← 'cpu' or 'cuda' — routes execution to RAM or VRAM
-        });
+        let result;
+        if (selectedLanguage === 'mojo') {
+          result = await controllerClient.runMojoCell(notebookId, cell.content);
+        } else {
+          result = await controllerClient.runCell({
+            cellId: cell.id,
+            code: cell.content,
+            notebookId,
+            device,  // ← 'cpu' or 'cuda' — routes execution to RAM or VRAM
+          });
+        }
 
         updatedCells[cellIndex] = {
           ...updatedCells[cellIndex],
@@ -128,5 +209,10 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
     handleConnectKernel,
     handleRestartKernel,
     handleRunAll,
+    pythonVersions,
+    selectedPythonPath,
+    setSelectedPythonPath,
+    kernelLanguage,
+    setKernelLanguage,
   };
 };

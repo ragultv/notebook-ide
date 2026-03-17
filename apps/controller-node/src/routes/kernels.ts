@@ -19,13 +19,13 @@ export async function kernelRoutes(fastify: FastifyInstance) {
     fastify.post('/start', async (request, reply) => {
         try {
             // Body is optional - default to empty object
-            const body = (request.body || {}) as { notebookId?: string };
+            const body = (request.body || {}) as { notebookId?: string; pythonPath?: string };
             const id = body.notebookId || 'default';
 
-            const info = await kernelManager.startKernel(id);
+            const info = await kernelManager.startKernel(id, body.pythonPath);
             return info;
         } catch (error: any) {
-            reply.code(500).send({ error: error.message });
+            reply.code(500).send({ detail: error?.message ?? 'Unknown error' });
         }
     });
 
@@ -37,7 +37,7 @@ export async function kernelRoutes(fastify: FastifyInstance) {
             await kernelManager.stopKernel(id);
             return { status: 'stopped', notebookId: id };
         } catch (error: any) {
-            reply.code(500).send({ error: error.message });
+            reply.code(500).send({ detail: error?.message ?? 'Unknown error' });
         }
     });
 
@@ -50,7 +50,7 @@ export async function kernelRoutes(fastify: FastifyInstance) {
             const info = await kernelManager.startKernel(id);
             return info;
         } catch (error: any) {
-            reply.code(500).send({ error: error.message });
+            reply.code(500).send({ detail: error?.message ?? 'Unknown error' });
         }
     });
 
@@ -63,6 +63,12 @@ export async function kernelRoutes(fastify: FastifyInstance) {
             return { status: 'disconnected', id: null, executionCount: 0 };
         }
         return info;
+    });
+
+    // List interpreters available on the host system (for selecting a specific python version)
+    fastify.get('/python_versions', async (request, reply) => {
+        const versions = await kernelManager.listAvailablePythonVersions();
+        return { versions };
     });
 
     // Add this route before global metrics or anywhere appropriate

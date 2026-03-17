@@ -77,6 +77,7 @@ const start = async () => {
         await server.register(aiRoutes, { prefix: '/ai' });
         await server.register(modelsRoutes, { prefix: '/ai/models' });
         await server.register(memoryRoutes, { prefix: '/api/memory' });
+        await server.register((await import('./routes/mojo.js')).mojoRoutes, { prefix: '/mojo' });
 
         // Health check route
         server.get('/', async () => {

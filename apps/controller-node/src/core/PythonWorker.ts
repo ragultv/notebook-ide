@@ -1,4 +1,4 @@
-import { execa, Subprocess } from 'execa';
+import { execa, execaSync, Subprocess } from 'execa';
 import path from 'path';
 import { EventEmitter } from 'events';
 import fs from 'fs-extra';
@@ -42,10 +42,18 @@ export class PythonWorker extends EventEmitter {
     public readonly notebookId: string;
     private isReady: boolean = false;
 
-    constructor(notebookId: string, pythonPath: string = 'python') {
+    constructor(notebookId: string, pythonPath?: string) {
         super();
         this.notebookId = notebookId;
-        this.pythonPath = pythonPath;
+
+
+        if (pythonPath) {
+            this.pythonPath = pythonPath;
+        } else if (process.env.PYTHON_EXECUTABLE) {
+            this.pythonPath = process.env.PYTHON_EXECUTABLE;
+        } else {
+            this.pythonPath = this.findAvailablePython();
+        }
 
         // Path resolution that works from both src/ and dist/
         // When running from dist/core/PythonWorker.js, __dirname is dist/core
@@ -69,6 +77,76 @@ export class PythonWorker extends EventEmitter {
         }
 
         this.workerScript = foundPath || possiblePaths[0];
+    }
+
+    private findAvailablePython(): string {
+        // Attempt to find a stable Python interpreter on PATH.
+        // Prefer python3 where available.
+        const candidates = ['python3', 'python', 'python3.11', 'python3.10', 'python3.9', 'python3.8', 'python3.7'];
+        for (const candidate of candidates) {
+            try {
+                const result = execaSync(candidate, ['--version'], { stdio: 'ignore' });
+                if (result.exitCode === 0) {
+                    return candidate;
+                }
+            } catch {
+                // ignore and try next candidate
+            }
+        }
+
+        console.warn(
+            'Unable to locate a Python executable (tried python3, python, and common python3 versions).',
+            'Set PYTHON_EXECUTABLE to the path of a Python binary if you have a custom installation.'
+        );
+
+        // Fall back to 'python' so the error path remains consistent if it truly isn't present.
+        return 'python';
+    }
+
+    public static async listAvailablePythonVersions(): Promise<Array<{ path: string; version: string }>> {
+        const candidates = [
+            'python3',
+            'python',
+            'python3.11',
+            'python3.10',
+            'python3.9',
+            'python3.8',
+            'python3.7',
+            'python2',
+        ];
+
+        const foundPaths = new Set<string>();
+
+        // Helper to resolve if an executable exists on PATH
+        const probe = async (exe: string) => {
+            try {
+                const whichCmd = process.platform === 'win32' ? 'where' : 'which';
+                const { stdout } = await execa(whichCmd, [exe]);
+                for (const line of stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean)) {
+                    foundPaths.add(line);
+                }
+            } catch {
+                // ignore
+            }
+        };
+
+        for (const candidate of candidates) {
+            await probe(candidate);
+        }
+
+        const versions: Array<{ path: string; version: string }> = [];
+        for (const p of Array.from(foundPaths)) {
+            try {
+                const { stdout } = await execa(p, ['-c', 'import sys; print(sys.version.split()[0])'], {
+                    timeout: 5000,
+                });
+                versions.push({ path: p, version: stdout.trim() });
+            } catch {
+                // ignore non-executable things
+            }
+        }
+
+        return versions.sort((a, b) => a.version.localeCompare(b.version));
     }
 
     public get pid(): number | undefined {

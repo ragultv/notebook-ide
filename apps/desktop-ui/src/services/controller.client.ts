@@ -3,7 +3,9 @@ import { MemorySnapshot } from '../../../../packages/shared-types/memory';
 // Controller Client - HTTP interface to FastAPI backend
 // Handles execution, kernel management, and AI requests
 
-const BASE_URL = 'http://127.0.0.1:3001';
+// Allow setting the controller URL via environment (Vite) for flexibility in different runtimes.
+// Defaults to localhost:3001 for local development.
+const BASE_URL = (import.meta.env.VITE_CONTROLLER_URL as string) || 'http://127.0.0.1:3001';
 
 // Types
 export interface ExecutionRequest {
@@ -98,17 +100,26 @@ export interface ErrorFixRequest {
 
 // HTTP helper
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      ...opts.headers,
-    },
-  });
+  const url = `${BASE_URL}${path}`;
+  let res: Response;
+
+  try {
+    res = await fetch(url, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        ...opts.headers,
+      },
+    });
+  } catch (err: any) {
+    const reason = err?.message || String(err);
+    throw new Error(`Failed to fetch ${url}: ${reason}`);
+  }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || `HTTP ${res.status}`);
+    const message = (error as any)?.detail || (error as any)?.error || `HTTP ${res.status}`;
+    throw new Error(message);
   }
 
   return res.json();
@@ -122,8 +133,16 @@ export const controllerClient = {
   },
 
   // Kernel Management
-  async startKernel(): Promise<KernelInfo> {
-    return request('/kernels/start', { method: 'POST' });
+  async startKernel(pythonPath?: string): Promise<KernelInfo> {
+    const body = pythonPath ? { pythonPath } : {};
+    return request('/kernels/start', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async getPythonVersions(): Promise<Array<{ path: string; version: string }>> {
+    return request('/kernels/python_versions');
   },
 
   async stopKernel(): Promise<{ status: string }> {
@@ -159,6 +178,27 @@ export const controllerClient = {
     return request('/execution/run_cell', {
       method: 'POST',
       body: JSON.stringify(req),
+    });
+  },
+
+  async startMojo(notebookId: string, workspaceDir: string): Promise<{ status: string }> {
+    return request('/mojo/start', {
+      method: 'POST',
+      body: JSON.stringify({ notebookId, workspaceDir }),
+    });
+  },
+
+  async stopMojo(notebookId: string): Promise<{ status: string }> {
+    return request('/mojo/stop', {
+      method: 'POST',
+      body: JSON.stringify({ notebookId }),
+    });
+  },
+
+  async runMojoCell(notebookId: string, code: string): Promise<{ success: boolean; output: string; error?: string }> {
+    return request('/mojo/run', {
+      method: 'POST',
+      body: JSON.stringify({ notebookId, code }),
     });
   },
 

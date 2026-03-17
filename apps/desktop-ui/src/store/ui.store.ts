@@ -37,6 +37,7 @@ interface UIState {
   // Kernel connection
   kernelStatus: KernelStatus;
   runtimeType: RuntimeType;
+  kernelLanguage: 'python' | 'mojo';
   kernelId: string | null;
   executionCount: number;
 
@@ -56,6 +57,7 @@ interface UIState {
   clearChatAttachments: () => void;
   setKernelStatus: (status: KernelStatus) => void;
   setRuntimeType: (type: RuntimeType) => void;
+  setKernelLanguage: (lang: 'python' | 'mojo') => void;
   setKernelId: (id: string | null) => void;
   incrementExecution: () => number;
   resetExecution: () => void;
@@ -72,6 +74,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   chatAttachments: [],
   kernelStatus: 'disconnected',
   runtimeType: 'cpu',
+  kernelLanguage: 'python',
   kernelId: null,
   executionCount: 0,
   kernelMetrics: {
@@ -106,6 +109,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   clearChatAttachments: () => set({ chatAttachments: [] }),
   setKernelStatus: (kernelStatus) => set({ kernelStatus }),
   setRuntimeType: (runtimeType) => set({ runtimeType }),
+  setKernelLanguage: (lang) => set({ kernelLanguage: lang }),
   setKernelId: (id: string | null) => set({ kernelId: id }),
   incrementExecution: () => {
     const next = get().executionCount + 1;

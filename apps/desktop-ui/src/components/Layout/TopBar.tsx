@@ -19,7 +19,7 @@ interface TopBarProps {
   onNewNotebook: (name?: string, cells?: any[], path?: string) => void;
   onOpenFile?: () => void;
   onSaveFile?: () => Promise<void>;
-  onConnectKernel?: (runtime: RuntimeType) => void;
+  onConnectKernel?: (language: 'python' | 'mojo', runtime: RuntimeType, pythonPath?: string) => void;
   onRestartKernel?: () => void;
   onRunAll?: () => void;
   onOpenMemoryMap?: () => void;
@@ -29,6 +29,11 @@ interface TopBarProps {
   onCloseTab: (id: string, e: React.MouseEvent) => void;
   onOpenFolder?: (path: string) => void;
   onSaveAll?: () => Promise<void>;
+  pythonVersions?: Array<{ path: string; version: string }>;
+  selectedPythonPath?: string | null;
+  onSelectPythonPath?: (path: string) => void;
+  kernelLanguage: 'python' | 'mojo';
+  setKernelLanguage: (lang: 'python' | 'mojo') => void;
 }
 
 const statusColors: Record<KernelStatus, string> = {
@@ -159,7 +164,14 @@ const NotebookResourceBar: React.FC = () => {
 
 // ── Runtime Menu (right side of topbar) ───────────────────────────────────────
 
-const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> = ({ onConnect }) => {
+const RuntimeMenu: React.FC<{
+  onConnect: (language: 'python' | 'mojo', type: RuntimeType, pythonPath?: string) => void;
+  pythonVersions?: Array<{ path: string; version: string }>;
+  selectedPythonPath?: string | null;
+  onSelectPythonPath?: (path: string) => void;
+  kernelLanguage: 'python' | 'mojo';
+  setKernelLanguage: (lang: 'python' | 'mojo') => void;
+}> = ({ onConnect, pythonVersions, selectedPythonPath, onSelectPythonPath, kernelLanguage, setKernelLanguage }) => {
   const [open, setOpen] = useState(false);
   const { runtimeType, kernelStatus, toggleResourcePanel, resourcePanelOpen } = useUIStore();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -182,7 +194,7 @@ const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> = ({ onC
         <div className="flex items-center gap-2 px-3 h-8 bg-[#1e1e20] border border-[#27272a] rounded-xl text-[10px] font-mono text-gray-400">
           <Check className="w-3 h-3 text-green-500" />
           <div className={`w-1.5 h-1.5 rounded-full ${statusColors[kernelStatus]}`} />
-          <span className="uppercase">{runtimeType} · {kernelStatus}</span>
+          <span className="uppercase">{kernelLanguage} · {runtimeType} · {kernelStatus}</span>
         </div>
         {/* Resource Panel toggle */}
         <button
@@ -226,6 +238,47 @@ const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> = ({ onC
             <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Select Runtime</span>
           </div>
 
+          <div className="px-3 pb-2">
+            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              Language
+            </label>
+            <div className="mt-1 flex gap-1">
+              {(['python', 'mojo'] as const).map((lang) => (
+                <button
+                  key={lang}
+                  onClick={() => setKernelLanguage(lang)}
+                  className={`flex-1 px-2 py-1 rounded-md text-xs font-medium transition-all duration-150
+                    ${kernelLanguage === lang ? 'bg-sim-red text-white' : 'bg-[#0f0f11] text-gray-200 hover:bg-white/5'}`}
+                >
+                  {lang.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {kernelLanguage === 'python' && (
+            <div className="px-3 pb-2">
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                Python Interpreter
+              </label>
+              <select
+                value={selectedPythonPath ?? ''}
+                onChange={(e) => onSelectPythonPath?.(e.target.value)}
+                className="mt-1 w-full bg-[#0f0f11] border border-[#27272a] rounded-md px-2 py-1 text-xs text-white"
+              >
+                {pythonVersions && pythonVersions.length > 0 ? (
+                  pythonVersions.map((v) => (
+                    <option key={v.path} value={v.path}>
+                      {v.version} ({v.path})
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No python interpreters found</option>
+                )}
+              </select>
+            </div>
+          )}
+
           {(['cpu', 'gpu'] as const).map((type) => {
             const isGpu = type === 'gpu';
             return (
@@ -233,7 +286,7 @@ const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> = ({ onC
                 key={type}
                 onClick={() => {
                   if (!isGpu) {
-                    onConnect(type);
+                    onConnect(kernelLanguage, type, selectedPythonPath ?? undefined);
                     setOpen(false);
                   }
                 }}
@@ -500,6 +553,11 @@ export const TopBar: React.FC<TopBarProps> = ({
   onCloseTab,
   onOpenFolder,
   onSaveAll,
+  pythonVersions,
+  selectedPythonPath,
+  onSelectPythonPath,
+  kernelLanguage,
+  setKernelLanguage,
 }) => {
   const { kernelStatus } = useUIStore();
   const isConnected = kernelStatus === 'idle' || kernelStatus === 'busy';
@@ -550,7 +608,14 @@ export const TopBar: React.FC<TopBarProps> = ({
       {/* Right: Kernel + Tools */}
       <div className="flex items-center gap-2">
 
-        <RuntimeMenu onConnect={(type) => onConnectKernel?.(type)} />
+        <RuntimeMenu
+          onConnect={(lang, type, pythonPath) => onConnectKernel?.(lang, type, pythonPath)}
+          pythonVersions={pythonVersions}
+          selectedPythonPath={selectedPythonPath}
+          onSelectPythonPath={onSelectPythonPath}
+          kernelLanguage={kernelLanguage}
+          setKernelLanguage={setKernelLanguage}
+        />
 
         <TopBarButton
           onClick={onRestartKernel}
