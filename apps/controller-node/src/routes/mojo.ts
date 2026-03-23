@@ -1,16 +1,19 @@
 import { FastifyInstance } from 'fastify';
 import { MojoManager } from '../core/MojoManager.js';
+import { projectStore } from '../core/ProjectStore.js';
 
 const mojoManager = MojoManager.getInstance();
+
+function resolveWorkspaceDir(explicitWorkspaceDir?: string): string {
+  return explicitWorkspaceDir || projectStore.getCurrentProject()?.path || process.cwd();
+}
 
 export async function mojoRoutes(fastify: FastifyInstance) {
   fastify.post('/start', async (request, reply) => {
     try {
       const body = (request.body || {}) as { notebookId?: string; workspaceDir?: string };
       const notebookId = body.notebookId || 'default';
-      // Workspace directory must exist on the host and be mounted into the container.
-      // If not provided, fallback to current process cwd.
-      const workspaceDir = body.workspaceDir || process.cwd();
+      const workspaceDir = resolveWorkspaceDir(body.workspaceDir);
 
       await mojoManager.startNotebook(notebookId, workspaceDir);
       return { status: 'started', notebookId };
@@ -40,8 +43,7 @@ export async function mojoRoutes(fastify: FastifyInstance) {
       const notebookId = body.notebookId || 'default';
       const code = body.code || '';
 
-      // Ensure the container is started (and if needed, recreated in CPU-only mode)
-      await mojoManager.startNotebook(notebookId, process.cwd());
+      await mojoManager.startNotebook(notebookId, resolveWorkspaceDir());
 
       const result = await mojoManager.runCell(notebookId, code);
       return result;

@@ -1,11 +1,14 @@
 import { MemorySnapshot } from '../../../../packages/shared-types/memory';
+import { getRuntimeConfig } from '../runtime';
 
 // Controller Client - HTTP interface to FastAPI backend
 // Handles execution, kernel management, and AI requests
 
 // Allow setting the controller URL via environment (Vite) for flexibility in different runtimes.
 // Defaults to localhost:3001 for local development.
-const BASE_URL = (import.meta.env.VITE_CONTROLLER_URL as string) || 'http://127.0.0.1:3001';
+export const CONTROLLER_BASE_URL = getRuntimeConfig().controllerUrl
+  || (import.meta.env.VITE_CONTROLLER_URL as string)
+  || 'http://127.0.0.1:3001';
 
 // Types
 export interface ExecutionRequest {
@@ -100,7 +103,7 @@ export interface ErrorFixRequest {
 
 // HTTP helper
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const url = `${BASE_URL}${path}`;
+  const url = `${CONTROLLER_BASE_URL}${path}`;
   let res: Response;
 
   try {
@@ -181,7 +184,7 @@ export const controllerClient = {
     });
   },
 
-  async startMojo(notebookId: string, workspaceDir: string): Promise<{ status: string }> {
+  async startMojo(notebookId: string, workspaceDir?: string): Promise<{ status: string }> {
     return request('/mojo/start', {
       method: 'POST',
       body: JSON.stringify({ notebookId, workspaceDir }),
@@ -211,7 +214,7 @@ export const controllerClient = {
   ): () => void {
     const abortController = new AbortController();
 
-    fetch(`${BASE_URL}/execution/run_cell_stream`, {
+    fetch(`${CONTROLLER_BASE_URL}/execution/run_cell_stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -327,7 +330,7 @@ export const controllerClient = {
     },
     signal?: AbortSignal
   ): Promise<void> {
-    const res = await fetch(`${BASE_URL}/ai/assist/stream`, {
+    const res = await fetch(`${CONTROLLER_BASE_URL}/ai/assist/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -448,7 +451,7 @@ export const controllerClient = {
     formData.append('file', file);
     formData.append('destination', destination);
 
-    const res = await fetch(`${BASE_URL}/files/upload`, {
+    const res = await fetch(`${CONTROLLER_BASE_URL}/files/upload`, {
       method: 'POST',
       body: formData,
     });
@@ -467,7 +470,7 @@ export const controllerClient = {
     files.forEach(file => formData.append('files', file));
     formData.append('destination', destination);
 
-    const res = await fetch(`${BASE_URL}/files/upload-multiple`, {
+    const res = await fetch(`${CONTROLLER_BASE_URL}/files/upload-multiple`, {
       method: 'POST',
       body: formData,
     });

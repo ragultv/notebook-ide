@@ -2,6 +2,7 @@ import fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import multipart from '@fastify/multipart';
+import path from 'path';
 import { kernelRoutes } from './routes/kernels.js';
 import { executionRoutes } from './routes/execution.js';
 import { filesRoutes } from './routes/files.js';
@@ -12,6 +13,7 @@ import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { KernelManager } from './core/KernelManager.js';
 import { closeMemoryStore } from './core/ai/MemoryStore.js';
+import { pathToFileURL } from 'url';
 
 const server: FastifyInstance = fastify({
     logger: {
@@ -28,8 +30,12 @@ const server: FastifyInstance = fastify({
     },
 });
 
+let startPromise: Promise<FastifyInstance> | null = null;
+let signalHandlersRegistered = false;
+let isServerStarted = false;
+
 // Graceful shutdown handler
-const gracefulShutdown = async () => {
+const gracefulShutdown = async (shouldExitProcess: boolean) => {
     server.log.info('Shutting down gracefully...');
 
     // Stop all kernels
@@ -46,13 +52,39 @@ const gracefulShutdown = async () => {
     closeMemoryStore();
 
     await server.close();
-    process.exit(0);
+    isServerStarted = false;
+    if (shouldExitProcess) {
+        process.exit(0);
+    }
 };
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+function registerSignalHandlers() {
+    if (signalHandlersRegistered) {
+        return;
+    }
 
-const start = async () => {
+    process.on('SIGTERM', () => {
+        void gracefulShutdown(true);
+    });
+    process.on('SIGINT', () => {
+        void gracefulShutdown(true);
+    });
+
+    signalHandlersRegistered = true;
+}
+
+export const startServer = async (): Promise<FastifyInstance> => {
+    if (isServerStarted) {
+        return server;
+    }
+
+    if (startPromise) {
+        return startPromise;
+    }
+
+    registerSignalHandlers();
+
+    startPromise = (async () => {
     try {
         // Register error handler
         server.setErrorHandler(errorHandler);
@@ -99,12 +131,47 @@ const start = async () => {
         });
 
         await server.listen({ port: config.port, host: config.host });
+        isServerStarted = true;
         server.log.info(`Server listening at http://${config.host}:${config.port}`);
         server.log.info(`Environment: ${config.env}`);
+        return server;
     } catch (err) {
         server.log.error(err);
-        process.exit(1);
+        throw err;
+    }
+    })();
+
+    try {
+        return await startPromise;
+    } catch (error) {
+        startPromise = null;
+        throw error;
     }
 };
 
-start();
+export const stopServer = async (): Promise<void> => {
+    if (!isServerStarted) {
+        return;
+    }
+
+    await gracefulShutdown(false);
+    startPromise = null;
+    isServerStarted = false;
+};
+
+function isEntryPoint(moduleUrl: string): boolean {
+    const entryArg = process.argv[1];
+    if (!entryArg) {
+        return false;
+    }
+
+    const resolvedEntry = path.resolve(entryArg);
+    return pathToFileURL(resolvedEntry).href === moduleUrl;
+}
+
+if (isEntryPoint(import.meta.url)) {
+    void startServer().catch((err) => {
+        server.log.error(err);
+        process.exit(1);
+    });
+}

@@ -5,6 +5,7 @@ import fs from 'fs-extra';
 import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { runtimePaths } from '../runtimePaths.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -55,15 +56,9 @@ export class PythonWorker extends EventEmitter {
             this.pythonPath = this.findAvailablePython();
         }
 
-        // Path resolution that works from both src/ and dist/
-        // When running from dist/core/PythonWorker.js, __dirname is dist/core
-        // We need to go: dist/core -> dist -> controller-node -> notebook-ide root -> kernel-python
         const possiblePaths = [
-            // From dist/core/PythonWorker.js: dist/core -> dist -> controller-node -> .. -> kernel-python
+            path.join(runtimePaths.kernelPythonDir, 'worker_entry.py'),
             path.resolve(__dirname, '../../../kernel-python/worker_entry.py'),
-            // From src/core/PythonWorker.ts (development with tsx)
-            path.resolve(__dirname, '../../../kernel-python/worker_entry.py'),
-            // Fallback from controller-node root
             path.resolve(process.cwd(), '../kernel-python/worker_entry.py'),
         ];
 

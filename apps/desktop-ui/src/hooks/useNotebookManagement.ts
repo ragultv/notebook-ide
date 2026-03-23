@@ -177,6 +177,7 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
       const notebookData: NotebookFile = {
         id: activeFile.id,
         name: activeFile.name,
+        path: activeFile.path,
         cells: activeFile.cells.map(cell => ({
           id: cell.id,
           type: cell.type,
@@ -186,7 +187,15 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
         })),
       };
 
-      await filesystemClient.saveNotebook(notebookData);
+      const savedNotebook = await filesystemClient.saveNotebook(notebookData);
+      setFiles(prev => prev.map(file => (
+        file.id === activeFile.id
+          ? { ...file, path: savedNotebook.path ?? file.path }
+          : file
+      )));
+      if (savedNotebook.path) {
+        setCurrentNotebookPath(savedNotebook.path);
+      }
       setHasUnsavedChanges(false);
     } catch (error) {
       console.error('Failed to save file:', error);

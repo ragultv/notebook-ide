@@ -1,7 +1,8 @@
 import fs from 'fs-extra';
 import path from 'path';
+import { runtimePaths } from '../runtimePaths.js';
 
-const STORE_FILE = path.resolve('./data/projects.json');
+const STORE_FILE = path.join(runtimePaths.dataDir, 'projects.json');
 
 export interface ProjectInfo {
     path: string;

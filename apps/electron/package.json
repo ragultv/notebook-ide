@@ -1,0 +1,75 @@
+{
+  "name": "notebook-ide-electron",
+  "private": true,
+  "version": "1.0.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev:controller\" \"npm run dev:ui\" \"npm run dev:electron\"",
+    "dev:controller": "npm --prefix ../controller-node run dev",
+    "dev:ui": "npm --prefix ../desktop-ui run dev",
+    "dev:electron": "npm run build:main && wait-on tcp:3000 tcp:3001 && electron .",
+    "build:controller": "npm --prefix ../controller-node run build",
+    "build:ui": "npm --prefix ../desktop-ui run build",
+    "build:main": "tsc -p tsconfig.json",
+    "build": "npm run build:controller && npm run build:ui && npm run build:main",
+    "dist:win": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "controller-node": "file:../controller-node"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "concurrently": "latest",
+    "electron": "^39.8.3",
+    "electron-builder": "latest",
+    "typescript": "latest",
+    "wait-on": "latest"
+  },
+  "build": {
+    "appId": "com.oprel.notebookide",
+    "productName": "Oprel Notebook IDE",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/**/*.node"
+    ],
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../desktop-ui/dist",
+        "to": "app-resources/desktop-ui"
+      },
+      {
+        "from": "../kernel-python",
+        "to": "app-resources/kernel-python"
+      },
+      {
+        "from": "../mojo",
+        "to": "app-resources/mojo"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    }
+  },
+  "description": "Electron desktop packaging for Oprel Notebook IDE",
+  "author": "Oprel"
+}

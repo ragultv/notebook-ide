@@ -1,8 +1,6 @@
-// Filesystem Client - Local file operations for desktop app
-// Uses the backend API for reliable saving (no browser gesture restriction).
-// File System Access API is used ONLY for open-file (which IS from a user click).
-
 import { v4 as uuidv4 } from 'uuid';
+import { CONTROLLER_BASE_URL } from './controller.client';
+import { isElectronRuntime } from '../runtime';
 
 export interface NotebookFile {
   id: string;
@@ -18,8 +16,6 @@ export interface NotebookFile {
   }>;
 }
 
-// ── .ipynb serialisation ──────────────────────────────────────────────────────
-
 function toIpynbFormat(notebook: NotebookFile): object {
   return {
     nbformat: 4,
@@ -31,23 +27,27 @@ function toIpynbFormat(notebook: NotebookFile): object {
         name: 'python3',
       },
     },
-    cells: notebook.cells.map(cell => ({
+    cells: notebook.cells.map((cell) => ({
       cell_type: cell.type,
       id: cell.id,
       metadata: {},
-      source: cell.content.split('\n').map((line, i, arr) =>
-        i < arr.length - 1 ? line + '\n' : line
-      ),
-      ...(cell.type === 'code' ? {
-        execution_count: cell.executionCount ?? null,
-        outputs: cell.output ? [{
-          output_type: 'stream',
-          name: 'stdout',
-          text: cell.output.split('\n').map((line, i, arr) =>
-            i < arr.length - 1 ? line + '\n' : line
-          ),
-        }] : [],
-      } : {}),
+      source: cell.content.split('\n').map((line, index, lines) => (
+        index < lines.length - 1 ? `${line}\n` : line
+      )),
+      ...(cell.type === 'code'
+        ? {
+            execution_count: cell.executionCount ?? null,
+            outputs: cell.output
+              ? [{
+                  output_type: 'stream',
+                  name: 'stdout',
+                  text: cell.output.split('\n').map((line, index, lines) => (
+                    index < lines.length - 1 ? `${line}\n` : line
+                  )),
+                }]
+              : [],
+          }
+        : {}),
     })),
   };
 }
@@ -71,12 +71,8 @@ function fromIpynbFormat(data: any, name: string, handle?: FileSystemFileHandle)
   };
 }
 
-// ── Backend-based save (no user-gesture requirement) ─────────────────────────
-
-const BACKEND_URL = 'http://localhost:8000';
-
 async function saveViaBackend(path: string, content: string): Promise<void> {
-  const res = await fetch(`${BACKEND_URL}/files/save`, {
+  const res = await fetch(`${CONTROLLER_BASE_URL}/files/save`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content }),
@@ -87,30 +83,34 @@ async function saveViaBackend(path: string, content: string): Promise<void> {
   }
 }
 
-// ── Download fallback for "Save As" when backend path is unknown ──────────────
-
 function downloadAsFile(filename: string, content: string) {
   const blob = new Blob([content], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  // Must be in the DOM briefly for Firefox
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
 export const filesystemClient = {
-  /**
-   * Open a .ipynb file via the File System Access API picker.
-   * This IS triggered by a user click so no gesture restriction applies.
-   */
   async openNotebook(): Promise<NotebookFile | null> {
     try {
+      if (isElectronRuntime()) {
+        const payload = await window.electronAPI?.openNotebook?.();
+        if (!payload) {
+          return null;
+        }
+
+        const data = JSON.parse(payload.content);
+        return {
+          ...fromIpynbFormat(data, payload.name),
+          path: payload.path,
+        };
+      }
+
       // @ts-ignore - File System Access API
       const [handle] = await window.showOpenFilePicker({
         types: [{
@@ -124,65 +124,72 @@ export const filesystemClient = {
       const text = await file.text();
       const data = JSON.parse(text);
       return fromIpynbFormat(data, file.name, handle);
-    } catch (e: any) {
-      if (e.name === 'AbortError') return null;
-      console.error('Error opening notebook:', e);
-      throw e;
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        return null;
+      }
+      console.error('Error opening notebook:', error);
+      throw error;
     }
   },
 
-  /**
-   * Save notebook.
-   *
-   * Strategy (in order):
-   *  1. If we have a `path` from the backend filesystem → save via backend API
-   *     (works from auto-save timers, no user gesture needed).
-   *  2. If we have a FileSystemFileHandle → write through it (user already granted).
-   *  3. Otherwise → trigger a browser <a download> to let the user download the file.
-   *     We do NOT call showSaveFilePicker here because it requires a user gesture and
-   *     would fail when called from auto-save.
-   */
   async saveNotebook(notebook: NotebookFile): Promise<NotebookFile> {
     const content = JSON.stringify(toIpynbFormat(notebook), null, 2);
 
-    // ── Option 1: backend path is known (opened via file explorer) ──
+    if (isElectronRuntime()) {
+      if (notebook.path) {
+        const saved = await window.electronAPI?.saveNotebook?.({ path: notebook.path, content });
+        if (!saved?.path) {
+          throw new Error('Failed to save notebook through Electron runtime');
+        }
+        return { ...notebook, path: saved.path };
+      }
+
+      const saved = await window.electronAPI?.saveNotebookAs?.({
+        suggestedName: notebook.name,
+        content,
+      });
+      return saved?.path ? { ...notebook, path: saved.path } : notebook;
+    }
+
     if (notebook.path) {
       try {
         await saveViaBackend(notebook.path, content);
         return notebook;
-      } catch (e) {
-        console.warn('Backend save failed, trying handle fallback:', e);
+      } catch (error) {
+        console.warn('Backend save failed, trying handle fallback:', error);
       }
     }
 
-    // ── Option 2: File System Access API handle is available ──
     if (notebook.handle) {
       try {
         const writable = await (notebook.handle as any).createWritable();
         await writable.write(content);
         await writable.close();
         return notebook;
-      } catch (e: any) {
-        if (e.name === 'AbortError') return notebook;
-        console.warn('Handle write failed, falling back to download:', e);
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          return notebook;
+        }
+        console.warn('Handle write failed, falling back to download:', error);
       }
     }
 
-    // ── Option 3: No path/handle — download the file ──
-    // This works from ANY context (user gesture or timer) because we're not
-    // calling showSaveFilePicker.
     downloadAsFile(notebook.name, content);
     return notebook;
   },
 
-  /**
-   * Save As — always triggers a fresh download so the user can pick a location.
-   * Called only from "Save As" menu items which come from user clicks.
-   */
   async saveNotebookAs(notebook: NotebookFile): Promise<NotebookFile> {
     const content = JSON.stringify(toIpynbFormat(notebook), null, 2);
 
-    // Try showSaveFilePicker first (only works from user gesture, which "Save As" is)
+    if (isElectronRuntime()) {
+      const saved = await window.electronAPI?.saveNotebookAs?.({
+        suggestedName: notebook.name,
+        content,
+      });
+      return saved?.path ? { ...notebook, path: saved.path } : notebook;
+    }
+
     if ('showSaveFilePicker' in window) {
       try {
         // @ts-ignore
@@ -197,20 +204,20 @@ export const filesystemClient = {
         await writable.write(content);
         await writable.close();
         return { ...notebook, handle };
-      } catch (e: any) {
-        if (e.name === 'AbortError') return notebook; // user cancelled
-        // Fall through to download approach
-        console.warn('showSaveFilePicker failed:', e);
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          return notebook;
+        }
+        console.warn('showSaveFilePicker failed:', error);
       }
     }
 
-    // Fallback: download
     downloadAsFile(notebook.name, content);
     return notebook;
   },
 
   isSupported(): boolean {
-    return 'showOpenFilePicker' in window;
+    return isElectronRuntime() || 'showOpenFilePicker' in window;
   },
 
   exportToJson(notebook: NotebookFile): string {
