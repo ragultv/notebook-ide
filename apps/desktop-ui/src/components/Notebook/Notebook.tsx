@@ -7,6 +7,7 @@ import { CellData, CellStatus, CellOutput } from '../../types';
 interface NotebookProps {
   notebookId: string;
   notebookName: string;
+  language?: string;
   cells: CellData[];
   setCells: React.Dispatch<React.SetStateAction<CellData[]>>;
   activeCellId: string | null;
@@ -17,6 +18,7 @@ interface NotebookProps {
 export const Notebook: React.FC<NotebookProps> = ({
   notebookId,
   notebookName,
+  language = 'python',
   cells,
   setCells,
   activeCellId,
@@ -116,6 +118,7 @@ export const Notebook: React.FC<NotebookProps> = ({
               index={index}
               notebookId={notebookId}
               notebookName={notebookName}
+              language={language}
               isActive={activeCellId === cell.id}
               onActivate={() => setActiveCellId(cell.id)}
               onDeactivate={() => setActiveCellId(null)}

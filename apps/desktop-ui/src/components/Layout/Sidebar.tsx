@@ -182,9 +182,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // ── File import ───────────────────────────────────────────────────────────────
   const handleUploadClick = () => fileInputRef.current?.click();
 
-  const parseIpynb = (content: string): CellData[] => {
+  const parseIpynb = (content: string, rawJson?: any): CellData[] => {
     try {
-      const json = JSON.parse(content);
+      const json = rawJson || JSON.parse(content);
       if (!json.cells || !Array.isArray(json.cells)) return [];
       return json.cells.map((c: any) => {
         const rawSource = c.source;
@@ -207,6 +207,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } catch { return []; }
   };
 
+  const parseIpynbLanguage = (content: string): 'python' | 'julia' => {
+    try {
+      const json = JSON.parse(content);
+      const lang = json.metadata?.kernelspec?.language;
+      return lang === 'julia' ? 'julia' : 'python';
+    } catch { return 'python'; }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.length) {
       const uploaded = Array.from(e.target.files) as File[];
@@ -214,8 +222,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       for (const f of uploaded) {
         const isNotebook = f.name.endsWith('.ipynb');
         let cells: CellData[] | undefined;
-        if (isNotebook) { try { cells = parseIpynb(await f.text()); } catch { } }
-        newFiles.push({ id: uuidv4(), name: f.name, type: f.type || (isNotebook ? 'application/json' : 'text/plain'), file: f, cells });
+        let language: 'python' | 'julia' | undefined;
+        if (isNotebook) {
+          try {
+            const text = await f.text();
+            cells = parseIpynb(text);
+            language = parseIpynbLanguage(text);
+          } catch { }
+        }
+        newFiles.push({ id: uuidv4(), name: f.name, type: f.type || (isNotebook ? 'application/json' : 'text/plain'), file: f, cells, language });
       }
       onImportFiles(newFiles);
     }

@@ -9,6 +9,7 @@ export interface NotebookFile {
   name: string;
   path?: string;
   handle?: FileSystemFileHandle;
+  language?: 'python' | 'julia';
   cells: Array<{
     id: string;
     type: 'code' | 'markdown';
@@ -21,15 +22,15 @@ export interface NotebookFile {
 // ── .ipynb serialisation ──────────────────────────────────────────────────────
 
 function toIpynbFormat(notebook: NotebookFile): object {
+  const language = notebook.language || 'python';
+  const isJulia = language === 'julia';
   return {
     nbformat: 4,
     nbformat_minor: 5,
     metadata: {
-      kernelspec: {
-        display_name: 'Python 3',
-        language: 'python',
-        name: 'python3',
-      },
+      kernelspec: isJulia
+        ? { display_name: 'Julia', language: 'julia', name: 'julia-1.x' }
+        : { display_name: 'Python 3', language: 'python', name: 'python3' },
     },
     cells: notebook.cells.map(cell => ({
       cell_type: cell.type,
@@ -63,10 +64,15 @@ function fromIpynbFormat(data: any, name: string, handle?: FileSystemFileHandle)
     executionCount: cell.execution_count ?? null,
   }));
 
+  // Detect language from kernelspec metadata (defaults to 'python' for compatibility)
+  const kernelLang: string = data.metadata?.kernelspec?.language || 'python';
+  const language: 'python' | 'julia' = kernelLang === 'julia' ? 'julia' : 'python';
+
   return {
     id: uuidv4(),
     name,
     handle,
+    language,
     cells: cells.length > 0 ? cells : [{ id: uuidv4(), type: 'code', content: '' }],
   };
 }

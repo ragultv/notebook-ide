@@ -58,7 +58,7 @@ const App: React.FC = () => {
   const notebook = useNotebookManagement(defaultFileId);
   const tabs = useTabManagement(notebook.files, notebook.activeFileId, notebook.setActiveFileId);
   const cells = useCellOperations(notebook.activeCells, notebook.updateActiveNotebookCells);
-  const kernel = useKernelManagement(notebook.activeFileId);
+  const kernel = useKernelManagement(notebook.activeFileId, notebook.activeFile);
   const fileExplorer = useFileExplorer(
     notebook.files,
     notebook.setFiles,

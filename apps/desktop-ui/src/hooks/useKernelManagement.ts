@@ -1,7 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { controllerClient } from '../services/controller.client';
 import { useUIStore, RuntimeType } from '../store/ui.store';
-import { CellData } from '../types';
+import { CellData, ProjectFile } from '../types';
 
 interface UseKernelManagementReturn {
   handleConnectKernel: (runtime: RuntimeType) => Promise<void>;
@@ -9,7 +9,7 @@ interface UseKernelManagementReturn {
   handleRunAll: (cells: CellData[], updateCells: (cells: CellData[]) => void) => Promise<void>;
 }
 
-export const useKernelManagement = (activeFileId: string | null): UseKernelManagementReturn => {
+export const useKernelManagement = (activeFileId: string | null, activeFile?: ProjectFile): UseKernelManagementReturn => {
   const {
     setKernelStatus, setKernelId, setKernelMetrics,
     clearKernelMetrics, setRuntimeType, recordMetricSnapshot, runtimeType
@@ -57,26 +57,27 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
     try {
       setRuntimeType(runtime);
       setKernelStatus('connecting');
-      // The backend kernel will use the selected runtime for all subsequent cell runs
-      await controllerClient.startKernel();
+      const language = activeFile?.language || 'python';
+      await controllerClient.startKernel(activeFileId || undefined, language);
       setKernelId('default');
       setKernelStatus('idle');
     } catch (error) {
       console.error('Failed to connect kernel:', error);
       setKernelStatus('disconnected');
     }
-  }, [setKernelStatus, setKernelId, setRuntimeType]);
+  }, [setKernelStatus, setKernelId, setRuntimeType, activeFileId, activeFile]);
 
   const handleRestartKernel = useCallback(async () => {
     try {
       setKernelStatus('busy');
-      await controllerClient.restartKernel();
+      const language = activeFile?.language || 'python';
+      await controllerClient.restartKernel(activeFileId || undefined, language);
       setKernelStatus('idle');
     } catch (error) {
       console.error('Failed to restart kernel:', error);
       setKernelStatus('disconnected');
     }
-  }, [setKernelStatus]);
+  }, [setKernelStatus, activeFileId, activeFile]);
 
   const handleRunAll = useCallback(async (cells: CellData[], updateCells: (cells: CellData[]) => void) => {
     const codeCells = cells.filter(c => c.type === 'code' && c.content.trim());

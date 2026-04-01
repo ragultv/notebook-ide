@@ -1,18 +1,23 @@
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { PythonWorker, ExecutionResult } from './PythonWorker.js';
+import { JuliaWorker } from './JuliaWorker.js';
 import { TerminalWorker } from './TerminalWorker.js';
+
+export type KernelLanguage = 'python' | 'julia';
 
 export interface KernelInfo {
     id: string;
     status: 'idle' | 'busy' | 'error' | 'starting';
     executionCount: number;
+    language: KernelLanguage;
 }
 
 interface InternalKernelState {
-    worker: PythonWorker;
+    worker: PythonWorker | JuliaWorker;
     info: KernelInfo;
     notebookId: string;
+    language: KernelLanguage;
     activeTerminal?: TerminalWorker;
 }
 
@@ -31,21 +36,24 @@ export class KernelManager extends EventEmitter {
         return KernelManager.instance;
     }
 
-    public async startKernel(notebookId: string): Promise<KernelInfo> {
+    public async startKernel(notebookId: string, language: KernelLanguage = 'python'): Promise<KernelInfo> {
         if (this.kernels.has(notebookId)) {
             return this.kernels.get(notebookId)!.info;
         }
 
-        const worker = new PythonWorker(notebookId);
+        const worker: PythonWorker | JuliaWorker =
+            language === 'julia' ? new JuliaWorker(notebookId) : new PythonWorker(notebookId);
         const kernelId = uuidv4();
 
         const state: InternalKernelState = {
             worker,
             notebookId,
+            language,
             info: {
                 id: kernelId,
                 status: 'starting',
-                executionCount: 0
+                executionCount: 0,
+                language,
             }
         };
 
@@ -72,12 +80,12 @@ export class KernelManager extends EventEmitter {
         }
     }
 
-    public async executeCode(notebookId: string, code: string, onStream?: (streamEvent: any) => void): Promise<ExecutionResult> {
+    public async executeCode(notebookId: string, code: string, onStream?: (streamEvent: any) => void, language: KernelLanguage = 'python'): Promise<ExecutionResult> {
         let state = this.kernels.get(notebookId);
 
         if (!state) {
-            // Auto-start kernel if not running
-            await this.startKernel(notebookId);
+            // Auto-start kernel; use supplied language (defaults to 'python' for backward compat)
+            await this.startKernel(notebookId, language);
             state = this.kernels.get(notebookId)!;
         }
 

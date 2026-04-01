@@ -309,6 +309,44 @@ export async function filesRoutes(fastify: FastifyInstance) {
         }
     });
 
+    // ── POST /files/notebook/create ─────────────────────────────────────────
+    // Creates a new blank .ipynb file on disk with the given language kernelspec.
+    fastify.post('/notebook/create', async (request, reply) => {
+        const { path: notebookPath, language } = request.body as { path: string; language?: string };
+        if (!notebookPath) return reply.code(400).send({ error: 'path is required' });
+        // Resolve and normalise path to prevent directory traversal
+        const resolvedPath = path.resolve(notebookPath);
+        // Ensure the path has a .ipynb extension (additional safety check)
+        if (!resolvedPath.endsWith('.ipynb')) {
+            return reply.code(400).send({ error: 'path must end with .ipynb' });
+        }
+        try {
+            const isJulia = language === 'julia';
+            const kernelspec = isJulia
+                ? { display_name: 'Julia', language: 'julia', name: 'julia-1.x' }
+                : { display_name: 'Python 3', language: 'python', name: 'python3' };
+            const starterNotebook = {
+                nbformat: 4,
+                nbformat_minor: 5,
+                metadata: { kernelspec },
+                cells: [{
+                    cell_type: 'code',
+                    id: 'starter-cell',
+                    metadata: {},
+                    source: [isJulia ? '# Welcome to your new Julia notebook\n' : '# Welcome to your new notebook\n'],
+                    execution_count: null,
+                    outputs: [],
+                }],
+            };
+            await fs.ensureDir(path.dirname(resolvedPath));
+            await fs.writeJson(resolvedPath, starterNotebook, { spaces: 2 });
+            const stats = await fs.stat(resolvedPath);
+            return { status: 'created', path: resolvedPath, language: language || 'python', size: stats.size };
+        } catch (error: any) {
+            return reply.code(500).send({ error: error.message });
+        }
+    });
+
     // ── POST /files/notebook/save ────────────────────────────────────────────
     // Writes notebook JSON to the REAL .ipynb file on disk.
     fastify.post('/notebook/save', async (request, reply) => {

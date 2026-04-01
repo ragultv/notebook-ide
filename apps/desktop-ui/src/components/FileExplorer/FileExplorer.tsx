@@ -269,10 +269,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onFileSelect, onProj
     }
   };
 
-  const handleCreateNotebook = async (parentPath: string) => {
+  const handleCreateNotebook = async (parentPath: string, language: 'python' | 'julia' = 'python') => {
     setContextMenu(null);
     const result = await showDialog({
-      title: 'New Notebook',
+      title: language === 'julia' ? 'New Julia Notebook' : 'New Notebook',
       fields: [{ id: 'name', label: 'Notebook name', placeholder: 'analysis', defaultValue: 'Untitled' }],
       confirmLabel: 'Create',
     });
@@ -281,10 +281,19 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onFileSelect, onProj
     const name = rawName.endsWith('.ipynb') ? rawName : `${rawName}.ipynb`;
     const sep = parentPath.includes('/') ? '/' : '\\';
     const filePath = `${parentPath}${sep}${name}`;
+    const isJulia = language === 'julia';
     const starter = {
       nbformat: 4, nbformat_minor: 5,
-      metadata: { kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' } },
-      cells: [{ cell_type: 'code', id: 'init', metadata: {}, source: ['# New notebook\n'], execution_count: null, outputs: [] }],
+      metadata: {
+        kernelspec: isJulia
+          ? { display_name: 'Julia', language: 'julia', name: 'julia-1.x' }
+          : { display_name: 'Python 3', language: 'python', name: 'python3' },
+      },
+      cells: [{
+        cell_type: 'code', id: 'init', metadata: {},
+        source: [isJulia ? '# New Julia notebook\n' : '# New notebook\n'],
+        execution_count: null, outputs: [],
+      }],
     };
     try {
       await controllerClient.saveNotebook(filePath, starter);
@@ -504,7 +513,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onFileSelect, onProj
               </button>
               <button onClick={() => handleCreateNotebook(contextMenu.path)}
                 className="w-full px-3 py-1.5 text-left text-xs hover:bg-white/5 text-gray-300 flex items-center gap-2 transition-colors">
-                <FileCode2 className="w-3.5 h-3.5 text-orange-400" /> New Notebook
+                <FileCode2 className="w-3.5 h-3.5 text-orange-400" /> New Python Notebook
+              </button>
+              <button onClick={() => handleCreateNotebook(contextMenu.path, 'julia')}
+                className="w-full px-3 py-1.5 text-left text-xs hover:bg-white/5 text-gray-300 flex items-center gap-2 transition-colors">
+                <FileCode2 className="w-3.5 h-3.5 text-purple-400" /> New Julia Notebook
               </button>
               <div className="border-t border-[#3a3a3c] my-1" />
             </>
