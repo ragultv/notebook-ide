@@ -12,6 +12,7 @@ interface CellProps {
   index: number;
   notebookId: string;
   notebookName: string;
+  language?: string;
   isActive: boolean;
   onActivate: () => void;
   onDeactivate?: () => void;
@@ -101,6 +102,7 @@ const GutterRunIcon: React.FC<{ lineNum: number; currentLine: number | null; isR
 
 export const Cell: React.FC<CellProps> = ({
   cell, index, notebookId, notebookName,
+  language = 'python',
   isActive, onActivate, onDeactivate,
   onUpdate, onOutputUpdate,
   onDelete, onMoveUp, onMoveDown, onMove,
@@ -429,6 +431,7 @@ export const Cell: React.FC<CellProps> = ({
             onActivate={onActivate}
             notebookId={notebookId}
             isActive={isActive}
+            language={language}
             allCells={allCells}
             cellIndex={index}
           />

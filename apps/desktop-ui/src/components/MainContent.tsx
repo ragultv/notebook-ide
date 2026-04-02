@@ -85,6 +85,7 @@ export const MainContent: React.FC<MainContentProps> = ({
           <Notebook
             notebookId={activeFile.id}
             notebookName={activeFile.name}
+            language={activeFile.language || 'python'}
             cells={activeCells}
             setCells={updateCells}
             activeCellId={activeCellId}

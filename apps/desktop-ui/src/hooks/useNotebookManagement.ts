@@ -151,6 +151,7 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
         const projectFile: ProjectFile = {
           ...file,
           type: 'application/x-ipynb+json',
+          language: file.language,
           cells: file.cells.map(cell => ({
             ...cell,
             status: 'idle' as const,
@@ -177,6 +178,7 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
       const notebookData: NotebookFile = {
         id: activeFile.id,
         name: activeFile.name,
+        language: activeFile.language,
         cells: activeFile.cells.map(cell => ({
           id: cell.id,
           type: cell.type,

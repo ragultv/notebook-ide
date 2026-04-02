@@ -1,0 +1,10 @@
+name = "KernelJulia"
+uuid = "984419e1-f443-4bdc-8702-461edebf0ddc"
+version = "0.1.0"
+
+[deps]
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+
+[compat]
+julia = "1.6"
+JSON = "0.21"

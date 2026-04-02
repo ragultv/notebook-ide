@@ -2,6 +2,8 @@ import { CellData } from './cell.types';
 
 export type FileType = 'notebook' | 'image' | 'data' | 'other' | 'settings' | 'visualization';
 
+export type NotebookLanguage = 'python' | 'julia';
+
 export interface ProjectFile {
   id: string;
   name: string;
@@ -9,6 +11,7 @@ export interface ProjectFile {
   file?: File;
   cells?: CellData[];
   path?: string;
+  language?: NotebookLanguage;
 }
 
 export interface Tab {

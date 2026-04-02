@@ -122,16 +122,22 @@ export const controllerClient = {
   },
 
   // Kernel Management
-  async startKernel(): Promise<KernelInfo> {
-    return request('/kernels/start', { method: 'POST' });
+  async startKernel(notebookId?: string, language?: 'python' | 'julia'): Promise<KernelInfo> {
+    return request('/kernels/start', {
+      method: 'POST',
+      body: JSON.stringify({ notebookId, language }),
+    });
   },
 
-  async stopKernel(): Promise<{ status: string }> {
-    return request('/kernels/stop', { method: 'POST' });
+  async stopKernel(notebookId?: string): Promise<{ status: string }> {
+    return request('/kernels/stop', { method: 'POST', body: JSON.stringify({ notebookId }) });
   },
 
-  async restartKernel(): Promise<KernelInfo> {
-    return request('/kernels/restart', { method: 'POST' });
+  async restartKernel(notebookId?: string, language?: 'python' | 'julia'): Promise<KernelInfo> {
+    return request('/kernels/restart', {
+      method: 'POST',
+      body: JSON.stringify({ notebookId, language }),
+    });
   },
 
   async getKernelStatus(): Promise<KernelInfo> {
