@@ -36,7 +36,7 @@ export class KernelManager extends EventEmitter {
         return KernelManager.instance;
     }
 
-    public async startKernel(notebookId: string, language: KernelLanguage = 'python'): Promise<KernelInfo> {
+    public async startKernel(notebookId: string, language: KernelLanguage = 'python', device?: 'cpu' | 'cuda'): Promise<KernelInfo> {
         if (this.kernels.has(notebookId)) {
             return this.kernels.get(notebookId)!.info;
         }
@@ -60,7 +60,7 @@ export class KernelManager extends EventEmitter {
         this.kernels.set(notebookId, state);
 
         try {
-            await worker.start();
+            await worker.start({ device });
             state.info.status = 'idle';
             this.emit('kernel:started', notebookId);
             return state.info;
@@ -80,12 +80,12 @@ export class KernelManager extends EventEmitter {
         }
     }
 
-    public async executeCode(notebookId: string, code: string, onStream?: (streamEvent: any) => void, language: KernelLanguage = 'python'): Promise<ExecutionResult> {
+    public async executeCode(notebookId: string, code: string, onStream?: (streamEvent: any) => void, language: KernelLanguage = 'python', device?: 'cpu' | 'cuda'): Promise<ExecutionResult> {
         let state = this.kernels.get(notebookId);
 
         if (!state) {
-            // Auto-start kernel; use supplied language (defaults to 'python' for backward compat)
-            await this.startKernel(notebookId, language);
+            // Auto-start kernel; use supplied language and device
+            await this.startKernel(notebookId, language, device);
             state = this.kernels.get(notebookId)!;
         }
 
@@ -205,6 +205,18 @@ export class KernelManager extends EventEmitter {
                 }
             }
 
+            // Best-effort GPU memory — system-wide VRAM used (not per-process)
+            let gpuMemoryMb = 0;
+            try {
+                const graphicsData = await si.graphics();
+                const controller = graphicsData.controllers[0];
+                if (controller && controller.memoryUsed != null) {
+                    gpuMemoryMb = controller.memoryUsed; // already in MB
+                }
+            } catch {
+                // GPU metrics unavailable on this platform
+            }
+
             return {
                 notebook_id: notebookId,
                 available: true,
@@ -214,7 +226,7 @@ export class KernelManager extends EventEmitter {
                 memory_percent: procMemMb / sysMemTotalMb,
                 cpu_percent: cpuPercent,
                 disk_mb: diskMb,
-                gpu_memory_mb: 0, // Fallback since node child metrics don't track GPU easily
+                gpu_memory_mb: gpuMemoryMb,
                 system_memory_used_mb: sysMemUsedMb,
                 system_memory_total_mb: sysMemTotalMb
             };

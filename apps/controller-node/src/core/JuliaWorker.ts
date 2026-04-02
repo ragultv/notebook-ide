@@ -11,6 +11,7 @@ const __dirname = dirname(__filename);
 
 interface WorkerConfig {
     max_memory_mb?: number;
+    device?: 'cpu' | 'cuda';
 }
 
 export interface ExecutionResult {

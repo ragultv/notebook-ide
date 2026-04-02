@@ -19,11 +19,12 @@ export async function kernelRoutes(fastify: FastifyInstance) {
     fastify.post('/start', async (request, reply) => {
         try {
             // Body is optional - default to empty object
-            const body = (request.body || {}) as { notebookId?: string; language?: string };
+            const body = (request.body || {}) as { notebookId?: string; language?: string; device?: 'cpu' | 'cuda' };
             const id = body.notebookId || 'default';
             const language: KernelLanguage = body.language === 'julia' ? 'julia' : 'python';
+            const device = body.device || 'cpu';
 
-            const info = await kernelManager.startKernel(id, language);
+            const info = await kernelManager.startKernel(id, language, device);
             return info;
         } catch (error: any) {
             reply.code(500).send({ error: error.message });
@@ -44,12 +45,13 @@ export async function kernelRoutes(fastify: FastifyInstance) {
 
     fastify.post('/restart', async (request, reply) => {
         try {
-            const body = (request.body || {}) as { notebookId?: string; language?: string };
+            const body = (request.body || {}) as { notebookId?: string; language?: string; device?: 'cpu' | 'cuda' };
             const id = body.notebookId || 'default';
             const language: KernelLanguage = body.language === 'julia' ? 'julia' : 'python';
+            const device = body.device || 'cpu';
 
             await kernelManager.stopKernel(id);
-            const info = await kernelManager.startKernel(id, language);
+            const info = await kernelManager.startKernel(id, language, device);
             return info;
         } catch (error: any) {
             reply.code(500).send({ error: error.message });

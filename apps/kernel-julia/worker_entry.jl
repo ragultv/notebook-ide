@@ -217,6 +217,15 @@ function worker_main()
         Dict{String,Any}()
     end
 
+    # Acknowledge device selection from config (e.g. "cpu" or "cuda")
+    # Julia GPU execution uses CUDA.jl directly; users import it in their cells.
+    # We log a hint if GPU was requested but do not block startup.
+    _device = get(_config, "device", "cpu")
+    if _device == "cuda"
+        write_response(Dict("type" => "stream", "stream" => "stderr",
+            "data" => "Julia GPU runtime selected. Use `import CUDA` in your cells to access GPU acceleration via CUDA.jl.\n"))
+    end
+
     # Signal ready to the TypeScript parent process
     write_response(Dict("status" => "ready"))
 

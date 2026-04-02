@@ -7,7 +7,7 @@ import { CellData } from '../../types';
 interface MonacoCellEditorProps {
     value: string;
     onChange: (value: string) => void;
-    onRun: () => void;
+    onRun: (codeOverride?: string) => void;
     onActivate?: () => void;
     notebookId: string;
     isActive: boolean;
@@ -247,8 +247,16 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
             if (onActivate) onActivate();
         });
 
-        // Add command for Shift+Enter to run cell
+        // Add command for Shift+Enter: run selection if text is highlighted, else run whole cell
         editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
+            const selection = editor.getSelection();
+            if (selection && !selection.isEmpty()) {
+                const selectedText = editor.getModel()?.getValueInRange(selection) ?? '';
+                if (selectedText.trim()) {
+                    onRun(selectedText);
+                    return;
+                }
+            }
             onRun();
         });
 

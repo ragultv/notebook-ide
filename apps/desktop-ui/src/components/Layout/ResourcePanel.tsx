@@ -184,17 +184,12 @@ const RuntimeToggle: React.FC = () => {
 
                 {/* GPU option */}
                 <button
-                    disabled
-                    className={`relative flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-colors z-10 text-gray-700 cursor-not-allowed`}
-                    title="GPU Runtime is coming soon"
+                    onClick={() => setRuntimeType('gpu')}
+                    className={`relative flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-colors z-10
+            ${runtimeType === 'gpu' ? 'text-sim-red' : 'text-gray-600 hover:text-gray-400'}`}
                 >
                     <Zap className="w-3.5 h-3.5" />
-                    <span className="flex items-center gap-1.5">
-                        GPU
-                        <span className="text-[9px] bg-[#27272a] text-gray-400 px-1 py-0.5 rounded uppercase font-bold tracking-widest leading-none">
-                            Soon
-                        </span>
-                    </span>
+                    <span>GPU</span>
                 </button>
             </div>
 

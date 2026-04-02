@@ -7,6 +7,7 @@ interface ExecuteBody {
     cellId: string;
     code: string;
     notebookId?: string;
+    device?: 'cpu' | 'cuda';
 }
 
 function transformResult(cellId: string, notebookId: string, result: any) {
@@ -25,10 +26,10 @@ function transformResult(cellId: string, notebookId: string, result: any) {
 export async function executionRoutes(fastify: FastifyInstance) {
     fastify.post('/run_cell', async (request, reply) => {
         try {
-            const { cellId, code, notebookId } = request.body as ExecuteBody;
+            const { cellId, code, notebookId, device } = request.body as ExecuteBody;
             const id = notebookId || 'default';
 
-            const result = await kernelManager.executeCode(id, code);
+            const result = await kernelManager.executeCode(id, code, undefined, 'python', device);
 
             // Transform result to match frontend expectations
             return transformResult(cellId, id, result);
@@ -39,7 +40,7 @@ export async function executionRoutes(fastify: FastifyInstance) {
 
     // Streaming execution
     fastify.post('/run_cell_stream', async (request, reply) => {
-        const { cellId, code, notebookId } = request.body as ExecuteBody;
+        const { cellId, code, notebookId, device } = request.body as ExecuteBody;
         const id = notebookId || 'default';
 
         // Set CORS headers for SSE (required for cross-origin requests)
@@ -57,7 +58,7 @@ export async function executionRoutes(fastify: FastifyInstance) {
             // Start kernel if not running
             const status = kernelManager.getKernelStatus(id);
             if (!status) {
-                await kernelManager.startKernel(id);
+                await kernelManager.startKernel(id, 'python', device);
             }
 
             const result = await kernelManager.executeCode(id, code, (streamEvent) => {
@@ -66,7 +67,7 @@ export async function executionRoutes(fastify: FastifyInstance) {
                     output: streamEvent
                 };
                 reply.raw.write(`data: ${JSON.stringify(outputData)}\n\n`);
-            });
+            }, 'python', device);
 
             // Send complete with transformed result
             const completeData = {

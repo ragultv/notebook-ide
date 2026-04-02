@@ -182,9 +182,10 @@ export const Cell: React.FC<CellProps> = ({
 
   // ── Run ──
 
-  const runCell = async () => {
+  const runCell = async (codeOverride?: string) => {
     if (cell.type === 'markdown') return;
-    if (!cell.content.trim()) return;
+    const codeToRun = codeOverride ?? cell.content;
+    if (!codeToRun.trim()) return;
     if (cancelStreamRef.current) cancelStreamRef.current();
 
     setStreamingChunks([]);
@@ -195,7 +196,7 @@ export const Cell: React.FC<CellProps> = ({
     setKernelStatus('busy');
 
     const cancel = controllerClient.runCellStream(
-      { cellId: cell.id, code: cell.content, notebookId, device },
+      { cellId: cell.id, code: codeToRun, notebookId, device },
       // onOutput — each SSE chunk: append immediately for live streaming
       (output: RichOutput & { line?: number }) => {
         // Backend may optionally send line number hint

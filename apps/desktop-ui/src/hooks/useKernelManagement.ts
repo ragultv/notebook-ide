@@ -58,7 +58,8 @@ export const useKernelManagement = (activeFileId: string | null, activeFile?: Pr
       setRuntimeType(runtime);
       setKernelStatus('connecting');
       const language = activeFile?.language || 'python';
-      await controllerClient.startKernel(activeFileId || undefined, language);
+      const selectedDevice = runtime === 'gpu' ? 'cuda' : 'cpu';
+      await controllerClient.startKernel(activeFileId || undefined, language, selectedDevice);
       setKernelId('default');
       setKernelStatus('idle');
     } catch (error) {
@@ -71,13 +72,13 @@ export const useKernelManagement = (activeFileId: string | null, activeFile?: Pr
     try {
       setKernelStatus('busy');
       const language = activeFile?.language || 'python';
-      await controllerClient.restartKernel(activeFileId || undefined, language);
+      await controllerClient.restartKernel(activeFileId || undefined, language, device);
       setKernelStatus('idle');
     } catch (error) {
       console.error('Failed to restart kernel:', error);
       setKernelStatus('disconnected');
     }
-  }, [setKernelStatus, activeFileId, activeFile]);
+  }, [setKernelStatus, activeFileId, activeFile, device]);
 
   const handleRunAll = useCallback(async (cells: CellData[], updateCells: (cells: CellData[]) => void) => {
     const codeCells = cells.filter(c => c.type === 'code' && c.content.trim());

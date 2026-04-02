@@ -13,6 +13,7 @@ const __dirname = dirname(__filename);
 // Types for communication
 interface WorkerConfig {
     max_memory_mb?: number;
+    device?: 'cpu' | 'cuda';
 }
 
 interface ExecutionRequest {
