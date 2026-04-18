@@ -4,16 +4,18 @@ import { useUIStore, RuntimeType } from '../store/ui.store';
 import { CellData, ProjectFile } from '../types';
 
 interface UseKernelManagementReturn {
-  handleConnectKernel: (runtime: RuntimeType) => Promise<void>;
+  handleConnectKernel: (lang?: 'python' | 'julia') => Promise<void>;
   handleRestartKernel: () => Promise<void>;
+
   handleRunAll: (cells: CellData[], updateCells: (cells: CellData[]) => void) => Promise<void>;
 }
 
 export const useKernelManagement = (activeFileId: string | null, activeFile?: ProjectFile): UseKernelManagementReturn => {
   const {
     setKernelStatus, setKernelId, setKernelMetrics,
-    clearKernelMetrics, setRuntimeType, recordMetricSnapshot, runtimeType
+    clearKernelMetrics, setRuntimeType, recordMetricSnapshot, runtimeType, kernelLanguage
   } = useUIStore();
+
 
   // Derive the compute device from the selected runtime
   // GPU runtime → CUDA (cells run on VRAM), CPU runtime → CPU (cells run on RAM)
@@ -53,11 +55,10 @@ export const useKernelManagement = (activeFileId: string | null, activeFile?: Pr
     return () => clearInterval(interval);
   }, [activeFileId, setKernelMetrics, clearKernelMetrics, recordMetricSnapshot]);
 
-  const handleConnectKernel = useCallback(async (runtime: RuntimeType) => {
+  const handleConnectKernel = useCallback(async (lang?: 'python' | 'julia') => {
     try {
-      setRuntimeType(runtime);
       setKernelStatus('connecting');
-      const language = activeFile?.language || 'python';
+      const language = lang || activeFile?.language || kernelLanguage || 'python';
       await controllerClient.startKernel(activeFileId || undefined, language);
       setKernelId('default');
       setKernelStatus('idle');
@@ -65,19 +66,20 @@ export const useKernelManagement = (activeFileId: string | null, activeFile?: Pr
       console.error('Failed to connect kernel:', error);
       setKernelStatus('disconnected');
     }
-  }, [setKernelStatus, setKernelId, setRuntimeType, activeFileId, activeFile]);
+  }, [setKernelStatus, setKernelId, activeFileId, activeFile, kernelLanguage]);
 
   const handleRestartKernel = useCallback(async () => {
     try {
       setKernelStatus('busy');
-      const language = activeFile?.language || 'python';
+      const language = activeFile?.language || kernelLanguage || 'python';
       await controllerClient.restartKernel(activeFileId || undefined, language);
       setKernelStatus('idle');
     } catch (error) {
       console.error('Failed to restart kernel:', error);
       setKernelStatus('disconnected');
     }
-  }, [setKernelStatus, activeFileId, activeFile]);
+  }, [setKernelStatus, activeFileId, activeFile, kernelLanguage]);
+
 
   const handleRunAll = useCallback(async (cells: CellData[], updateCells: (cells: CellData[]) => void) => {
     const codeCells = cells.filter(c => c.type === 'code' && c.content.trim());
@@ -99,6 +101,7 @@ export const useKernelManagement = (activeFileId: string | null, activeFile?: Pr
           code: cell.content,
           notebookId,
           device,  // ← 'cpu' or 'cuda' — routes execution to RAM or VRAM
+          language: activeFile?.language || kernelLanguage || 'python',
         });
 
         updatedCells[cellIndex] = {

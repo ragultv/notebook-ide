@@ -4,7 +4,11 @@ version = "0.1.0"
 
 [deps]
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+MLJ = "add582a8-e3ab-11e8-2d5e-e98b27df1bc7"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 
 [compat]
-julia = "1.6"
 JSON = "0.21"
+MLJ = "0.23.0"
+Plots = "1.41.6"
+julia = "1.6"

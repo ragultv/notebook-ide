@@ -17,9 +17,11 @@ export interface AppConfig {
     continuation: {
         maxPasses: number;
         // Target maximum completion tokens per pass (soft hint; may not be enforced by all providers)
-        perPassTokens: number;
+    perPassTokens: number;
     };
+    juliaPath: string;
 }
+
 
 export const config: AppConfig = {
     port: parseInt(process.env.PORT || '3001', 10),
@@ -39,4 +41,6 @@ export const config: AppConfig = {
         maxPasses: parseInt(process.env.AI_CONT_MAX_PASSES || '5', 10),
         perPassTokens: parseInt(process.env.AI_CONT_PER_PASS_TOKENS || '1536', 10),
     },
+    juliaPath: process.env.JULIA_PATH || 'julia',
 };
+

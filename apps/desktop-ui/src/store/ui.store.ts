@@ -13,6 +13,8 @@ export interface KernelProcessMetrics {
 }
 
 export type RuntimeType = 'cpu' | 'gpu';
+export type KernelLanguage = 'python' | 'julia';
+
 
 export interface MetricsSnapshot {
   timestamp: number;
@@ -37,7 +39,9 @@ interface UIState {
   // Kernel connection
   kernelStatus: KernelStatus;
   runtimeType: RuntimeType;
+  kernelLanguage: KernelLanguage;
   kernelId: string | null;
+
   executionCount: number;
 
   // Kernel process metrics
@@ -56,7 +60,9 @@ interface UIState {
   clearChatAttachments: () => void;
   setKernelStatus: (status: KernelStatus) => void;
   setRuntimeType: (type: RuntimeType) => void;
+  setKernelLanguage: (lang: KernelLanguage) => void;
   setKernelId: (id: string | null) => void;
+
   incrementExecution: () => number;
   resetExecution: () => void;
   setKernelMetrics: (metrics: Partial<KernelProcessMetrics>) => void;
@@ -72,7 +78,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   chatAttachments: [],
   kernelStatus: 'disconnected',
   runtimeType: 'cpu',
+  kernelLanguage: 'python',
   kernelId: null,
+
   executionCount: 0,
   kernelMetrics: {
     pid: null,
@@ -106,7 +114,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   clearChatAttachments: () => set({ chatAttachments: [] }),
   setKernelStatus: (kernelStatus) => set({ kernelStatus }),
   setRuntimeType: (runtimeType) => set({ runtimeType }),
+  setKernelLanguage: (kernelLanguage) => set({ kernelLanguage }),
   setKernelId: (id: string | null) => set({ kernelId: id }),
+
   incrementExecution: () => {
     const next = get().executionCount + 1;
     set({ executionCount: next });

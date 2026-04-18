@@ -273,9 +273,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onFileSelect, onProj
     setContextMenu(null);
     const result = await showDialog({
       title: language === 'julia' ? 'New Julia Notebook' : 'New Notebook',
-      fields: [{ id: 'name', label: 'Notebook name', placeholder: 'analysis', defaultValue: 'Untitled' }],
+      description: `Creating a .ipynb notebook in ${parentPath}`,
+      fields: [{ id: 'name', label: 'Notebook name', placeholder: 'my_analysis', defaultValue: '' }],
       confirmLabel: 'Create',
     });
+
     const rawName = result?.name?.trim();
     if (!rawName) return;
     const name = rawName.endsWith('.ipynb') ? rawName : `${rawName}.ipynb`;
@@ -426,9 +428,25 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onFileSelect, onProj
           </button>
           {project && (
             <>
+              <button
+                onClick={() => handleCreateNotebook(project.path, 'python')}
+                className="p-1.5 hover:bg-sim-border rounded-md text-orange-400 hover:text-orange-300 transition-colors"
+                title="New Python Notebook"
+              >
+                <FileCode2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => handleCreateNotebook(project.path, 'julia')}
+                className="p-1.5 hover:bg-sim-border rounded-md text-purple-400 hover:text-purple-300 transition-colors"
+                title="New Julia Notebook"
+              >
+                <FileCode2 className="w-3.5 h-3.5" />
+              </button>
+              <div className="w-[1px] h-3 bg-sim-border mx-1" />
               <button onClick={handleUploadFiles} className="p-1.5 hover:bg-sim-border rounded-md text-gray-500 hover:text-gray-200 transition-colors" title="Upload Files">
                 <Upload className="w-3.5 h-3.5" />
               </button>
+
               <button
                 onClick={() => loadProjectFiles(project.path)}
                 className="p-1.5 hover:bg-sim-border rounded-md text-gray-500 hover:text-gray-200 transition-colors"

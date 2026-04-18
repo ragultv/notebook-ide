@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { PythonWorker, ExecutionResult } from './PythonWorker.js';
 import { JuliaWorker } from './JuliaWorker.js';
 import { TerminalWorker } from './TerminalWorker.js';
+import { config } from '../config.js';
+
 
 export type KernelLanguage = 'python' | 'julia';
 
@@ -37,12 +39,21 @@ export class KernelManager extends EventEmitter {
     }
 
     public async startKernel(notebookId: string, language: KernelLanguage = 'python'): Promise<KernelInfo> {
-        if (this.kernels.has(notebookId)) {
-            return this.kernels.get(notebookId)!.info;
+        const existing = this.kernels.get(notebookId);
+        if (existing) {
+            // If the language matches, just return it
+            if (existing.language === language) {
+                return existing.info;
+            }
+            // Language mismatch: Stop the old one to switch
+            console.log(`[KernelManager] Language mismatch for ${notebookId} (${existing.language} -> ${language}). Re-starting...`);
+            await this.stopKernel(notebookId);
         }
 
         const worker: PythonWorker | JuliaWorker =
-            language === 'julia' ? new JuliaWorker(notebookId) : new PythonWorker(notebookId);
+            language === 'julia' ? new JuliaWorker(notebookId, config.juliaPath) : new PythonWorker(notebookId);
+
+
         const kernelId = uuidv4();
 
         const state: InternalKernelState = {

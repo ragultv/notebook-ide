@@ -19,8 +19,9 @@ interface TopBarProps {
   onNewNotebook: (name?: string, cells?: any[], path?: string) => void;
   onOpenFile?: () => void;
   onSaveFile?: () => Promise<void>;
-  onConnectKernel?: (runtime: RuntimeType) => void;
+  onConnectKernel?: (lang: 'python' | 'julia') => void;
   onRestartKernel?: () => void;
+
   onRunAll?: () => void;
   onOpenMemoryMap?: () => void;
   tabs: Tab[];
@@ -159,9 +160,10 @@ const NotebookResourceBar: React.FC = () => {
 
 // ── Runtime Menu (right side of topbar) ───────────────────────────────────────
 
-const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> = ({ onConnect }) => {
+const RuntimeMenu: React.FC<{ onConnect: (lang: 'python' | 'julia') => void }> = ({ onConnect }) => {
   const [open, setOpen] = useState(false);
-  const { runtimeType, kernelStatus, toggleResourcePanel, resourcePanelOpen } = useUIStore();
+  const { kernelLanguage, kernelStatus, toggleResourcePanel, resourcePanelOpen, setKernelLanguage } = useUIStore();
+
   const menuRef = useRef<HTMLDivElement>(null);
 
   const isConnected = kernelStatus === 'idle' || kernelStatus === 'busy';
@@ -182,8 +184,9 @@ const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> = ({ onC
         <div className="flex items-center gap-2 px-3 h-8 bg-[#1e1e20] border border-[#27272a] rounded-xl text-[10px] font-mono text-gray-400">
           <Check className="w-3 h-3 text-green-500" />
           <div className={`w-1.5 h-1.5 rounded-full ${statusColors[kernelStatus]}`} />
-          <span className="uppercase">{runtimeType} · {kernelStatus}</span>
+          <span className="uppercase">{kernelLanguage} · {kernelStatus}</span>
         </div>
+
         {/* Resource Panel toggle */}
         <button
           onClick={toggleResourcePanel}
@@ -226,39 +229,32 @@ const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> = ({ onC
             <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Select Runtime</span>
           </div>
 
-          {(['cpu', 'gpu'] as const).map((type) => {
-            const isGpu = type === 'gpu';
+          {(['python', 'julia'] as const).map((lang) => {
             return (
               <button
-                key={type}
+                key={lang}
                 onClick={() => {
-                  if (!isGpu) {
-                    onConnect(type);
-                    setOpen(false);
-                  }
+                  setKernelLanguage(lang);
+                  onConnect(lang);
+                  setOpen(false);
                 }}
-                disabled={isGpu}
                 className={`w-full flex items-center justify-between px-3 py-2.5 text-xs transition-colors rounded-lg text-left mb-1
-                  ${isGpu ? 'opacity-50 cursor-not-allowed text-gray-400' : 'hover:bg-white/5 text-gray-300'}
-                  ${runtimeType === type && !isGpu ? 'text-sim-red bg-sim-red/5' : ''}`}
+                  hover:bg-white/5 text-gray-300
+                  ${kernelLanguage === lang ? 'text-sim-red bg-sim-red/5' : ''}`}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-4 h-4 flex items-center justify-center">
-                    {runtimeType === type && !isGpu && <Check className="w-3.5 h-3.5" />}
+                    {kernelLanguage === lang && <Check className="w-3.5 h-3.5" />}
                   </div>
-                  <Cpu className={`w-3.5 h-3.5 ${runtimeType === type && !isGpu ? 'text-sim-red' : 'text-gray-500'}`} />
+                  <Cpu className={`w-3.5 h-3.5 ${kernelLanguage === lang ? 'text-sim-red' : 'text-gray-500'}`} />
                   <div className="flex flex-col">
-                    <span className="font-semibold">{type.toUpperCase()} Runtime</span>
+                    <span className="font-semibold">{lang.charAt(0).toUpperCase() + lang.slice(1)} Runtime</span>
                   </div>
                 </div>
-                {isGpu && (
-                  <span className="text-[9px] bg-[#3a3a3c] text-gray-300 px-1.5 py-0.5 rounded uppercase font-bold tracking-widest">
-                    Coming Soon
-                  </span>
-                )}
               </button>
             );
           })}
+
         </div>
       )}
     </div>
@@ -550,7 +546,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       {/* Right: Kernel + Tools */}
       <div className="flex items-center gap-2">
 
-        <RuntimeMenu onConnect={(type) => onConnectKernel?.(type)} />
+        <RuntimeMenu onConnect={(lang) => onConnectKernel?.(lang)} />
 
         <TopBarButton
           onClick={onRestartKernel}

@@ -60,6 +60,11 @@ export class JuliaWorker extends EventEmitter {
     public async start(config: WorkerConfig = {}): Promise<void> {
         if (this.process) return;
 
+        // Resolve absolute path for Julia executable
+        const actualJuliaPath = await this.resolveActualJuliaPath();
+        console.log(`[JuliaWorker] Using Julia executable: ${actualJuliaPath}`);
+
+
         if (!fs.existsSync(this.workerScript)) {
             const error = `Julia worker script not found at ${this.workerScript}`;
             console.error(error);
@@ -69,11 +74,10 @@ export class JuliaWorker extends EventEmitter {
         // Resolve the Project.toml directory for Julia environment management
         const projectDir = path.dirname(this.workerScript);
 
-        console.log(`Starting Julia worker: ${this.juliaPath} --project=${projectDir} ${this.workerScript}`);
-
         this.process = execa(
-            this.juliaPath,
+            actualJuliaPath,
             ['--project=' + projectDir, this.workerScript],
+
             {
                 stdin: 'pipe',
                 stdout: 'pipe',
@@ -285,4 +289,53 @@ export class JuliaWorker extends EventEmitter {
             }, 1000);
         }
     }
+
+    private async resolveActualJuliaPath(): Promise<string> {
+        // If the path is already set to something that looks like an absolute path, check it
+        if (path.isAbsolute(this.juliaPath)) {
+            if (fs.existsSync(this.juliaPath)) return this.juliaPath;
+            // On Windows, if they pointed to a folder, try appending bin/julia.exe
+            if (process.platform === 'win32') {
+                const binPath = path.join(this.juliaPath, 'bin', 'julia.exe');
+                if (fs.existsSync(binPath)) return binPath;
+            }
+        }
+
+        // Auto-discovery logic for Windows if the current juliaPath is just "julia"
+        if (this.juliaPath === 'julia' && process.platform === 'win32') {
+            const userProfile = process.env.USERPROFILE || '';
+            const localAppData = process.env.LOCALAPPDATA || path.join(userProfile, 'AppData', 'Local');
+
+            const candidates = [
+                // 1. Windows Store Alias (often where it lands first)
+                path.join(localAppData, 'Microsoft', 'WindowsApps', 'julia.exe'),
+            ];
+
+            // 2. Discover standard installations in AppData\Local\Programs\Julia-*
+            try {
+                const programsDir = path.join(localAppData, 'Programs');
+                if (fs.existsSync(programsDir)) {
+                    const dirs = await fs.readdir(programsDir);
+                    const juliaDirs = dirs
+                        .filter(d => d.toLowerCase().startsWith('julia-'))
+                        .sort((a, b) => b.localeCompare(a)); // Check newer versions first
+
+                    for (const d of juliaDirs) {
+                        candidates.push(path.join(programsDir, d, 'bin', 'julia.exe'));
+                    }
+                }
+            } catch (e) { /* ignore */ }
+
+            // 3. Program Files
+            candidates.push('C:\\Program Files\\Julia\\bin\\julia.exe');
+
+            for (const c of candidates) {
+                if (fs.existsSync(c)) return c;
+            }
+        }
+
+        // Fallback to the provided string — might be in manual PATH or a full path already
+        return this.juliaPath;
+    }
 }
+

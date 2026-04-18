@@ -11,6 +11,7 @@ export interface ExecutionRequest {
   code: string;
   notebookId: string;  // Required for notebook isolation
   device?: 'cpu' | 'cuda';  // Target compute device for this execution
+  language?: 'python' | 'julia'; // Target kernel language
 }
 
 // Rich output types - like Jupyter

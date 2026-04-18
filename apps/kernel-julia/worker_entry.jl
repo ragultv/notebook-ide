@@ -50,64 +50,89 @@ function write_response(data::Dict)
     end
 end
 
-# ── LiveStream — custom IO that streams output to the IPC channel ─────────────
-
-mutable struct LiveStream <: IO
-    name::String  # "stdout" or "stderr"
-end
-
-Base.iswritable(::LiveStream) = true
-Base.isreadable(::LiveStream) = false
-Base.displaysize(::LiveStream) = (24, 160)
-
-function Base.unsafe_write(io::LiveStream, p::Ptr{UInt8}, nb::UInt)
-    if nb > 0
-        data = unsafe_string(p, nb)
-        write_response(Dict("type" => "stream", "stream" => io.name, "data" => data))
-    end
-    return nb
-end
-
-Base.flush(::LiveStream) = nothing
-
-const _LIVE_STDOUT = LiveStream("stdout")
-const _LIVE_STDERR = LiveStream("stderr")
-
 # ── Code execution ────────────────────────────────────────────────────────────
 
 function execute_with_capture(code_str::String, mod::Module)
     start_time = time()
 
+    # Create pipes to capture the raw stdout/stderr
+    out_pipe = Pipe()
+    err_pipe = Pipe()
+    Base.link_pipe!(out_pipe)
+    Base.link_pipe!(err_pipe)
+
+    # Accumulators for the final response (in case frontend doesn't use streaming)
+    out_accum = IOBuffer()
+    err_accum = IOBuffer()
+
+    # Background tasks to read from pipes and send JSON events
+    out_task = @async begin
+        while !eof(out_pipe)
+            data = readavailable(out_pipe)
+            if !isempty(data)
+                s = String(data)
+                write(out_accum, s)
+                write_response(Dict("type" => "stream", "stream" => "stdout", "data" => s))
+            end
+        end
+    end
+
+    err_task = @async begin
+        while !eof(err_pipe)
+            data = readavailable(err_pipe)
+            if !isempty(data)
+                s = String(data)
+                write(err_accum, s)
+                write_response(Dict("type" => "stream", "stream" => "stderr", "data" => s))
+            end
+        end
+    end
+
     try
         write_response(Dict("type" => "execution_start"))
 
-        # Redirect stdout and stderr to live-streaming IOs for real-time output
-        redirect_stdout(_LIVE_STDOUT) do
-            redirect_stderr(_LIVE_STDERR) do
+        # Redirect stdout and stderr using native pipes
+        redirect_stdout(out_pipe) do
+            redirect_stderr(err_pipe) do
                 include_string(mod, code_str, "<cell>")
             end
         end
+
+        # Close the write ends of the pipes so the reader tasks can finish
+        close(out_pipe.in)
+        close(err_pipe.in)
+
+        # Wait for reader tasks to process remaining data
+        wait(out_task)
+        wait(err_task)
 
         write_response(Dict("type" => "execution_end"))
 
         duration = time() - start_time
         return Dict(
             "status"         => "success",
-            "stdout"         => "",
-            "stderr"         => "",
+            "stdout"         => String(take!(out_accum)),
+            "stderr"         => String(take!(err_accum)),
             "execution_time" => duration,
             "outputs"        => []
         )
     catch e
+        # Close pipes if they are still open
+        isopen(out_pipe.in) && close(out_pipe.in)
+        isopen(err_pipe.in) && close(err_pipe.in)
+
         duration = time() - start_time
 
         err_buf = IOBuffer()
         showerror(err_buf, e, catch_backtrace())
         err_msg = String(take!(err_buf))
 
+        # Also capture any partial stdout gathered before the error
+        partial_stdout = String(take!(out_accum))
+
         return Dict(
             "status"         => "error",
-            "stdout"         => "",
+            "stdout"         => partial_stdout,
             "stderr"         => err_msg,
             "error_details"  => err_msg,
             "execution_time" => duration,

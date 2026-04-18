@@ -2,12 +2,13 @@ import { FastifyInstance } from 'fastify';
 import { KernelManager } from '../core/KernelManager.js';
 
 const kernelManager = KernelManager.getInstance();
-
 interface ExecuteBody {
     cellId: string;
     code: string;
     notebookId?: string;
+    language?: 'python' | 'julia';
 }
+
 
 function transformResult(cellId: string, notebookId: string, result: any) {
     return {
@@ -25,10 +26,11 @@ function transformResult(cellId: string, notebookId: string, result: any) {
 export async function executionRoutes(fastify: FastifyInstance) {
     fastify.post('/run_cell', async (request, reply) => {
         try {
-            const { cellId, code, notebookId } = request.body as ExecuteBody;
+            const { cellId, code, notebookId, language } = request.body as ExecuteBody;
             const id = notebookId || 'default';
 
-            const result = await kernelManager.executeCode(id, code);
+            const result = await kernelManager.executeCode(id, code, undefined, language);
+
 
             // Transform result to match frontend expectations
             return transformResult(cellId, id, result);
@@ -55,12 +57,14 @@ export async function executionRoutes(fastify: FastifyInstance) {
 
         try {
             // Start kernel if not running
+            const { language } = request.body as ExecuteBody;
             const status = kernelManager.getKernelStatus(id);
             if (!status) {
-                await kernelManager.startKernel(id);
+                await kernelManager.startKernel(id, language);
             }
 
             const result = await kernelManager.executeCode(id, code, (streamEvent) => {
+
                 const outputData = {
                     type: 'output',
                     output: streamEvent
