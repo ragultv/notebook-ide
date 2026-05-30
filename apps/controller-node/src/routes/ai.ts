@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { aiService, AIRequest, ErrorFixRequest, GenerateStreamCallbacks } from '../core/ai/AIService.js';
+import { aiService, ErrorFixRequest, GenerateStreamCallbacks } from '../core/ai/AIService.js';
 import { getAllSessions, getAllMessagesForSession, getSessionStats } from '../core/ai/MemoryStore.js';
 import { z } from 'zod';
 
@@ -36,8 +36,10 @@ const ErrorFixRequestSchema = z.object({
 });
 
 export async function aiRoutes(fastify: FastifyInstance) {
-    // AI Assistant endpoint
-    fastify.post('/assist', async (request, reply) => {
+    // AI Assistant endpoint — 60 req/min per IP (LLM calls are expensive)
+    fastify.post('/assist', {
+        config: { rateLimit: { max: 60, timeWindow: 60_000 } },
+    }, async (request, reply) => {
         try {
             const validated = AIRequestSchema.parse(request.body);
             const result = await aiService.generate(
@@ -132,7 +134,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
     });
 
     // Chat history endpoints
-    fastify.get('/chat/sessions', async (request, reply) => {
+    fastify.get('/chat/sessions', async (_request, reply) => {
         try {
             const sessions = getAllSessions();
             // Get message count for each session

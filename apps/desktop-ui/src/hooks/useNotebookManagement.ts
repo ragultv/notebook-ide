@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ProjectFile, CellData } from '../types';
 import { filesystemClient, NotebookFile } from '../services/filesystem.client';
-
-const STORAGE_KEY_NOTEBOOK = 'notebook-ide-current-notebook';
-const AUTO_SAVE_INTERVAL = 30000;
+import { useAutosave } from './useAutosave';
 
 interface UseNotebookManagementReturn {
   files: ProjectFile[];
@@ -17,12 +15,16 @@ interface UseNotebookManagementReturn {
   setHasUnsavedChanges: React.Dispatch<React.SetStateAction<boolean>>;
   activeFile: ProjectFile | undefined;
   activeCells: CellData[];
+  /** P2-3: Autosave state — lastSaved timestamp, isSaving flag, saveNow() */
+  autosave: ReturnType<typeof import('./useAutosave').useAutosave>;
   updateActiveNotebookCells: (cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
   updateNotebookCellsById: (notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
   handleNewNotebook: (nameOrCells?: string | CellData[], initialCells?: CellData[], path?: string) => string | null;
   handleOpenFile: () => Promise<void>;
   handleSaveFile: () => Promise<void>;
 }
+
+const STORAGE_KEY_NOTEBOOK = 'notebook-ide-current-notebook';
 
 export const useNotebookManagement = (defaultFileId: string): UseNotebookManagementReturn => {
   const [files, setFiles] = useState<ProjectFile[]>([
@@ -47,20 +49,25 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
   const activeFile = useMemo(() => files.find(f => f.id === activeFileId), [files, activeFileId]);
   const activeCells = useMemo(() => activeFile?.cells || [], [activeFile]);
 
-  // Note: Auto-loading saved notebook on mount is not possible due to browser security.
-  // File System Access API requires a user gesture to show file picker.
-  // Users must manually open files via the "Open File" button.
+  // P2-3: Debounced autosave — 3-second window after last cell change.
+  // Builds a minimal NotebookFile for the saver from the active ProjectFile.
+  const notebookForAutosave = useMemo<NotebookFile | null>(() => {
+    if (!activeFile) return null;
+    return {
+      id:     activeFile.id,
+      name:   activeFile.name,
+      path:   currentNotebookPath || undefined,
+      cells:  activeCells.map(c => ({
+        id:             c.id,
+        type:           c.type,
+        content:        c.content,
+        output:         c.output,
+        executionCount: c.executionCount ?? null,
+      })),
+    };
+  }, [activeFile, activeCells, currentNotebookPath]);
 
-  // Auto-save
-  useEffect(() => {
-    if (!hasUnsavedChanges || !currentNotebookPath || !activeFile) return;
-
-    const timer = setInterval(() => {
-      handleSaveFile();
-    }, AUTO_SAVE_INTERVAL);
-
-    return () => clearInterval(timer);
-  }, [hasUnsavedChanges, currentNotebookPath, activeFile]);
+  const autosave = useAutosave(notebookForAutosave, activeCells);
 
   // Save notebook path to localStorage
   useEffect(() => {
@@ -207,6 +214,7 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
     setHasUnsavedChanges,
     activeFile,
     activeCells,
+    autosave,
     updateActiveNotebookCells,
     updateNotebookCellsById,
     handleNewNotebook,

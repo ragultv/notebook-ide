@@ -1,4 +1,4 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
+// config.ts — Application configuration. No framework imports required.
 
 export interface AppConfig {
     port: number;

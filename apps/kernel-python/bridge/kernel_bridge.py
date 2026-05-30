@@ -21,6 +21,10 @@ if hasattr(sys.__stdout__, 'reconfigure'):
 if platform.system() == 'Windows':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+# Ensure subprocess output (e.g. !pip install) is unbuffered so lines stream immediately
+os.environ.setdefault('PYTHONUNBUFFERED', '1')
+os.environ.setdefault('PIP_NO_COLOR', '1')
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
@@ -107,9 +111,9 @@ class KernelBridge:
         """
         while self._running:
             try:
-                msg = await self.kc.get_iopub_msg(timeout=0.1)
+                msg = await self.kc.get_iopub_msg(timeout=0.01)
             except Exception:
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.005)
                 continue
 
             msg_type = msg['header']['msg_type']
@@ -345,6 +349,14 @@ class KernelBridge:
         elif cmd == 'get_variables':
             await self.run_introspection(msg['execution_id'])
 
+        elif cmd == 'complete':
+            # P1-2: Tab completion via Jupyter complete_request.
+            await self.run_completion(
+                msg.get('request_id', ''),
+                msg.get('code', ''),
+                msg.get('cursor_pos', len(msg.get('code', '')))
+            )
+
         elif cmd == 'shutdown':
             await self.km.shutdown_kernel()
             send({"type": "shutdown_ack", "notebook_id": self.notebook_id})
@@ -395,14 +407,58 @@ del _n, _v, _e, _vars
             except Exception:
                 await asyncio.sleep(0.01)
 
+    #── P1-2: Code Completion ──────────────────────────────────────────────────
+
+    async def run_completion(self, request_id: str, code: str, cursor_pos: int):
+        """
+        Send a complete_request to the kernel and return the completions to Node.
+
+        Args:
+            request_id (str): Caller-supplied ID so Node can match the response.
+            code (str):       The source code text up to the cursor.
+            cursor_pos (int): The cursor position (character index) within code.
+        """
+        msg_id = self.kc.complete(code, cursor_pos)
+        deadline = asyncio.get_event_loop().time() + 5.0
+
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                # complete_reply comes on the shell channel
+                msg = await self.kc.get_shell_msg(timeout=0.1)
+                if (msg['parent_header'].get('msg_id') == msg_id
+                        and msg['header']['msg_type'] == 'complete_reply'):
+                    content = msg['content']
+                    send({
+                        "type":        "completions",
+                        "notebook_id": self.notebook_id,
+                        "request_id":  request_id,
+                        "matches":     content.get('matches', []),
+                        "cursor_start": content.get('cursor_start', cursor_pos),
+                        "cursor_end":   content.get('cursor_end', cursor_pos),
+                        "metadata":     content.get('metadata', {}),
+                    })
+                    return
+            except Exception:
+                await asyncio.sleep(0.01)
+
+        # Timeout — return empty completions so the editor doesn't hang
+        send({
+            "type":        "completions",
+            "notebook_id": self.notebook_id,
+            "request_id":  request_id,
+            "matches":     [],
+            "cursor_start": cursor_pos,
+            "cursor_end":   cursor_pos,
+        })
+
     #── Heartbeat — Detect dead kernels──────────────────────────────────
-    
+
     async def heartbeat_loop(self, interval: float = 5.0):
         while self._running:
             await asyncio.sleep(interval)
             try:
                 pass
-            except Exception as e:
+            except Exception:
                 send({"type": "kernel_dead", "notebook_id": self.notebook_id})
 
 

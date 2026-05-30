@@ -3,7 +3,6 @@ import { embed, embedMany } from './embeddings.js';
 
 const SPARSE_TOP_N = 15;
 const DENSE_TOP_N = 15;
-const MERGE_TOP_K = 20;
 const AFTER_RERANK = 8;
 const RRF_K = 60; // constant for reciprocal rank fusion
 const CHUNK_MAX_CHARS = 1200;
@@ -183,7 +182,7 @@ export async function retrieve(
     query: string,
     options: RetrievalOptions = {}
 ): Promise<RetrievedChunk[]> {
-    const topK = options.topK ?? MERGE_TOP_K;
+    // options.topK is reserved for future dynamic top-K tuning — currently using fixed constants SPARSE_TOP_N/DENSE_TOP_N
     const afterRerank = options.afterRerank ?? AFTER_RERANK;
 
     const [sparseResults, denseResults] = await Promise.all([

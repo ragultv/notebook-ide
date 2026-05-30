@@ -27,10 +27,13 @@ interface InternalKernelState {
         onOutput: (output: any) => void;
         onComplete: (result: any) => void;
         onError: (error: string) => void;
-        completed: boolean;  // Track if execution has completed
-        timeoutId?: NodeJS.Timeout;  // Track timeout for cleanup
+        completed: boolean;
+        timeoutId?: NodeJS.Timeout;
     }>;
-    inputRequestPending: boolean;  // Track if waiting for user input
+    inputRequestPending: boolean;
+    /** FIFO serial queue — each execution chains onto this promise so cells never
+     *  run concurrently on the same kernel (mirrors Jupyter / Google Colab semantics). */
+    executionQueue: Promise<any>;
 }
 
 export class KernelManager extends EventEmitter {
@@ -76,7 +79,8 @@ export class KernelManager extends EventEmitter {
                 executionCount: 0
             },
             executionCallbacks: new Map(),
-            inputRequestPending: false
+            inputRequestPending: false,
+            executionQueue: Promise.resolve(),
         };
 
         this.kernels.set(notebookId, state);
@@ -195,6 +199,16 @@ export class KernelManager extends EventEmitter {
                 this.emit('kernel:variables', notebookId, msg.data);
                 break;
 
+            case 'completions':
+                // P1-2: route completion reply to getCompletions() promise listener
+                this.emit('kernel:completions', notebookId, {
+                    request_id:   msg.request_id,
+                    matches:      msg.matches,
+                    cursor_start: msg.cursor_start,
+                    cursor_end:   msg.cursor_end,
+                });
+                break;
+
             case 'debug':
                 console.log(`[Bridge ${notebookId}] ${msg.message}`);
                 this.emit('kernel:debug', notebookId, msg.message);
@@ -253,7 +267,7 @@ export class KernelManager extends EventEmitter {
                     this.handleBridgeMessage(notebookId, msg);
                 });
 
-                newBridge.on('exit', (code) => {
+                newBridge.on('exit', (_code) => {
                     this.handleBridgeCrash(notebookId);
                 });
 
@@ -305,98 +319,115 @@ export class KernelManager extends EventEmitter {
         const executionId = providedExecutionId ?? uuidv4();
         const cellId = 'cell_' + Date.now();
 
-        return new Promise((resolve, reject) => {
-            const outputs: any[] = [];
-            const startTime = Date.now();
-
-            const wrappedCallbacks: {
-                onOutput: (output: any) => void;
-                onComplete: (result: ExecutionResult) => void;
-                onError: (error: string) => void;
-                completed: boolean;
-                timeoutId?: NodeJS.Timeout;
-            } = {
-                onOutput: (output: any) => {
-                    outputs.push(output);
-                    callbacks?.onOutput?.(output);
-                },
-                onComplete: (result: ExecutionResult) => {
-                    const cb = state!.executionCallbacks.get(executionId);
-                    if (cb && !cb.completed) {
-                        cb.completed = true;
-                        if (cb.timeoutId) {
-                            clearTimeout(cb.timeoutId);
-                        }
-                        state!.executionCallbacks.delete(executionId);
-                        const finalResult = {
-                            ...result,
-                            outputs,
-                            execution_time: (Date.now() - startTime) / 1000
-                        };
-                        callbacks?.onComplete?.(finalResult);
-                        resolve(finalResult);
-                    }
-                },
-                onError: (error: string) => {
-                    const cb = state!.executionCallbacks.get(executionId);
-                    if (cb && !cb.completed) {
-                        cb.completed = true;
-                        if (cb.timeoutId) {
-                            clearTimeout(cb.timeoutId);
-                        }
-                        state!.executionCallbacks.delete(executionId);
-                        const errorResult: ExecutionResult = {
-                            status: 'error',
-                            stdout: '',
-                            stderr: error,
-                            error_details: error,
-                            execution_time: (Date.now() - startTime) / 1000,
-                            outputs
-                        };
-                        callbacks?.onError?.(error);
-                        resolve(errorResult);
-                    }
-                },
-                completed: false
-            };
-
-            // Set timeout for execution (5 minutes for shell commands, 30s for normal code)
-            // Shell commands may need longer for package installs, downloads, etc.
-            const isShellCommand = code.trim().startsWith('!');
-            const timeoutMs = isShellCommand ? 3000000 : 3000000; // 5 min for shell, 30s for normal
-
-            const timeoutId = setTimeout(() => {
-                // Don't timeout if waiting for user input
-                if (state!.inputRequestPending) {
+        // ── Serial FIFO queue: chain this execution onto the previous one.
+        // The promise stored in state.executionQueue resolves only when the PREVIOUS
+        // execution fully completes (onComplete / onError / timeout). This ensures
+        // back-to-back cell runs are serialised, matching Jupyter / Colab semantics.
+        const executionPromise = new Promise<ExecutionResult>((resolve, _reject) => {
+            // Wait for the queue head to settle, then run our execution.
+            state!.executionQueue.then(async () => {
+                // Refresh state after the queue wait (kernel may have restarted)
+                const currentState = this.kernels.get(notebookId);
+                if (!currentState) {
+                    const err: ExecutionResult = { status: 'error', stdout: '', stderr: 'Kernel not found', execution_time: 0 };
+                    callbacks?.onError?.('Kernel not found');
+                    resolve(err);
                     return;
                 }
-                if (state!.executionCallbacks.has(executionId)) {
-                    state!.executionCallbacks.delete(executionId);
-                    const timeoutResult: ExecutionResult = {
-                        status: 'timeout',
-                        stdout: '',
-                        stderr: `Execution timed out after ${timeoutMs / 1000} seconds`,
-                        error_details: 'Execution timed out',
-                        execution_time: timeoutMs / 1000,
-                        outputs
-                    };
-                    callbacks?.onComplete?.(timeoutResult);
-                    resolve(timeoutResult);
-                }
-            }, timeoutMs);
 
-            wrappedCallbacks.timeoutId = timeoutId;
-            state!.executionCallbacks.set(executionId, wrappedCallbacks);
+                const outputs: any[] = [];
+                const startTime = Date.now();
 
-            // Send execute command to bridge
-            state!.bridge.send({
-                type: 'execute',
-                notebook_id: notebookId,
-                cell_id: cellId,
-                code: code,
-                execution_id: executionId
+                const wrappedCallbacks: {
+                    onOutput: (output: any) => void;
+                    onComplete: (result: ExecutionResult) => void;
+                    onError: (error: string) => void;
+                    completed: boolean;
+                    timeoutId?: NodeJS.Timeout;
+                } = {
+                    onOutput: (output: any) => {
+                        outputs.push(output);
+                        callbacks?.onOutput?.(output);
+                    },
+                    onComplete: (result: ExecutionResult) => {
+                        const cb = currentState.executionCallbacks.get(executionId);
+                        if (cb && !cb.completed) {
+                            cb.completed = true;
+                            if (cb.timeoutId) clearTimeout(cb.timeoutId);
+                            currentState.executionCallbacks.delete(executionId);
+                            const finalResult = {
+                                ...result,
+                                outputs,
+                                execution_time: (Date.now() - startTime) / 1000
+                            };
+                            callbacks?.onComplete?.(finalResult);
+                            resolve(finalResult);
+                        }
+                    },
+                    onError: (error: string) => {
+                        const cb = currentState.executionCallbacks.get(executionId);
+                        if (cb && !cb.completed) {
+                            cb.completed = true;
+                            if (cb.timeoutId) clearTimeout(cb.timeoutId);
+                            currentState.executionCallbacks.delete(executionId);
+                            const errorResult: ExecutionResult = {
+                                status: 'error',
+                                stdout: '',
+                                stderr: error,
+                                error_details: error,
+                                execution_time: (Date.now() - startTime) / 1000,
+                                outputs
+                            };
+                            callbacks?.onError?.(error);
+                            resolve(errorResult);
+                        }
+                    },
+                    completed: false
+                };
+
+                // Shell commands (!pip) get 30 min; regular Python gets 5 min.
+                const isShellCommand = code.trim().startsWith('!');
+                const timeoutMs = isShellCommand ? 1_800_000 : 300_000;
+
+                const timeoutId = setTimeout(() => {
+                    if (currentState.inputRequestPending) return;
+                    if (currentState.executionCallbacks.has(executionId)) {
+                        currentState.executionCallbacks.delete(executionId);
+                        const timeoutResult: ExecutionResult = {
+                            status: 'timeout',
+                            stdout: '',
+                            stderr: `Execution timed out after ${timeoutMs / 1000} seconds`,
+                            error_details: 'Execution timed out',
+                            execution_time: timeoutMs / 1000,
+                            outputs
+                        };
+                        callbacks?.onComplete?.(timeoutResult);
+                        resolve(timeoutResult);
+                    }
+                }, timeoutMs);
+
+                wrappedCallbacks.timeoutId = timeoutId;
+                currentState.executionCallbacks.set(executionId, wrappedCallbacks);
+
+                currentState.bridge.send({
+                    type: 'execute',
+                    notebook_id: notebookId,
+                    cell_id: cellId,
+                    code,
+                    execution_id: executionId
+                });
+            }).catch((err) => {
+                const errorResult: ExecutionResult = { status: 'error', stdout: '', stderr: String(err), execution_time: 0 };
+                callbacks?.onError?.(String(err));
+                resolve(errorResult);
             });
         });
+
+        // Update the queue head — next execution will chain onto this one.
+        // We use a catch-all so a failed execution still unlocks the queue.
+        state!.executionQueue = executionPromise.catch(() => {});
+
+        return executionPromise;
     }
 
     public async interruptKernel(notebookId: string): Promise<void> {
@@ -463,79 +494,65 @@ export class KernelManager extends EventEmitter {
         return Array.from(this.kernels.values()).map(k => k.info);
     }
 
-    public interruptKernel(notebookId: string): void {
-        const state = this.kernels.get(notebookId);
-        if (state) {
-            if (state.activeTerminal) {
-                state.activeTerminal.stop();
-            } else {
-                state.worker.interrupt();
-            }
-        }
-    }
-
-    public sendInput(notebookId: string, value: string): void {
-        const state = this.kernels.get(notebookId);
-        if (state) {
-            if (state.activeTerminal) {
-                state.activeTerminal.sendInput(value);
-            } else {
-                state.worker.sendInput(value);
-            }
-        }
-    }
-
-    public resizeTerminal(notebookId: string, cols: number, rows: number): void {
-        const state = this.kernels.get(notebookId);
-        if (state && state.activeTerminal) {
-            state.activeTerminal.resize(cols, rows);
-        }
+    /**
+     * Resize the PTY terminal associated with this notebook.
+     * No-ops gracefully if no terminal session is active.
+     * Full implementation is part of P1-1 (node-pty terminal integration).
+     */
+    public resizeTerminal(_notebookId: string, _cols: number, _rows: number): void {
+        // P1-1: node-pty session resize will be wired here.
+        // No-op until terminal sessions are implemented.
     }
 
     public async getKernelMetrics(notebookId: string): Promise<KernelMetrics> {
         const state = this.kernels.get(notebookId);
 
         if (!state) {
-            return {
-                notebook_id: notebookId,
-                available: false,
-                status: 'disconnected'
-            };
+            return { notebook_id: notebookId, available: false, status: 'disconnected' };
         }
 
         try {
             const si = await import('systeminformation');
 
-            // Get system metrics
-            const mem = await si.mem();
-            const diskStats = await si.fsSize();
+            // P2-1: Use bridge PID to get per-process metrics.
+            const bridgePid = state.bridge.pid;
+            const [mem, diskStats] = await Promise.all([si.mem(), si.fsSize()]);
             const rootDisk = diskStats[0] || { used: 0, size: 0 };
-            const diskMb = rootDisk.used / (1024 * 1024);
 
-            const sysMemUsedMb = mem.active / (1024 * 1024);
-            const sysMemTotalMb = mem.total / (1024 * 1024);
+            const sysMemUsedMb   = mem.active / (1024 * 1024);
+            const sysMemTotalMb  = mem.total  / (1024 * 1024);
+            const diskMb         = rootDisk.used / (1024 * 1024);
 
-            // Bridge process doesn't expose PID directly, so we use placeholder metrics
-            // In a real implementation, you might track the bridge PID
+            let processMb  = 0;
+            let cpuPercent = 0;
+
+            if (bridgePid) {
+                // systeminformation.processes() returns { all, running, blocked, sleeping, list[] }
+                // The list array contains per-process data with memRss (KB) and cpu (%).
+                const procsResult = await si.processes();
+                const proc = procsResult.list?.find((p: any) => p.pid === bridgePid);
+                if (proc) {
+                    processMb  = (proc.memRss ?? 0) / 1024; // RSS in KB → MB
+                    cpuPercent = proc.cpu ?? 0;
+                }
+            }
+
             return {
-                notebook_id: notebookId,
-                available: true,
-                status: state.info.status,
-                memory_mb: 0, // Bridge doesn't track individual process memory
-                memory_percent: 0,
-                cpu_percent: 0,
-                disk_mb: diskMb,
-                gpu_memory_mb: 0,
-                system_memory_used_mb: sysMemUsedMb,
-                system_memory_total_mb: sysMemTotalMb
+                notebook_id:           notebookId,
+                available:             true,
+                status:                state.info.status,
+                pid:                   bridgePid,
+                memory_mb:             Math.round(processMb * 100) / 100,
+                memory_percent:        sysMemTotalMb > 0 ? Math.round((processMb / sysMemTotalMb) * 10000) / 100 : 0,
+                cpu_percent:           Math.round(cpuPercent * 100) / 100,
+                disk_mb:               Math.round(diskMb * 100) / 100,
+                gpu_memory_mb:         0, // GPU metrics require nvidia-smi — out of scope for P2-1
+                system_memory_used_mb: Math.round(sysMemUsedMb * 100) / 100,
+                system_memory_total_mb: Math.round(sysMemTotalMb * 100) / 100,
             };
         } catch (error) {
             console.error('Failed to get kernel metrics:', error);
-            return {
-                notebook_id: notebookId,
-                available: true,
-                status: state.info.status
-            };
+            return { notebook_id: notebookId, available: true, status: state.info.status };
         }
     }
 
@@ -569,10 +586,33 @@ export class KernelManager extends EventEmitter {
         });
     }
 
-    public async getCompletions(notebookId: string, code: string, cursorPos: number, contextCode?: string): Promise<any[]> {
-        // TODO: Implement completions via the bridge
-        // For now, return empty array
-        return [];
+    public async getCompletions(
+        notebookId: string,
+        code: string,
+        cursorPos: number,
+        _contextCode?: string
+    ): Promise<any[]> {
+        const state = this.kernels.get(notebookId);
+        if (!state) return [];
+
+        return new Promise((resolve) => {
+            const requestId = uuidv4();
+            const timeout = setTimeout(() => {
+                this.off('kernel:completions', onCompletions);
+                resolve([]);
+            }, 5000);
+
+            const onCompletions = (id: string, data: any) => {
+                if (id === notebookId && data?.request_id === requestId) {
+                    clearTimeout(timeout);
+                    this.off('kernel:completions', onCompletions);
+                    resolve(data.matches ?? []);
+                }
+            };
+
+            this.on('kernel:completions', onCompletions);
+            state.bridge.send({ type: 'complete', notebook_id: notebookId, request_id: requestId, code, cursor_pos: cursorPos });
+        });
     }
 }
 

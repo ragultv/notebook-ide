@@ -2,6 +2,7 @@ import fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
 import { kernelRoutes } from './routes/kernels.js';
 import { executionRoutes } from './routes/execution.js';
 import { filesRoutes } from './routes/files.js';
@@ -12,6 +13,10 @@ import { websocketRoutes } from './routes/websocket.js';
 import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { KernelManager } from './core/KernelManager.js';
+import { BridgeProcess } from './core/BridgeProcess.js';
+import { KeyStore } from './core/KeyStore.js';
+import { aiService } from './core/ai/AIService.js';
+import { TerminalManager } from './core/TerminalManager.js';
 import { closeMemoryStore } from './core/ai/MemoryStore.js';
 
 const server: FastifyInstance = fastify({
@@ -33,6 +38,9 @@ const server: FastifyInstance = fastify({
 const gracefulShutdown = async () => {
     server.log.info('Shutting down gracefully...');
 
+    // Stop all active terminal sessions (P1-1)
+    TerminalManager.getInstance().killAll();
+
     // Stop all kernels
     const kernelManager = KernelManager.getInstance();
     const kernels = kernelManager.getAllKernels();
@@ -45,7 +53,6 @@ const gracefulShutdown = async () => {
     }
 
     closeMemoryStore();
-
     await server.close();
     process.exit(0);
 };
@@ -55,21 +62,62 @@ process.on('SIGINT', gracefulShutdown);
 
 const start = async () => {
     try {
+        // P1-7: Kill any orphaned kernel processes from a previous crashed session
+        BridgeProcess.sweepOrphans();
+
+        // P1-3: Restore API keys persisted by KeyStore on the previous session.
+        // This prevents users from having to re-enter keys after a server restart.
+        for (const provider of KeyStore.listProviders()) {
+            const key = KeyStore.getKey(provider);
+            if (key) {
+                aiService.setApiKey(provider, key);
+                server.log.info(`[KeyStore] Restored API key for provider: ${provider}`);
+            }
+        }
+
         // Register error handler
         server.setErrorHandler(errorHandler);
 
         // Register plugins
         await server.register(cors, {
-            // For browser clients (Vite dev server / desktop UI), reflect the Origin header.
-            // Using '*' with credentials breaks streaming fetch in browsers.
-            origin: true,
+            // Restrict to known local origins — this is a desktop-local app only.
+            // Using origin: true (reflect-all) is unnecessarily permissive.
+            origin: [
+                'http://localhost:5000',   // Vite dev server
+                'http://localhost:5173',   // Vite default fallback
+                'http://127.0.0.1:5000',
+                'http://127.0.0.1:5173',
+            ],
             credentials: config.cors.credentials,
             methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Accept'],
         });
 
         await server.register(websocket);
-        await server.register(multipart);
+
+        // P0-5: Enforce upload size limits. 500 MB per file, 1 MB per field value.
+        await server.register(multipart, {
+            limits: {
+                fileSize:  500 * 1024 * 1024, // 500 MB per file
+                fieldSize: 1   * 1024 * 1024, // 1 MB per non-file field
+                files:     50,                // max 50 files per request
+                fields:    20,                // max 20 non-file fields
+            },
+        });
+
+        // P1-4: Global rate limit — defence-in-depth against runaway loops or rogue clients.
+        // Per-route limits are registered in their respective route files.
+        await server.register(rateLimit, {
+            global:        true,
+            max:           300,
+            timeWindow:    60_000, // 1 minute window
+            errorResponseBuilder: (_req, context) => ({
+                statusCode:  429,
+                error:       'Too Many Requests',
+                message:     `Rate limit exceeded. Retry after ${Math.ceil(context.ttl / 1000)}s`,
+                retryAfter:  Math.ceil(context.ttl / 1000),
+            }),
+        });
 
         // Register routes
         await server.register(kernelRoutes, { prefix: '/kernels' });

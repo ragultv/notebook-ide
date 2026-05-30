@@ -116,6 +116,7 @@ const App: React.FC = () => {
 
         <MainContent
           files={notebook.files}
+          tabs={tabs.tabs}
           activeTab={tabs.activeTab}
           activeFile={notebook.activeFile}
           activeCells={notebook.activeCells}

@@ -1,6 +1,6 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage, AIMessage } from '@langchain/core/messages';
-import { PROVIDERS, DEFAULT_PROVIDER, DEFAULT_MODEL, ProviderConfig, ModelInfo } from './providers.js';
+import { PROVIDERS, DEFAULT_PROVIDER, DEFAULT_MODEL, ModelInfo } from './providers.js';
 import { SYSTEM_PROMPT, ERROR_FIX_PROMPT, getSystemPrompt, AIMode } from './prompts.js';
 import { getOrCreateSession, appendMessage, getRecentMessages } from './MemoryStore.js';
 import { retrieve, formatRetrievedContext, indexChunks } from './RAGService.js';
@@ -780,7 +780,7 @@ export class AIService {
     private isLikelyTruncated(
         text: string,
         meta: Record<string, unknown>,
-        modelContextSize: number,
+        _modelContextSize: number,
         perPassTokens: number
     ): boolean {
         const finishReason =

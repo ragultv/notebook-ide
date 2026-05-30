@@ -91,3 +91,56 @@ code {
     transform: translateY(0) scale(1);
   }
 }
+
+/* Jupyter Widgets Dark Mode styling overrides */
+.widget-container,
+.widget-wrapper {
+  color: #e4e4e7; /* text-zinc-200 */
+  --jp-layout-color0: #09090b;
+  --jp-layout-color1: #18181b;
+  --jp-layout-color2: #27272a;
+  --jp-layout-color3: #3f3f46;
+  --jp-layout-color4: #52525b;
+  --jp-ui-font-color0: #ffffff;
+  --jp-ui-font-color1: #e4e4e7;
+  --jp-ui-font-color2: #a1a1aa;
+  --jp-ui-font-color3: #71717a;
+  --jp-widgets-color: #e4e4e7;
+  --jp-widgets-bg: #18181b;
+  --jp-widgets-border-color: #3f3f46;
+  --jp-widgets-input-bg: #27272a;
+  --jp-widgets-input-color: #e4e4e7;
+  --jp-widgets-readout-bg: #27272a;
+  --jp-widgets-readout-border-color: #3f3f46;
+  --jp-widgets-readout-color: #e4e4e7;
+}
+
+/* Target specific ipywidgets components */
+.widget-container input,
+.widget-container select,
+.widget-container textarea,
+.widget-container button {
+  color: #e4e4e7 !important;
+  background-color: #27272a !important;
+  border-color: #3f3f46 !important;
+}
+
+.widget-container input:focus,
+.widget-container select:focus,
+.widget-container textarea:focus {
+  border-color: #10b981 !important; /* emerald accent */
+  outline: none !important;
+}
+
+.widget-container .widget-readout {
+  color: #e4e4e7 !important;
+  background: #27272a !important;
+  border: 1px solid #3f3f46 !important;
+  border-radius: 4px;
+}
+
+.widget-container label,
+.widget-container span,
+.widget-container .widget-label {
+  color: #e4e4e7 !important;
+}

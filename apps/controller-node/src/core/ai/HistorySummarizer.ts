@@ -1,5 +1,4 @@
 import { getRecentMessages } from './MemoryStore.js';
-import { PROVIDERS } from './providers.js';
 
 /**
  * Very lightweight history summarizer.

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Tab, ProjectFile, FileType } from '../types';
+import { Tab, ProjectFile } from '../types';
+import { cleanupWidgets } from '../services/widget.service';
 
 interface UseTabManagementReturn {
   tabs: Tab[];
@@ -61,7 +62,14 @@ export const useTabManagement = (
 
   const handleCloseTab = useCallback((id: string, event?: React.MouseEvent) => {
     event?.stopPropagation();
-    
+
+    // P1-6: Clean up any ipywidget models owned by this tab before removing it.
+    // Only notebook tabs create widget contexts — settings/visualization tabs do not.
+    const closingTab = tabs.find(t => t.id === id);
+    if (closingTab?.type === 'notebook') {
+      cleanupWidgets();
+    }
+
     setTabs(prev => {
       const newTabs = prev.filter(t => t.id !== id);
       if (activeTabId === id && newTabs.length > 0) {
@@ -71,6 +79,8 @@ export const useTabManagement = (
         // Update activeFileId if next tab is a notebook
         if (nextTab.type === 'notebook') {
           setActiveFileId(nextTab.id);
+        } else {
+          setActiveFileId(null);
         }
       } else if (newTabs.length === 0) {
         setActiveTabId(null);
@@ -78,7 +88,7 @@ export const useTabManagement = (
       }
       return newTabs;
     });
-  }, [activeTabId, setActiveFileId]);
+  }, [activeTabId, setActiveFileId, tabs]);
 
   return {
     tabs,

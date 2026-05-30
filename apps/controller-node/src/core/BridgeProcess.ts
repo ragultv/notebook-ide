@@ -10,6 +10,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
+
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +44,11 @@ export class BridgeProcess extends EventEmitter {
         }
 
         this.connectionFile = path.join(runtimeDir, `kernel-${notebookId}.json`);
+    }
+
+    /** The OS PID of the spawned bridge process, if running. Used by P2-1 (metrics) and P1-7 (orphan guard). */
+    get pid(): number | undefined {
+        return this.process?.pid;
     }
 
     async start(reconnect = false): Promise<void> {
@@ -81,16 +87,17 @@ export class BridgeProcess extends EventEmitter {
                     PYTHONIOENCODING: 'utf-8',
                     PYTHONUTF8: '1',
                     PYTHONDONTWRITEBYTECODE: '1',
-                    // Allow pip to operate non-interactively without requiring -y flag explicitly.
-                    // Shell commands like !pip uninstall run as subprocesses inheriting the kernel's
-                    // env; PIP_NO_INPUT=1 would block their stdin and throw an exception.
                     PIP_NO_INPUT: '0',
                     PIP_DISABLE_PIP_VERSION_CHECK: '1',
-                    // Remove PYTHONSTARTUP to avoid interference from user startup scripts
                     PYTHONSTARTUP: '',
                 },
                 windowsHide: true
             });
+
+            // P1-7: Write PID file so orphan sweep can find and kill this process on restart.
+            if (this.process.pid) {
+                this.writePidFile(this.process.pid);
+            }
 
             // ── stdout: all JSON protocol messages ──────────────────────
             this.process.stdout!.on('data', (chunk: Buffer) => {
@@ -151,6 +158,7 @@ export class BridgeProcess extends EventEmitter {
     }
 
     kill(): void {
+        this.deletePidFile();
         this.process?.kill('SIGTERM');
         this.process = null;
         this.ready = false;
@@ -158,5 +166,68 @@ export class BridgeProcess extends EventEmitter {
 
     get isRunning(): boolean {
         return this.process !== null && !this.process.killed;
+    }
+
+    // ── P1-7: PID file helpers ────────────────────────────────────────────────
+
+    private static getPidsDir(): string {
+        const dataDir = process.env.DATA_DIR || './data';
+        return path.resolve(dataDir, 'pids');
+    }
+
+    private writePidFile(pid: number): void {
+        try {
+            const dir = BridgeProcess.getPidsDir();
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(
+                path.join(dir, `${this.notebookId}.pid`),
+                JSON.stringify({ pid, notebookId: this.notebookId, ts: Date.now() })
+            );
+        } catch (e) {
+            // Non-fatal — orphan sweep is best-effort
+            console.warn('[BridgeProcess] Failed to write PID file:', e);
+        }
+    }
+
+    private deletePidFile(): void {
+        try {
+            const pidFile = path.join(BridgeProcess.getPidsDir(), `${this.notebookId}.pid`);
+            if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
+        } catch {
+            // Ignore — file may already be gone
+        }
+    }
+
+    /**
+     * P1-7: Sweep stale PID files from a previous crashed session.
+     * Called once at startup before any kernel is started.
+     * Kills any surviving orphan bridge processes and removes their PID files.
+     */
+    public static sweepOrphans(): void {
+        const dir = BridgeProcess.getPidsDir();
+        if (!fs.existsSync(dir)) return;
+
+        const files = fs.readdirSync(dir).filter(f => f.endsWith('.pid'));
+        for (const file of files) {
+            const filePath = path.join(dir, file);
+            try {
+                const raw = fs.readFileSync(filePath, 'utf-8');
+                const { pid, notebookId } = JSON.parse(raw) as { pid: number; notebookId: string };
+                let isAlive = false;
+                try {
+                    process.kill(pid, 0); // signal 0 = check if process exists
+                    isAlive = true;
+                } catch { /* ESRCH = process not found, EPERM = exists but no permission */ }
+
+                if (isAlive) {
+                    console.warn(`[Orphan] Killing stale kernel pid=${pid} notebook=${notebookId}`);
+                    try { process.kill(pid, 'SIGKILL'); } catch { }
+                }
+            } catch {
+                // Corrupt or unreadable PID file — still remove it
+            } finally {
+                try { fs.unlinkSync(filePath); } catch { }
+            }
+        }
     }
 }

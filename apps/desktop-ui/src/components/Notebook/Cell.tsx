@@ -18,7 +18,17 @@ interface CellProps {
   onActivate: () => void;
   onDeactivate?: () => void;
   onUpdate: (id: string, content: string) => void;
-  onOutputUpdate: (id: string, output: string, status: CellStatus, error?: string, execCount?: number, outputs?: CellOutput[], duration?: number) => void;
+  onOutputUpdate: (
+    id: string,
+    output: string,
+    status: CellStatus,
+    error?: string,
+    execCount?: number,
+    outputs?: CellOutput[],
+    duration?: number,
+    /** Optional streaming chunk to append to cell.streamingOutputs in shared state */
+    streamChunk?: CellOutput
+  ) => void;
   onDelete: (id: string) => void;
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
@@ -184,9 +194,8 @@ export const Cell: React.FC<CellProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [showFixPopover, setShowFixPopover] = useState(false);
 
-  // Live streaming chunks during execution
-  const [streamingChunks, setStreamingChunks] = useState<CellOutput[]>([]);
-  // Live elapsed time while cell is running (ms)
+  // Live elapsed time while cell is running (ms) — computed from cell.runStartTime
+  // so it survives tab switches without resetting to zero.
   const [elapsedMs, setElapsedMs] = useState(0);
   // Input request state for input() prompts
   const [inputRequest, setInputRequest] = useState<{ executionId: string; prompt: string; password: boolean } | null>(null);
@@ -196,12 +205,13 @@ export const Cell: React.FC<CellProps> = ({
 
   // Track current execution
   const currentExecIdRef = useRef<string | null>(null);
-  const startTimeRef = useRef<number>(0);
   const outputEndRef = useRef<HTMLDivElement>(null);
 
   const { setKernelStatus } = useUIStore();
   const isCode = cell.type === 'code';
   const isRunning = cell.status === 'running';
+  const isQueued = cell.status === 'queued';
+  const isStopping = cell.status === 'stopping';
 
   // ── Shared WebSocket from Notebook-level context (single connection per notebook) ─
   const { execute, interrupt, sendStdin, sendCommMsg, on, connected } = useNotebookWS();
@@ -211,17 +221,18 @@ export const Cell: React.FC<CellProps> = ({
     if (outputEndRef.current && isRunning) {
       outputEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-  }, [streamingChunks, isRunning]);
+  }, [cell.streamingOutputs, isRunning]);
 
-  // ── Live elapsed timer while running ────────────────────────────────────────
+  // ── Live elapsed timer — resumes from cell.runStartTime after tab switch ─────
   useEffect(() => {
-    if (!isRunning) { setElapsedMs(0); return; }
-    startTimeRef.current = performance.now();
-    const interval = setInterval(() => {
-      setElapsedMs(Math.round(performance.now() - startTimeRef.current));
-    }, 100);
+    if (!isRunning && !isStopping) { setElapsedMs(0); return; }
+    // Compute initial elapsed from shared runStartTime (survives tab unmount)
+    const startEpoch = cell.runStartTime ?? Date.now();
+    const update = () => setElapsedMs(Date.now() - startEpoch);
+    update(); // immediate paint
+    const interval = setInterval(update, 100);
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, isStopping, cell.runStartTime]);
 
   // ── Listen for WebSocket messages relevant to this cell ──────────────────────
   useEffect(() => {
@@ -234,18 +245,12 @@ export const Cell: React.FC<CellProps> = ({
       if (!output) return;
 
       if (output.type === 'stream') {
-        setStreamingChunks(prev => [...prev, {
-          type: 'stream',
-          data: output.data,
-          stream: output.stream,
-        }]);
+        const chunk: CellOutput = { type: 'stream', data: output.data, stream: output.stream };
+        // Append to shared cell state so output survives tab switches
+        onOutputUpdate(cell.id, '', 'running', undefined, undefined, undefined, undefined, chunk);
       } else if (output.type === 'result' || output.type === 'display') {
-        // Always push display outputs — OutputItem handles widget MIME, HTML, images etc.
-        // Do NOT skip widget MIME here; kernel sends display_data only for the root widget.
-        setStreamingChunks(prev => [...prev, {
-          type: output.type,
-          data: output.data,
-        }]);
+        const chunk: CellOutput = { type: output.type, data: output.data };
+        onOutputUpdate(cell.id, '', 'running', undefined, undefined, undefined, undefined, chunk);
       }
     }));
 
@@ -254,10 +259,9 @@ export const Cell: React.FC<CellProps> = ({
       if (msg.execution_id !== currentExecIdRef.current) return;
       const result = msg.result || {};
       const outputs = result.outputs?.length ? result.outputs as CellOutput[] : undefined;
-      const duration = result.execution_time ? result.execution_time : undefined;  // seconds
+      const duration = result.execution_time ? result.execution_time : undefined;
       onOutputUpdate(cell.id, result.output || '', 'success', undefined, result.executionCount, outputs, duration);
       setKernelStatus('idle');
-      setStreamingChunks([]);
       setInputRequest(null);
       currentExecIdRef.current = null;
     }));
@@ -265,11 +269,9 @@ export const Cell: React.FC<CellProps> = ({
     // Execution error
     cleanups.push(on('execution_error', (msg: any) => {
       if (msg.execution_id !== currentExecIdRef.current) return;
-      // Strip ANSI codes from error text since it's displayed in plain HTML
       const clean = stripAnsi(msg.error || 'Execution failed');
       onOutputUpdate(cell.id, '', 'error', clean, undefined, undefined, undefined);
       setKernelStatus('error');
-      setStreamingChunks([]);
       setInputRequest(null);
       currentExecIdRef.current = null;
     }));
@@ -311,17 +313,13 @@ export const Cell: React.FC<CellProps> = ({
     if (cell.type === 'markdown') return;
     if (!cell.content.trim()) return;
 
-    setStreamingChunks([]);
-    setElapsedMs(0);
     setInputRequest(null);
     setInputValue('');
     setActiveWidgets([]);
+    // Set running + record start time + clear previous streaming output
     onOutputUpdate(cell.id, '', 'running', undefined, undefined, [], undefined);
     setKernelStatus('busy');
 
-    // execute() sends the WS message and returns a Promise that resolves with
-    // the server-assigned execution_id (from the execution_started message).
-    // We must await it so currentExecIdRef is set before any output arrives.
     try {
       const execId = await execute(cell.id, cell.content);
       currentExecIdRef.current = execId;
@@ -338,17 +336,20 @@ export const Cell: React.FC<CellProps> = ({
     sendStdin(inputRequest.executionId, inputValue);
     // Echo input to streaming output (except passwords)
     if (!inputRequest.password) {
-      setStreamingChunks(prev => [...prev, { type: 'text', data: inputValue + '\n', stream: 'stdout' }]);
+      const echo: CellOutput = { type: 'text', data: inputValue + '\n', stream: 'stdout' };
+      onOutputUpdate(cell.id, '', 'running', undefined, undefined, undefined, undefined, echo);
     }
     setInputRequest(null);
     setInputValue('');
-  }, [inputRequest, inputValue, sendStdin]);
+  }, [inputRequest, inputValue, sendStdin, onOutputUpdate, cell.id]);
 
   // ── Interrupt ─────────────────────────────────────────────────────────────────
 
   const handleInterrupt = useCallback(() => {
+    // Optimistic: immediately show 'stopping' so user gets instant feedback
+    onOutputUpdate(cell.id, '', 'stopping', undefined, undefined, undefined, undefined);
     interrupt();
-  }, [interrupt]);
+  }, [interrupt, cell.id, onOutputUpdate]);
 
   // ── Fix Error ──────────────────────────────────────────────────────────────────
 
@@ -425,9 +426,11 @@ export const Cell: React.FC<CellProps> = ({
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
+  // Issue 5: Use shared cell.streamingOutputs (survives tab switches)
+  const streamingChunks = cell.streamingOutputs ?? [];
   // During running show streaming chunks live; after completion show cell.outputs
-  const displayOutputs = isRunning ? streamingChunks : (cell.outputs ?? []);
-  const hasOutput = isRunning || displayOutputs.length > 0 || !!cell.output || cell.status === 'error';
+  const displayOutputs = (isRunning || isStopping) ? streamingChunks : (cell.outputs ?? []);
+  const hasOutput = isRunning || isStopping || isQueued || displayOutputs.length > 0 || !!cell.output || cell.status === 'error';
 
   return (
     <div
@@ -462,14 +465,28 @@ export const Cell: React.FC<CellProps> = ({
         <div className="w-10 flex-shrink-0 flex flex-col items-center py-1 select-none z-20 sticky top-2 self-start h-fit">
           <div className="flex flex-col items-center gap-2">
             {/* Run / Stop button */}
-            {isRunning ? (
+            {isRunning || isStopping ? (
               <button
-                onClick={(e) => { e.stopPropagation(); handleInterrupt(); }}
-                className="w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border bg-red-900/20 text-red-400 border-red-500 ring-2 ring-red-500 hover:bg-red-900/40"
-                title="Interrupt kernel"
+                onClick={(e) => { e.stopPropagation(); if (!isStopping) handleInterrupt(); }}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border
+                  ${isStopping
+                    ? 'bg-orange-900/20 text-orange-400 border-orange-500 ring-2 ring-orange-500 cursor-not-allowed'
+                    : 'bg-red-900/20 text-red-400 border-red-500 ring-2 ring-red-500 hover:bg-red-900/40'
+                  }`}
+                title={isStopping ? 'Stopping...' : 'Interrupt kernel'}
+                disabled={isStopping}
               >
-                <StopCircle className="w-3.5 h-3.5" />
+                {isStopping
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <StopCircle className="w-3.5 h-3.5" />}
               </button>
+            ) : isQueued ? (
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center bg-yellow-900/20 text-yellow-500 border border-yellow-600"
+                title="Queued — waiting for previous cell"
+              >
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              </div>
             ) : (
               <button
                 onClick={(e) => { e.stopPropagation(); runCell(); }}
@@ -486,11 +503,16 @@ export const Cell: React.FC<CellProps> = ({
               </button>
             )}
 
-            {isRunning && (
+            {(isRunning || isStopping) && (
               <div className="flex flex-col items-center mt-1">
-                <span className="text-[10px] font-mono text-green-400 tabular-nums">
-                  {formatDuration(elapsedMs)}
+                <span className={`text-[10px] font-mono tabular-nums ${isStopping ? 'text-orange-400' : 'text-green-400'}`}>
+                  {isStopping ? 'Stopping' : formatDuration(elapsedMs)}
                 </span>
+              </div>
+            )}
+            {isQueued && (
+              <div className="flex flex-col items-center mt-1">
+                <span className="text-[10px] font-mono text-yellow-500">Queue</span>
               </div>
             )}
             {cell.status === 'success' && !isRunning && (
@@ -539,10 +561,17 @@ export const Cell: React.FC<CellProps> = ({
           <div className="text-sm font-mono rounded-xl bg-black/40 border border-white/5 shadow-inner overflow-hidden">
             {/* Header bar */}
             <div className="flex items-center gap-2 px-4 py-1.5 border-b border-white/5 bg-black/20">
-              {isRunning ? (
+              {isRunning || isStopping ? (
                 <>
-                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping" />
-                  <span className="text-[10px] text-green-400 font-mono font-semibold tracking-widest uppercase">Running</span>
+                  <div className={`w-1.5 h-1.5 rounded-full ${isStopping ? 'bg-orange-400 animate-pulse' : 'bg-green-500 animate-ping'}`} />
+                  <span className={`text-[10px] font-mono font-semibold tracking-widest uppercase ${isStopping ? 'text-orange-400' : 'text-green-400'}`}>
+                    {isStopping ? 'Stopping...' : 'Running'}
+                  </span>
+                </>
+              ) : isQueued ? (
+                <>
+                  <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+                  <span className="text-[10px] text-yellow-400 font-mono tracking-widest uppercase">Queued</span>
                 </>
               ) : cell.status === 'error' ? (
                 <>
@@ -579,13 +608,6 @@ export const Cell: React.FC<CellProps> = ({
                   {stripAnsi(cell.error)}
                 </div>
               )}
-
-                {/* Error output */}
-                {cell.status === 'error' && cell.error && (
-                  <div className="text-red-400 whitespace-pre-wrap break-words text-[13px] leading-5 mt-2 bg-red-950/20 p-3 rounded-lg border border-red-500/20 overflow-x-auto">
-                    {cell.error}
-                  </div>
-                )}
 
               {/* Simplified Input prompt for input() */}
               {inputRequest && (

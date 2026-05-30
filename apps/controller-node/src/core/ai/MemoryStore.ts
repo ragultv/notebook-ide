@@ -21,7 +21,6 @@ export interface GetRecentMessagesOptions {
 const DEFAULT_MESSAGE_LIMIT = 20;
 const APPROX_TOKENS_PER_CHAR = 0.25;
 const SESSION_TTL_DAYS = 7;
-const MAX_MESSAGES_PER_SESSION = 50;
 
 let db: Database.Database | null = null;
 

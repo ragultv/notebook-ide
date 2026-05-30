@@ -6,7 +6,9 @@
 import { BridgeProcess } from './BridgeProcess.js';
 import { v4 as uuidv4 } from 'uuid';
 
-const POOL_SIZE = 2;
+// P1-8: Pool size is configurable via KERNEL_POOL_SIZE env var.
+// Clamped to [0, 10] to prevent runaway memory from an accidental large value.
+const POOL_SIZE = Math.min(10, Math.max(0, parseInt(process.env.KERNEL_POOL_SIZE || '2', 10)));
 const pool: BridgeProcess[] = [];
 let isInitializing = false;
 

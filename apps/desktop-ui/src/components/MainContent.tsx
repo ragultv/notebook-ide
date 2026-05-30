@@ -9,6 +9,7 @@ import { Tab, ProjectFile, CellData } from '../types';
 
 interface MainContentProps {
   files: ProjectFile[];
+  tabs: Tab[];
   activeTab: Tab | undefined;
   activeFile: ProjectFile | undefined;
   activeCells: CellData[];
@@ -25,6 +26,7 @@ interface MainContentProps {
 
 export const MainContent: React.FC<MainContentProps> = ({
   files,
+  tabs,
   activeTab,
   activeFile,
   activeCells,
@@ -38,6 +40,9 @@ export const MainContent: React.FC<MainContentProps> = ({
   updateNotebookCellsById,
   onModelsChanged,
 }) => {
+  const openNotebookTabs = tabs.filter(t => t.type === 'notebook');
+  const notebookFiles = openNotebookTabs.map(tab => files.find(f => f.id === tab.id)).filter((f): f is ProjectFile => !!f);
+
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-sim-bg rounded-2xl border border-sim-border shadow-lg">
       <div className="flex-1 flex overflow-hidden relative">
@@ -81,21 +86,37 @@ export const MainContent: React.FC<MainContentProps> = ({
             isObjectUrl={activeTab?.data?.isObjectUrl}
             onClose={() => activeTabId && handleCloseTab(activeTabId)}
           />
-        ) : activeFile?.cells ? (
-          <Notebook
-            notebookId={activeFile.id}
-            notebookName={activeFile.name}
-            cells={activeCells}
-            setCells={updateCells}
-            activeCellId={activeCellId}
-            setActiveCellId={setActiveCellId}
-            onFixError={() => { }}
-          />
-        ) : (
+        ) : openNotebookTabs.length === 0 ? (
           <div className="flex-1 flex items-center justify-center bg-sim-bg text-sim-muted font-mono">
             <span>No notebook selected</span>
           </div>
-        )}
+        ) : null}
+
+        {notebookFiles.map(file => {
+          const isCurrentActive = activeTab?.type === 'notebook' && activeFile?.id === file.id;
+          return (
+            <div
+              key={file.id}
+              className={`w-full h-full ${isCurrentActive ? 'block' : 'hidden'}`}
+            >
+              <Notebook
+                notebookId={file.id}
+                notebookName={file.name}
+                cells={file.cells || []}
+                setCells={(newCellsOrUpdater) => {
+                  if (updateNotebookCellsById) {
+                    updateNotebookCellsById(file.id, newCellsOrUpdater);
+                  } else {
+                    updateCells(newCellsOrUpdater);
+                  }
+                }}
+                activeCellId={isCurrentActive ? activeCellId : null}
+                setActiveCellId={setActiveCellId}
+                onFixError={() => { }}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
