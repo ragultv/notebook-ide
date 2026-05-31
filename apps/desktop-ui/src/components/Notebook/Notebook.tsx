@@ -136,30 +136,7 @@ const NotebookInner: React.FC<NotebookProps & {
         className="flex-1 overflow-y-auto bg-sim-bg relative custom-scrollbar min-w-0"
         onClick={() => setActiveCellId(null)}
       >
-        {/* P2-4: Variable Inspector toggle button */}
-        <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', justifyContent: 'flex-end', padding: '6px 16px', background: 'transparent', pointerEvents: 'none' }}>
-          <button
-            id="variable-panel-toggle"
-            style={{
-              pointerEvents: 'all',
-              background: showVariables ? 'rgba(122,162,247,0.18)' : 'rgba(31,35,53,0.85)',
-              border: '1px solid rgba(122,162,247,0.3)',
-              borderRadius: '6px',
-              color: showVariables ? '#7aa2f7' : '#565f89',
-              cursor: 'pointer',
-              fontSize: '11px',
-              fontWeight: 600,
-              padding: '4px 10px',
-              backdropFilter: 'blur(8px)',
-              transition: 'all 0.2s ease',
-              letterSpacing: '0.04em',
-            }}
-            onClick={e => { e.stopPropagation(); setShowVariables(v => !v); }}
-            title={showVariables ? 'Hide variable inspector' : 'Show variable inspector'}
-          >
-            ⚙ Variables
-          </button>
-        </div>
+
 
         <div className="max-w-[900px] mx-auto min-h-full p-4 md:p-8 pb-32">
           {cells.map((cell, index) => (
@@ -196,24 +173,7 @@ const NotebookInner: React.FC<NotebookProps & {
         </div>
       </div>
 
-      {/* P2-4: Variable Inspector Panel — collapsible right sidebar */}
-      {showVariables && (
-        <div style={{
-          width: '320px',
-          flexShrink: 0,
-          borderLeft: '1px solid rgba(42,46,74,0.9)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          transition: 'width 0.2s ease',
-        }}>
-          <VariablePanel
-            on={on}
-            getVariables={getVariables}
-            kernelBusy={kernelStatus === 'busy'}
-          />
-        </div>
-      )}
+
     </div>
   );
 };

@@ -97,7 +97,7 @@ export const MainContent: React.FC<MainContentProps> = ({
           return (
             <div
               key={file.id}
-              className={`w-full h-full ${isCurrentActive ? 'block' : 'hidden'}`}
+              className={`w-full h-full ${isCurrentActive ? 'flex flex-col' : 'hidden'}`}
             >
               <Notebook
                 notebookId={file.id}

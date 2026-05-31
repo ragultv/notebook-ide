@@ -206,6 +206,9 @@ export const Cell: React.FC<CellProps> = ({
   // Track current execution
   const currentExecIdRef = useRef<string | null>(null);
   const outputEndRef = useRef<HTMLDivElement>(null);
+  const outputContainerRef = useRef<HTMLDivElement>(null);
+  // Safety timeout ref for interrupt — cancelled if kernel responds before 3s
+  const interruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { setKernelStatus } = useUIStore();
   const isCode = cell.type === 'code';
@@ -218,8 +221,13 @@ export const Cell: React.FC<CellProps> = ({
 
   // ── Auto-scroll output while streaming ──────────────────────────────────────
   useEffect(() => {
-    if (outputEndRef.current && isRunning) {
-      outputEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (outputContainerRef.current && isRunning) {
+      const container = outputContainerRef.current;
+      const threshold = 150; // pixels from bottom
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
+      if (isNearBottom) {
+        container.scrollTop = container.scrollHeight;
+      }
     }
   }, [cell.streamingOutputs, isRunning]);
 
@@ -257,6 +265,8 @@ export const Cell: React.FC<CellProps> = ({
     // Execution complete (success)
     cleanups.push(on('execution_complete', (msg: any) => {
       if (msg.execution_id !== currentExecIdRef.current) return;
+      // Cancel interrupt safety timeout if kernel responded
+      if (interruptTimeoutRef.current) { clearTimeout(interruptTimeoutRef.current); interruptTimeoutRef.current = null; }
       const result = msg.result || {};
       const outputs = result.outputs?.length ? result.outputs as CellOutput[] : undefined;
       const duration = result.execution_time ? result.execution_time : undefined;
@@ -269,6 +279,8 @@ export const Cell: React.FC<CellProps> = ({
     // Execution error
     cleanups.push(on('execution_error', (msg: any) => {
       if (msg.execution_id !== currentExecIdRef.current) return;
+      // Cancel interrupt safety timeout if kernel responded
+      if (interruptTimeoutRef.current) { clearTimeout(interruptTimeoutRef.current); interruptTimeoutRef.current = null; }
       const clean = stripAnsi(msg.error || 'Execution failed');
       onOutputUpdate(cell.id, '', 'error', clean, undefined, undefined, undefined);
       setKernelStatus('error');
@@ -349,6 +361,14 @@ export const Cell: React.FC<CellProps> = ({
     // Optimistic: immediately show 'stopping' so user gets instant feedback
     onOutputUpdate(cell.id, '', 'stopping', undefined, undefined, undefined, undefined);
     interrupt();
+    // Safety net: if the kernel never responds within 3s, force-clear the stopping state.
+    // Mirrors Colab — the cell always stops quickly from the user's perspective.
+    if (interruptTimeoutRef.current) clearTimeout(interruptTimeoutRef.current);
+    interruptTimeoutRef.current = setTimeout(() => {
+      interruptTimeoutRef.current = null;
+      onOutputUpdate(cell.id, '', 'error', 'KeyboardInterrupt: Execution interrupted by user', undefined, undefined, undefined);
+      currentExecIdRef.current = null;
+    }, 3000);
   }, [interrupt, cell.id, onOutputUpdate]);
 
   // ── Fix Error ──────────────────────────────────────────────────────────────────
@@ -470,7 +490,7 @@ export const Cell: React.FC<CellProps> = ({
                 onClick={(e) => { e.stopPropagation(); if (!isStopping) handleInterrupt(); }}
                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border
                   ${isStopping
-                    ? 'bg-orange-900/20 text-orange-400 border-orange-500 ring-2 ring-orange-500 cursor-not-allowed'
+                    ? 'bg-blue-950/20 text-sim-redHover border-sim-red ring-2 ring-sim-red cursor-not-allowed'
                     : 'bg-red-900/20 text-red-400 border-red-500 ring-2 ring-red-500 hover:bg-red-900/40'
                   }`}
                 title={isStopping ? 'Stopping...' : 'Interrupt kernel'}
@@ -505,7 +525,7 @@ export const Cell: React.FC<CellProps> = ({
 
             {(isRunning || isStopping) && (
               <div className="flex flex-col items-center mt-1">
-                <span className={`text-[10px] font-mono tabular-nums ${isStopping ? 'text-orange-400' : 'text-green-400'}`}>
+                <span className={`text-[10px] font-mono tabular-nums ${isStopping ? 'text-sim-redHover' : 'text-green-400'}`}>
                   {isStopping ? 'Stopping' : formatDuration(elapsedMs)}
                 </span>
               </div>
@@ -563,8 +583,8 @@ export const Cell: React.FC<CellProps> = ({
             <div className="flex items-center gap-2 px-4 py-1.5 border-b border-white/5 bg-black/20">
               {isRunning || isStopping ? (
                 <>
-                  <div className={`w-1.5 h-1.5 rounded-full ${isStopping ? 'bg-orange-400 animate-pulse' : 'bg-green-500 animate-ping'}`} />
-                  <span className={`text-[10px] font-mono font-semibold tracking-widest uppercase ${isStopping ? 'text-orange-400' : 'text-green-400'}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${isStopping ? 'bg-sim-redHover animate-pulse' : 'bg-green-500 animate-ping'}`} />
+                  <span className={`text-[10px] font-mono font-semibold tracking-widest uppercase ${isStopping ? 'text-sim-redHover' : 'text-green-400'}`}>
                     {isStopping ? 'Stopping...' : 'Running'}
                   </span>
                 </>
@@ -592,7 +612,7 @@ export const Cell: React.FC<CellProps> = ({
             </div>
 
             {/* Scrollable output area */}
-            <div className="max-h-[500px] overflow-y-auto p-4 space-y-0.5">
+            <div ref={outputContainerRef} className="max-h-[500px] overflow-y-auto p-4 space-y-0.5">
               {displayOutputs.map((output, idx) => (
                 <OutputItem key={idx} output={output} />
               ))}
@@ -644,7 +664,7 @@ export const Cell: React.FC<CellProps> = ({
       {/* Toolbar (hover) */}
       <div
         className={`absolute right-4 top-2 flex items-center gap-1 p-1 rounded-full bg-[#2b2b2e] border border-white/10 shadow-xl transition-all duration-200 z-30
-          ${(isActive || (isCode && isHovered)) && !isDragOver ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}
+          ${isHovered && !isDragOver ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}
       >
         <ToolBtn icon={ArrowUp} onClick={() => onMoveUp(cell.id)} label="Up" />
         <ToolBtn icon={ArrowDown} onClick={() => onMoveDown(cell.id)} label="Down" />

@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { ProjectFile } from '../types';
 import { controllerClient } from '../services/controller.client';
+import { VariablePanel } from './VariablePanel';
 
 interface MemoryMapVisualizationProps {
   notebookId: string;
@@ -35,15 +36,15 @@ interface MemoryMapVisualizationProps {
 }
 
 const TYPE_COLORS: Record<TypeCategory, string> = {
-  tensor: '#EF4444',       // Red-500
-  array: '#F97316',        // Orange-500
-  model: '#F59E0B',        // Amber-500
-  scalar: '#FB923C',       // Orange-400
-  collection: '#D97706',   // Amber-600
-  function: '#EA580C',     // Orange-600
+  tensor: '#EF4444',       // Red-500 (Alert/Critical)
+  array: '#0096FF',        // Brand Primary Blue
+  model: '#C8E8FF',        // Brand Pale Cyan
+  scalar: '#1070D0',       // Brand Secondary Blue
+  collection: '#0040A0',   // Brand Dark Ocean Blue
+  function: '#A0D0F0',     // Brand Accent Ice Blue
   object: '#FECACA',       // Red-200
   module: '#7C2D12',       // Red-900
-  generator: '#B45309',    // Amber-700
+  generator: '#004090',    // Brand Royal Blue
 };
 
 export const MemoryMapVisualization: React.FC<MemoryMapVisualizationProps> = ({
@@ -645,12 +646,27 @@ const MemoryMap: React.FC<MemoryMapProps> = ({ notebooks, initialNotebookId, onO
         )}
 
         {snapshot && (
-          <MemoryMapVisualization
-            notebookId={selectedNotebookId}
-            snapshot={snapshot}
-            onVariableClick={handleVariableClick}
-            onRefresh={handleRefresh}
-          />
+          <div className="w-full h-full flex overflow-hidden">
+            <div className="flex-1 h-full relative">
+              <MemoryMapVisualization
+                notebookId={selectedNotebookId}
+                snapshot={snapshot}
+                onVariableClick={handleVariableClick}
+                onRefresh={handleRefresh}
+              />
+            </div>
+            <div className="w-[450px] border-l border-sim-border flex-shrink-0 h-full overflow-hidden flex flex-col">
+              <VariablePanel
+                variables={snapshot.variables.map(v => ({
+                  name: v.name,
+                  type: v.type_name,
+                  shape: v.shape ? v.shape.join(' × ') : undefined,
+                  size_bytes: v.size_bytes,
+                  value: undefined,
+                }))}
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>

@@ -101,8 +101,8 @@ export class AIService {
             return this.clients.get(cacheKey)!;
         }
 
-        // Handle local providers (ollama, oprel)
-        if (provider === 'ollama' || provider === 'oprel') {
+        // Handle local providers (ollama, octopod)
+        if (provider === 'ollama' || provider === 'octopod') {
             try {
                 const providerConfig = PROVIDERS[provider];
                 let baseUrl = providerConfig.baseUrl;
@@ -928,8 +928,8 @@ export class AIService {
             // Fetch dynamic models for local providers
             if (config.dynamic && config.isLocal) {
                 try {
-                    if (key === 'oprel') {
-                        models = await this.fetchOprelModels(config.baseUrl);
+                    if (key === 'octopod') {
+                        models = await this.fetchOctopodModels(config.baseUrl);
                     } else if (key === 'ollama') {
                         models = await this.fetchOllamaModels(config.baseUrl);
                     } else {
@@ -952,9 +952,9 @@ export class AIService {
         return providers;
     }
 
-    private async fetchOprelModels(baseUrl: string): Promise<ModelInfo[]> {
+    private async fetchOctopodModels(baseUrl: string): Promise<ModelInfo[]> {
         try {
-            // Oprel specific endpoint
+            // Octopod specific endpoint
             const response = await fetch(`${baseUrl}/models`, {
                 signal: AbortSignal.timeout(2000),
             });

@@ -25,23 +25,34 @@ export interface VariableInfo {
 
 interface VariablePanelProps {
     /** The WS hook's `on` function to subscribe to named events. */
-    on:           (type: string, handler: (msg: any) => void) => void;
+    on?:           (type: string, handler: (msg: any) => void) => void;
     /** Call this to request a fresh variables snapshot from the kernel. */
-    getVariables: () => void;
+    getVariables?: () => void;
     /** Whether the kernel is currently busy (disables Refresh). */
     kernelBusy?:  boolean;
+    /** Static variables list to display (bypasses WebSocket connection) */
+    variables?:   VariableInfo[];
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export const VariablePanel: React.FC<VariablePanelProps> = ({ on, getVariables, kernelBusy }) => {
+export const VariablePanel: React.FC<VariablePanelProps> = ({ on, getVariables, kernelBusy, variables: propsVariables }) => {
     const [variables, setVariables] = useState<VariableInfo[]>([]);
     const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [filter, setFilter] = useState('');
 
-    // Subscribe to variables events from the kernel
+    // Subscribe to variables events from the kernel or use static list
     useEffect(() => {
+        if (propsVariables) {
+            setVariables(propsVariables);
+            setLastRefreshed(new Date());
+            setIsRefreshing(false);
+            return;
+        }
+
+        if (!on || !getVariables) return;
+
         const handler = (msg: any) => {
             const vars = msg?.data ?? msg?.variables ?? msg ?? [];
             if (Array.isArray(vars)) {
@@ -54,9 +65,10 @@ export const VariablePanel: React.FC<VariablePanelProps> = ({ on, getVariables, 
         // Trigger initial fetch on mount
         getVariables();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [propsVariables]);
 
     const handleRefresh = useCallback(() => {
+        if (!getVariables) return;
         setIsRefreshing(true);
         getVariables();
         // Auto-clear refreshing state after 3s in case kernel doesn't respond
@@ -78,19 +90,21 @@ export const VariablePanel: React.FC<VariablePanelProps> = ({ on, getVariables, 
                             {lastRefreshed.toLocaleTimeString()}
                         </span>
                     )}
-                    <button
-                        id="variable-panel-refresh"
-                        style={{
-                            ...styles.refreshBtn,
-                            opacity: (kernelBusy || isRefreshing) ? 0.5 : 1,
-                            cursor:  (kernelBusy || isRefreshing) ? 'not-allowed' : 'pointer',
-                        }}
-                        onClick={handleRefresh}
-                        disabled={kernelBusy || isRefreshing}
-                        title="Refresh variables"
-                    >
-                        {isRefreshing ? '⟳' : '↻'} Refresh
-                    </button>
+                    {getVariables && (
+                        <button
+                            id="variable-panel-refresh"
+                            style={{
+                                ...styles.refreshBtn,
+                                opacity: (kernelBusy || isRefreshing) ? 0.5 : 1,
+                                cursor:  (kernelBusy || isRefreshing) ? 'not-allowed' : 'pointer',
+                            }}
+                            onClick={handleRefresh}
+                            disabled={kernelBusy || isRefreshing}
+                            title="Refresh variables"
+                        >
+                            {isRefreshing ? '⟳' : '↻'} Refresh
+                        </button>
+                    )}
                 </div>
             </div>
 

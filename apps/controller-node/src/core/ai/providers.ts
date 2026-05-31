@@ -69,11 +69,11 @@ export const PROVIDERS: Record<string, ProviderConfig> = {
         dynamic: true,
         isLocal: true,
     },
-    oprel: {
-        name: 'Oprel (Local)',
+    octopod: {
+        name: 'Octopod (Local)',
         models: [],
         apiKey: '',
-        baseUrl: process.env.OPREL_BASE_URL || 'http://localhost:11435',
+        baseUrl: process.env.OCTOPOD_BASE_URL || 'http://localhost:11435',
         dynamic: true,
         isLocal: true,
     },

@@ -432,11 +432,26 @@ export class KernelManager extends EventEmitter {
 
     public async interruptKernel(notebookId: string): Promise<void> {
         const state = this.kernels.get(notebookId);
-        if (state) {
-            state.bridge.send({
-                type: 'interrupt',
-                notebook_id: notebookId
-            });
+        if (!state) return;
+
+        // 1. Send interrupt signal to the Python bridge / kernel
+        state.bridge.send({
+            type: 'interrupt',
+            notebook_id: notebookId
+        });
+
+        // 2. Optimistically resolve ALL pending execution callbacks as KeyboardInterrupt.
+        //    This gives instant feedback on the frontend (cell stops immediately) and mirrors
+        //    Google Colab's behavior — the kernel will still receive the actual interrupt and
+        //    any duplicate completion messages will be silently dropped by the `completed` flag.
+        const interruptError = 'KeyboardInterrupt: Execution interrupted by user';
+        for (const [execId, cb] of state.executionCallbacks.entries()) {
+            if (!cb.completed) {
+                cb.completed = true;
+                if (cb.timeoutId) clearTimeout(cb.timeoutId);
+                state.executionCallbacks.delete(execId);
+                cb.onError(interruptError);
+            }
         }
     }
 

@@ -432,7 +432,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           <ChevronRight
                             className={`w-3 h-3 text-gray-500 shrink-0 transition-transform ${expandedFiles.has(fileMatch.fileId) ? 'rotate-90' : ''}`}
                           />
-                          <FileCode className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                          <FileCode className="w-3.5 h-3.5 text-sim-red shrink-0" />
                           <span className="text-xs font-medium text-gray-300 truncate flex-1">{fileMatch.fileName}</span>
                           <span className="text-[10px] text-gray-600 shrink-0">
                             {fileMatch.cells.reduce((s, c) => s + c.lines.length, 0)}

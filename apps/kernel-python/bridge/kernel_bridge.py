@@ -11,6 +11,7 @@ import asyncio
 import traceback
 import os
 import platform
+import signal
 from pathlib import Path
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -309,7 +310,7 @@ class KernelBridge:
             send({"type": "debug", "notebook_id": self.notebook_id, "message": f"execute sent: kernel_msg_id={kernel_msg_id}"})
 
         elif cmd == 'interrupt':
-            await self.km.interrupt_kernel()
+            await self._do_interrupt()
 
         elif cmd == 'restart':
             await self.km.restart_kernel()
@@ -362,6 +363,49 @@ class KernelBridge:
             send({"type": "shutdown_ack", "notebook_id": self.notebook_id})
             self._running = False
             sys.exit(0)
+
+
+    async def _do_interrupt(self):
+        """
+        Platform-aware kernel interrupt.
+
+        On Windows, SIGINT cannot be delivered cross-process via kill() the same
+        way as POSIX. We use CTRL_C_EVENT (signal 0 on Windows) sent directly to
+        the kernel subprocess PID, which is what IPython itself does internally.
+        Falls back to km.interrupt_kernel() on non-Windows platforms.
+        """
+        send({"type": "debug", "notebook_id": self.notebook_id,
+              "message": "interrupt requested"})
+        try:
+            if platform.system() == 'Windows':
+                # Get kernel subprocess PID via jupyter_client
+                kid = getattr(self.km, 'kernel', None)
+                kernel_pid = getattr(kid, 'pid', None) if kid else None
+
+                if kernel_pid is None:
+                    # Try the process attribute directly (older jupyter_client)
+                    proc = getattr(self.km, '_kernel_process', None)
+                    kernel_pid = getattr(proc, 'pid', None) if proc else None
+
+                if kernel_pid:
+                    send({"type": "debug", "notebook_id": self.notebook_id,
+                          "message": f"Sending CTRL_C_EVENT to kernel PID {kernel_pid}"})
+                    os.kill(kernel_pid, signal.CTRL_C_EVENT)
+                else:
+                    # Fallback: let jupyter_client try
+                    send({"type": "debug", "notebook_id": self.notebook_id,
+                          "message": "kernel PID not found, falling back to interrupt_kernel()"})
+                    await self.km.interrupt_kernel()
+            else:
+                await self.km.interrupt_kernel()
+        except Exception as e:
+            send({"type": "debug", "notebook_id": self.notebook_id,
+                  "message": f"interrupt error: {str(e)}"})
+            # Last resort: try the standard API anyway
+            try:
+                await self.km.interrupt_kernel()
+            except Exception:
+                pass
 
 
     async def run_introspection(self, execution_id: str):

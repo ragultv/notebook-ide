@@ -9,6 +9,7 @@ import { Tab } from '../../types';
 import { TabBar } from '../TabBar';
 import { controllerClient } from '../../services/controller.client';
 import { useCenterDialog } from '../shared/CenterDialog';
+import octopodLogo from '../../octopod1.png';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -408,7 +409,7 @@ const FileMenu: React.FC<FileMenuProps> = ({
       icon: FileCode2,
       label: 'New Notebook',
       kbd: 'Ctrl+N',
-      color: 'text-orange-400',
+      color: 'text-sim-red',
       separator: true,
       onClick: handleNewNotebook,
     },
@@ -512,9 +513,9 @@ export const TopBar: React.FC<TopBarProps> = ({
       <div className="flex items-center gap-2">
         {/* Branding */}
         <div className="flex items-center gap-2 mr-3 px-2">
-          <Zap className="w-4 h-4 text-sim-red fill-current" />
+          <img src={octopodLogo} alt="Octopod Logo" className="w-5 h-5 object-contain" />
           <div className="font-mono font-bold tracking-wider text-base">
-            <span className="text-white">OPREL</span>
+            <span className="text-white">OctoML</span>
           </div>
         </div>
 
