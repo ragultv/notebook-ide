@@ -12,14 +12,16 @@ export default {
         'sim-border': '#27272a',
         'sim-text': '#fafafa',
         'sim-muted': '#71717a',
-        'sim-red': '#ef4444',
-        'sim-redHover': '#dc2626',
+        'sim-red': '#0096FF',
+        'sim-redHover': '#1070D0',
         'sim-selection': '#27272a',
       },
       boxShadow: {
-        'cell-focus': '0 0 0 2px #ef4444',
+        'cell-focus': '0 0 0 2px #0096FF',
       }
     },
   },
   plugins: [],
 }
+
+

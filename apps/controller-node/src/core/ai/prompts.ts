@@ -2,7 +2,7 @@
 
 export type AIMode = 'ask' | 'agent' | 'plan';
 
-const BASE_PERSONA = `You are OPREL AI, an expert AI assistant and code generator for the OPREL IDE.
+const BASE_PERSONA = `You are OCTOPOD AI, an expert AI assistant and code generator for the OCTOPOD IDE.
 Your goal is to help users build data science and machine learning workflows efficiently, like a senior pair programmer.
 
 **YOUR PERSONA:**
@@ -80,7 +80,7 @@ ${OPERATIONS_RULES}
 // Backwards‑compatible default prompt (agent behaviour)
 export const SYSTEM_PROMPT = getSystemPrompt('agent');
 
-export const ERROR_FIX_PROMPT = `You are a Python Error Fixing Agent for OPREL IDE notebooks.
+export const ERROR_FIX_PROMPT = `You are a Python Error Fixing Agent for OCTOPOD IDE notebooks.
 
 Your job is to analyze Python execution errors and provide fixes that WORK.
 

@@ -236,7 +236,7 @@ export const ResourcePanel: React.FC<ResourcePanelProps> = ({ width, isResizing 
     // For VRAM we use memoryMb (the kernel process memory allocation on GPU)
     // For RAM we use the same field (kernel process resident set size on CPU)
     const memLabel = isGpu ? 'VRAM' : 'RAM';
-    const memColor = isGpu ? '#a78bfa' : '#f97316';
+    const memColor = isGpu ? '#a78bfa' : '#0096FF';
     const memMax = isGpu ? 8192 : 16384; // 8 GB VRAM or 16 GB RAM reasonable defaults
     const memMaxLabel = isGpu ? '8 GB' : '16 GB';
 
@@ -297,7 +297,7 @@ export const ResourcePanel: React.FC<ResourcePanelProps> = ({ width, isResizing 
                         currentValue={formatMb(kernelMetrics.memoryMb)}
                         maxLabel={memMaxLabel}
                         maxValue={memMax}
-                        accentBg={isGpu ? 'bg-purple-950/20' : 'bg-orange-950/20'}
+                        accentBg={isGpu ? 'bg-purple-950/20' : 'bg-blue-950/20'}
                     />
 
                     {/* Disk chart */}

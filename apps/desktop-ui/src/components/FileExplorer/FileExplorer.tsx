@@ -39,7 +39,7 @@ const FILE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
 const FileIcon: React.FC<{ extension?: string; isDir: boolean }> = ({ extension, isDir }) => {
   if (isDir) return <Folder className="w-4 h-4 text-yellow-500 shrink-0" />;
   const IconComponent = FILE_ICONS[extension || ''] || File;
-  const color = extension === '.ipynb' ? 'text-orange-400'
+  const color = extension === '.ipynb' ? 'text-sim-red'
     : extension === '.py' ? 'text-blue-400'
       : ['.csv', '.json', '.xlsx', '.parquet'].includes(extension || '') ? 'text-green-400'
         : 'text-gray-400';
@@ -504,7 +504,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onFileSelect, onProj
               </button>
               <button onClick={() => handleCreateNotebook(contextMenu.path)}
                 className="w-full px-3 py-1.5 text-left text-xs hover:bg-white/5 text-gray-300 flex items-center gap-2 transition-colors">
-                <FileCode2 className="w-3.5 h-3.5 text-orange-400" /> New Notebook
+                <FileCode2 className="w-3.5 h-3.5 text-sim-red" /> New Notebook
               </button>
               <div className="border-t border-[#3a3a3c] my-1" />
             </>
