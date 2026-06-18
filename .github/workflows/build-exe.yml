@@ -1,0 +1,38 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Monorepo Dependencies
+        run: npm run install:all
+
+      - name: Build Controller Node
+        run: npm run controller:build
+
+      - name: Build Desktop UI
+        run: npm run ui:build
+
+      - name: Build Electron App & Generate NSIS Installer
+        run: npm run electron:dist
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OctoML-Setup-Windows
+          path: apps/electron/dist-electron/*.exe
+          retention-days: 7

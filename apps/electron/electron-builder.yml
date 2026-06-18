@@ -41,6 +41,10 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: OctoML
+  installerSidebar: assets/installerSidebar.bmp
+  uninstallerSidebar: assets/installerSidebar.bmp
+  installerHeader: assets/installerHeader.bmp
+  installerHeaderIcon: assets/icon.png
 
 mac:
   target:
