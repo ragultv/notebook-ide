@@ -12,7 +12,7 @@
     "ui:build":           "cd apps/desktop-ui && npm run build",
     "electron:install":   "cd apps/electron && npm install",
     "electron:build":     "cd apps/electron && npm run build:electron",
-    "electron:dist":      "cd apps/electron && npm run dist",
+    "electron:dist":      "cd apps/electron && npm run build",
     "electron:dev":       "cd apps/electron && npm run dev",
     "dev": "concurrently \"npm run controller:dev\" \"npm run ui:dev\"",
     "install:all": "npm run controller:install && npm run ui:install && npm run electron:install"
