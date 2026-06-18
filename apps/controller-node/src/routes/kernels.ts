@@ -60,7 +60,8 @@ export async function kernelRoutes(fastify: FastifyInstance) {
     });
 
     fastify.get('/metrics/:notebookId', async (request) => {
-        const { notebookId } = request.params as { notebookId: string };
+        const rawNotebookId = (request.params as { notebookId: string }).notebookId;
+        const notebookId = rawNotebookId ? decodeURIComponent(rawNotebookId) : '';
         const metrics        = await kernelManager.getKernelMetrics(notebookId);
         if (metrics.available) {
             console.log(

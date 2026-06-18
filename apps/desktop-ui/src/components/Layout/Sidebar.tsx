@@ -5,6 +5,8 @@ import {
   File, Image as ImageIcon, FileCode, Search, ChevronRight,
 } from 'lucide-react';
 import { ProjectFile, CellData } from '../../types';
+import { FileExplorer } from '../FileExplorer';
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,6 +20,10 @@ interface SidebarProps {
   onRenameFile?: (id: string, newName: string) => void;
   /** Optional: called when user clicks a search match to jump to that cell */
   onCellFocus?: (fileId: string, cellId: string) => void;
+  /** Called when user opens a notebook from the project file tree */
+  onOpenNotebook?: (virtualPath: string, name: string) => void;
+  /** Called when user opens a non-notebook file */
+  onOpenFile?: (virtualPath: string, name: string) => void;
 }
 
 type ActivePanel = 'files' | 'search';
@@ -131,6 +137,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteFile,
   onRenameFile,
   onCellFocus,
+  onOpenNotebook,
+  onOpenFile,
 }) => {
   const [activePanel, setActivePanel] = useState<ActivePanel>('files');
   const [drawerOpen, setDrawerOpen] = useState(true);
@@ -319,48 +327,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {activePanel === 'files' && (
           <>
             <div className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-sim-border/30">
-              <span className="text-sm font-semibold text-gray-200 tracking-wide">Files</span>
+              <span className="text-sm font-semibold text-gray-200 tracking-wide">Explorer</span>
               <button onClick={() => setDrawerOpen(false)} className="text-gray-400 hover:text-white rounded p-1">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 flex flex-col overflow-hidden px-2 py-2">
-              <div className="flex items-center gap-1 mb-2 px-1">
-                <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} multiple accept=".ipynb,.py,.csv,.json,.txt,.png,.jpg,.jpeg,.svg" />
-                <button onClick={handleUploadClick} className="flex-1 flex items-center justify-center gap-2 bg-[#2b2b2e] hover:bg-[#3a3a3c] text-xs font-medium text-gray-300 py-1.5 rounded-lg transition-colors">
-                  <Upload className="w-3.5 h-3.5" /> Upload
-                </button>
-                <button onClick={onClearFiles} className="flex items-center justify-center p-1.5 bg-[#2b2b2e] hover:bg-sim-red/20 text-gray-400 hover:text-sim-red rounded-lg transition-colors" title="Clear All">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto">
-                <div className="space-y-0.5">
-                  {files.length === 0 && (
-                    <div className="flex flex-col items-center justify-center pt-10 text-center px-4 opacity-50">
-                      <Folder className="w-8 h-8 text-gray-600 mb-2" />
-                      <span className="text-xs text-gray-500">No files open.</span>
-                    </div>
-                  )}
-                  {files.map(file => (
-                    <FileTreeItem
-                      key={file.id}
-                      id={file.id}
-                      name={file.name}
-                      fileType={file.type}
-                      isActive={file.id === activeFileId}
-                      onClick={() => onFileSelect(file.id)}
-                      onContextMenu={e => handleContextMenu(e, file.id)}
-                      isEditing={editingFileId === file.id}
-                      editValue={editName}
-                      onEditChange={setEditName}
-                      onEditSubmit={finishRenaming}
-                    />
-                  ))}
-                </div>
-              </div>
+            {/* Project file tree */}
+            <div className="flex-1 overflow-hidden">
+              <FileExplorer
+                onOpenNotebook={onOpenNotebook}
+                onOpenFile={onOpenFile}
+                onDeleteFile={(virtualPath) => {
+                  const file = files.find(f => f.path === virtualPath);
+                  if (file && onDeleteFile) {
+                    onDeleteFile(file.id);
+                  }
+                }}
+              />
             </div>
           </>
         )}

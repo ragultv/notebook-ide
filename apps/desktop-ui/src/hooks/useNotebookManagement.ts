@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ProjectFile, CellData } from '../types';
 import { filesystemClient, NotebookFile } from '../services/filesystem.client';
+import { controllerClient } from '../services/controller.client';
 import { useAutosave } from './useAutosave';
+import { v4 as uuidv4 } from 'uuid';
 
 interface UseNotebookManagementReturn {
   files: ProjectFile[];
@@ -21,6 +23,7 @@ interface UseNotebookManagementReturn {
   updateNotebookCellsById: (notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
   handleNewNotebook: (nameOrCells?: string | CellData[], initialCells?: CellData[], path?: string) => string | null;
   handleOpenFile: () => Promise<void>;
+  handleOpenNotebook: (virtualPath: string, name: string) => Promise<void>;
   handleSaveFile: () => Promise<void>;
 }
 
@@ -67,7 +70,12 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
     };
   }, [activeFile, activeCells, currentNotebookPath]);
 
-  const autosave = useAutosave(notebookForAutosave, activeCells);
+  const autosave = useAutosave(
+    notebookForAutosave,
+    activeCells,
+    hasUnsavedChanges,
+    useCallback(() => setHasUnsavedChanges(false), [])
+  );
 
   // Save notebook path to localStorage
   useEffect(() => {
@@ -177,6 +185,53 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
     }
   }, []);
 
+  /**
+   * Open a notebook from the project file tree via virtual path.
+   * Used by FileExplorer when user clicks a .ipynb file.
+   */
+  const handleOpenNotebook = useCallback(async (virtualPath: string, name: string) => {
+    // Check if already open — if so, just activate it
+    const existing = files.find(f => f.path === virtualPath);
+    if (existing) {
+      setActiveFileId(existing.id);
+      activeFileIdRef.current = existing.id;
+      return;
+    }
+    try {
+      const result = await controllerClient.openNotebook(virtualPath);
+      const cellsData: CellData[] = (result.content?.cells || []).map((c: any) => ({
+        id:             c.id || uuidv4(),
+        type:           c.type === 'markdown' ? 'markdown' : 'code',
+        content:        c.content || '',
+        status:         'idle' as const,
+        executionCount: c.executionCount ?? null,
+        output:         c.output,
+        outputs:        c.outputs && c.outputs.length > 0 ? c.outputs : undefined,
+      }));
+      const fileId = result.notebookId || uuidv4();
+      const projectFile: ProjectFile = {
+        id:   fileId,
+        name: result.name || name,
+        path: virtualPath,
+        type: 'application/x-ipynb+json',
+        cells: cellsData.length > 0 ? cellsData : [{
+          id: uuidv4(), type: 'code', content: '', status: 'idle'
+        }],
+      };
+      setFiles(prev => {
+        const dup = prev.find(f => f.path === virtualPath);
+        return dup ? prev : [...prev, projectFile];
+      });
+      setActiveFileId(fileId);
+      activeFileIdRef.current = fileId;
+      setCurrentNotebookPath(virtualPath);
+      setHasUnsavedChanges(false);
+    } catch (err) {
+      console.error('[useNotebookManagement] Failed to open notebook:', err);
+    }
+  }, [files]);
+
+
   const handleSaveFile = useCallback(async () => {
     if (!activeFile?.cells) return;
 
@@ -184,6 +239,10 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
       const notebookData: NotebookFile = {
         id: activeFile.id,
         name: activeFile.name,
+        // Include the virtual path so filesystemClient saves silently via the
+        // backend (Option 1) — without this, new notebooks without a handle
+        // fall through to the browser download dialog (Option 3).
+        path: activeFile.path || currentNotebookPath || undefined,
         cells: activeFile.cells.map(cell => ({
           id: cell.id,
           type: cell.type,
@@ -200,7 +259,7 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
       const err = error as Error;
       alert(`Save failed: ${err.message || 'Unknown error'}`);
     }
-  }, [activeFile]);
+  }, [activeFile, currentNotebookPath]);
 
   return {
     files,
@@ -219,6 +278,8 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
     updateNotebookCellsById,
     handleNewNotebook,
     handleOpenFile,
+    handleOpenNotebook,
     handleSaveFile,
+
   };
 };

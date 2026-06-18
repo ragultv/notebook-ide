@@ -3,7 +3,7 @@ import { MemorySnapshot } from '../../../../packages/shared-types/memory';
 // Controller Client - HTTP interface to FastAPI backend
 // Handles execution, kernel management, and AI requests
 
-const BASE_URL = 'http://127.0.0.1:3001';
+export const BASE_URL = 'http://127.0.0.1:3001';
 
 // Types
 export interface ExecutionRequest {
@@ -110,7 +110,7 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || `HTTP ${res.status}`);
+    throw new Error(error.message || error.error || error.detail || `HTTP ${res.status}`);
   }
 
   return res.json();
@@ -154,131 +154,6 @@ export const controllerClient = {
   async getMemorySnapshot(notebookId: string, method: 'umap' | 'pca' = 'umap'): Promise<MemorySnapshot> {
     const params = new URLSearchParams({ notebookId, method });
     return request(`/api/memory/snapshot?${params.toString()}`);
-  },
-
-  // Code Execution
-  async runCell(req: ExecutionRequest): Promise<ExecutionResult> {
-    return request('/execution/run_cell', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    });
-  },
-
-  // Streaming code execution - SSE for real-time output
-  runCellStream(
-    req: ExecutionRequest,
-    onOutput: (output: RichOutput) => void,
-    onComplete: (result: ExecutionResult) => void,
-    onError: (error: string) => void,
-    onInputRequest?: (executionId: string, prompt: string) => void,
-    onCommOpen?: (commId: string, targetName: string, data: any, metadata: any) => void,
-    onCommMsg?: (commId: string, data: any) => void,
-    onCommClose?: (commId: string) => void
-  ): () => void {
-    const abortController = new AbortController();
-
-    fetch(`${BASE_URL}/execution/run_cell_stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req),
-      signal: abortController.signal,
-    }).then(async (response) => {
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: response.statusText }));
-        onError(error.detail || `HTTP ${response.status}`);
-        return;
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        onError('No response body');
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === 'output') {
-                onOutput(data.output);
-              } else if (data.type === 'complete') {
-                onComplete(data.result);
-              } else if (data.type === 'error') {
-                onError(data.error);
-              } else if (data.type === 'input_request' && onInputRequest) {
-                onInputRequest(data.execution_id, data.prompt);
-              } else if (data.type === 'comm_open' && onCommOpen) {
-                onCommOpen(data.comm_id, data.target_name, data.data, data.metadata);
-              } else if (data.type === 'comm_msg' && onCommMsg) {
-                onCommMsg(data.comm_id, data.data);
-              } else if (data.type === 'comm_close' && onCommClose) {
-                onCommClose(data.comm_id);
-              }
-            } catch (e) {
-              // Ignore parse errors
-            }
-          }
-        }
-      }
-    }).catch((e) => {
-      if (e.name !== 'AbortError') {
-        onError(e.message || 'Stream failed');
-      }
-    });
-
-    // Return cancel function
-    return () => abortController.abort();
-  },
-
-  // Send input reply for input() prompts
-  async sendStdinReply(notebookId: string, executionId: string, value: string): Promise<void> {
-    const response = await fetch(`${BASE_URL}/execution/stdin_reply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notebookId, executionId, value }),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
-    }
-  },
-
-  // Send comm message to kernel (for widget interactions)
-  async sendCommMsg(notebookId: string, commId: string, data: any): Promise<void> {
-    const response = await fetch(`${BASE_URL}/execution/comm_msg`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notebookId, commId, data }),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
-    }
-  },
-
-  async runAll(cells: ExecutionRequest[]): Promise<ExecutionResult[]> {
-    return request('/execution/run_all', {
-      method: 'POST',
-      body: JSON.stringify({ cells }),
-    });
-  },
-
-  async interrupt(notebookId: string): Promise<{ status: string }> {
-    return request('/execution/interrupt', {
-      method: 'POST',
-      body: JSON.stringify({ notebookId })
-    });
   },
 
   async sendInput(notebookId: string, value: string): Promise<{ success: boolean }> {
@@ -400,36 +275,9 @@ export const controllerClient = {
     });
   },
 
-  // ===== File System API =====
-
-  // Get current project
-  async getCurrentProject(): Promise<{ project: ProjectInfo | null }> {
-    return request('/files/project');
-  },
-
-  // Open a project folder
-  async openProject(path: string, name: string): Promise<{ status: string; project: ProjectInfo }> {
-    return request('/files/project/open', {
-      method: 'POST',
-      body: JSON.stringify({ path, name }),
-    });
-  },
-
-  // Create a new project
-  async createProject(path: string, name: string): Promise<{ status: string; project: ProjectInfo }> {
-    return request('/files/project/create', {
-      method: 'POST',
-      body: JSON.stringify({ path, name }),
-    });
-  },
-
-  // List files in a directory
-  async listFiles(path?: string): Promise<{ path: string; items: FileItem[] }> {
-    const url = path ? `/files/list?path=${encodeURIComponent(path)}` : '/files/list';
-    return request(url);
-  },
 
   // Read file content
+
   async readFile(path: string): Promise<{ path: string; content: string; size: number }> {
     return request(`/files/read?path=${encodeURIComponent(path)}`);
   },
@@ -487,6 +335,16 @@ export const controllerClient = {
     });
   },
 
+  // Resolve virtual path to OS absolute path (for "Open in Explorer")
+  async resolveOsPath(virtualPath: string): Promise<{ osPath: string }> {
+    return request(`/files/resolve-os-path?path=${encodeURIComponent(virtualPath)}`);
+  },
+
+  // Get the OS absolute path of the current project root
+  async getProjectOsRoot(): Promise<{ osPath: string }> {
+    return request('/files/project/os-root');
+  },
+
   // Create folder
   async createFolder(path: string, name: string): Promise<{ status: string; path: string }> {
     return request('/files/create-folder', {
@@ -504,28 +362,133 @@ export const controllerClient = {
   },
 
   // Save notebook
-  async saveNotebook(path: string, content: object): Promise<{ status: string; path: string; size: number }> {
-    return request('/files/notebook/save', {
+  async saveNotebook(notebookId: string): Promise<{ success: boolean; notebookId: string }> {
+    return request('/notebooks/save', {
       method: 'POST',
-      body: JSON.stringify({ path, content: JSON.stringify(content) }),
+      body: JSON.stringify({ notebookId }),
     });
   },
 
   // Open notebook
-  async openNotebook(path: string): Promise<{ path: string; name: string; content: NotebookContent }> {
-    return request(`/files/notebook/open?path=${encodeURIComponent(path)}`);
+  async openNotebook(path: string): Promise<{ path: string; name: string; content: NotebookContent; notebookId: string }> {
+    const res = await request<{
+      notebookId: string;
+      path: string;
+      name: string;
+      notebook: any;
+      persistedOutputs?: Record<string, any[]>;
+    }>('/notebooks/open', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+
+    // Convert standard ipynb format to the frontend's expected format
+    const cells = (res.notebook?.cells || []).map((cell: any, idx: number) => {
+      // Reconstruct text output from ipynb outputs array
+      const rawOutputs = cell.outputs || [];
+      let outputText = '';
+      for (const out of rawOutputs) {
+        if (out.output_type === 'stream') {
+          const text = Array.isArray(out.text) ? out.text.join('') : (out.text || '');
+          outputText += text;
+        } else if (out.output_type === 'execute_result' || out.output_type === 'display_data') {
+          const textArr = out.data?.['text/plain'];
+          if (textArr) outputText += Array.isArray(textArr) ? textArr.join('') : textArr;
+        } else if (out.output_type === 'error') {
+          outputText += `${out.ename}: ${out.evalue}\n${(out.traceback || []).join('\n')}`;
+        }
+      }
+
+      return {
+        id: cell.id || `cell-${idx}`,
+        type: cell.cell_type === 'markdown' ? 'markdown' : 'code',
+        content: Array.isArray(cell.source) ? cell.source.join('') : (cell.source || ''),
+        output: outputText || undefined,
+        executionCount: cell.execution_count ?? null,
+        outputs: rawOutputs,
+      };
+    });
+
+    return {
+      notebookId: res.notebookId,
+      path: res.path,
+      name: res.name,
+      content: {
+        cells: cells.length > 0 ? cells : [{ id: 'default-cell', type: 'code', content: '' }],
+        metadata: res.notebook?.metadata || {},
+      },
+    };
   },
 
   // Get recent projects
-  async getRecentProjects(): Promise<{ recent: Array<{ path: string; name: string; opened: string }> }> {
+  async getRecentProjects(): Promise<{ recent: Array<{ path: string; name: string; opened: string; lastNotebook?: string }> }> {
     return request('/files/recent');
   },
 
-  // Add to recent projects
-  async addRecentProject(path: string, name: string): Promise<{ status: string }> {
-    return request('/files/recent/add', {
+  // ── Project management ─────────────────────────────────────────────────────
+
+  // Get current open project
+  async getProject(): Promise<{ project: { path: string; name: string } | null }> {
+    return request('/files/project');
+  },
+
+  // Open an existing project by OS path
+  async openProject(projectPath: string, name?: string): Promise<{ status: string; project: any; manifest: any }> {
+    return request('/files/project/open', {
       method: 'POST',
-      body: JSON.stringify({ path, name }),
+      body: JSON.stringify({ path: projectPath, name }),
+    });
+  },
+
+  // Create a new project with folder scaffold
+  async createProject(projectPath: string, name: string, pythonPath?: string): Promise<{ status: string; project: any; manifest: any }> {
+    return request('/files/project/create', {
+      method: 'POST',
+      body: JSON.stringify({ path: projectPath, name, pythonPath }),
+    });
+  },
+
+  // Close the current project
+  async closeProject(): Promise<{ status: string }> {
+    return request('/files/project/close', { method: 'POST' });
+  },
+
+  // Get project manifest (octo.json)
+  async getProjectMetadata(): Promise<{ manifest: any }> {
+    return request('/files/project/metadata');
+  },
+
+  // Update project manifest
+  async updateProjectMetadata(updates: Record<string, any>): Promise<{ manifest: any }> {
+    return request('/files/project/metadata', {
+      method: 'POST',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  // Get full file tree (virtual paths)
+  async getFileTree(): Promise<{ tree: any[]; projectRoot: string }> {
+    return request('/files/tree');
+  },
+
+  // List contents of a virtual directory
+  async listFiles(virtualPath: string = '/'): Promise<{ path: string; items: any[] }> {
+    return request(`/files/list?path=${encodeURIComponent(virtualPath)}`);
+  },
+
+  // Move a file within the project
+  async moveFile(srcPath: string, dstFolder: string): Promise<{ status: string; srcPath: string; newPath: string }> {
+    return request('/files/move', {
+      method: 'POST',
+      body: JSON.stringify({ srcPath, dstFolder }),
+    });
+  },
+
+  // Create a new file with optional content (virtual path)
+  async createFile(virtualPath: string, content: string = ''): Promise<{ status: string; path: string }> {
+    return request('/files/create-file', {
+      method: 'POST',
+      body: JSON.stringify({ path: virtualPath, content }),
     });
   },
 

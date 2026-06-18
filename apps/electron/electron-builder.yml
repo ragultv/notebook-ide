@@ -1,0 +1,59 @@
+appId: com.octoml.ide
+productName: OctoML
+copyright: Copyright © 2026
+
+directories:
+  buildResources: assets
+  output: dist-electron
+
+files:
+  - dist/**/*
+  - "!**/*.ts"
+  - "!**/*.map"
+
+extraResources:
+  - from: ../desktop-ui/dist
+    to: app/apps/desktop-ui
+  - from: ../controller-node
+    to: app/apps/controller-node
+    filter:
+      - dist/**/*
+      - node_modules/**/*
+      - "!node_modules/.cache/**"
+      - "!node_modules/**/*.md"
+  - from: ../kernel-python
+    to: app/apps/kernel-python
+    filter:
+      - bridge/**/*
+      - "!**/__pycache__/**"
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: OctoML
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: assets/icon.png
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  icon: assets/icon.png
+  category: Development

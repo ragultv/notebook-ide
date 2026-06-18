@@ -10,70 +10,67 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
-
-// ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 
 export interface BridgeMessage {
-    type: string;
+    type:        string;
     notebook_id: string;
     [key: string]: any;
 }
 
 export class BridgeProcess extends EventEmitter {
     private process: ChildProcess | null = null;
-    private buffer: string = '';
-    public notebookId: string;
-    public ready: boolean = false;
+    private buffer:  string = '';
+    public  notebookId:  string;
+    public  ready:       boolean = false;
     private connectionFile: string;
-    private pythonPath: string;
+    private pythonPath:  string;
+    /** Absolute OS path to the active project root. Passed to kernel_bridge.py via --project-root. */
+    public  projectRoot: string | null;
 
-    constructor(notebookId: string, pythonPath: string = 'python') {
+    constructor(notebookId: string, pythonPath: string = 'python', projectRoot: string | null = null) {
         super();
-        this.notebookId = notebookId;
-        this.pythonPath = pythonPath;
+        this.notebookId  = notebookId;
+        this.pythonPath  = pythonPath;
+        this.projectRoot = projectRoot;
 
         // Connection file path for crash recovery
-        const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+        const homeDir    = process.env.HOME || process.env.USERPROFILE || '';
         const runtimeDir = path.join(homeDir, '.local', 'share', 'jupyter', 'runtime');
-
-        // Ensure runtime directory exists
         if (!fs.existsSync(runtimeDir)) {
             fs.mkdirSync(runtimeDir, { recursive: true });
         }
-
         this.connectionFile = path.join(runtimeDir, `kernel-${notebookId}.json`);
     }
 
-    /** The OS PID of the spawned bridge process, if running. Used by P2-1 (metrics) and P1-7 (orphan guard). */
+    /** The OS PID of the spawned bridge process, if running. */
     get pid(): number | undefined {
         return this.process?.pid;
     }
 
     async start(reconnect = false): Promise<void> {
         return new Promise((resolve, reject) => {
-            // Find bridge script path
             const possiblePaths = [
-                // From dist/core/BridgeProcess.js: dist/core -> dist -> controller-node -> .. -> kernel-python
                 path.resolve(__dirname, '../../../kernel-python/bridge/kernel_bridge.py'),
-                // From src/core/BridgeProcess.ts (development with tsx)
-                path.resolve(__dirname, '../../../kernel-python/bridge/kernel_bridge.py'),
-                // Fallback from controller-node root
                 path.resolve(process.cwd(), '../kernel-python/bridge/kernel_bridge.py'),
             ];
 
             const bridgeScript = possiblePaths.find(p => fs.existsSync(p));
-
             if (!bridgeScript) {
                 reject(new Error(`Bridge script not found. Tried: ${possiblePaths.join(', ')}`));
                 return;
             }
 
-            const args = [
-                bridgeScript,
-                '--notebook-id', this.notebookId
-            ];
+            const args: string[] = [bridgeScript, '--notebook-id', this.notebookId];
+
+            // ── Project CWD injection ──────────────────────────────────────────
+            // kernel_bridge.py will:
+            //   1. Set kernel working directory to projectRoot
+            //   2. Inject PROJECT_ROOT variable into every new kernel session
+            if (this.projectRoot) {
+                args.push('--project-root', this.projectRoot);
+            }
 
             if (reconnect && fs.existsSync(this.connectionFile)) {
                 args.push('--reconnect', this.connectionFile);
@@ -83,27 +80,27 @@ export class BridgeProcess extends EventEmitter {
                 stdio: ['pipe', 'pipe', 'pipe'],
                 env: {
                     ...process.env,
-                    PYTHONUNBUFFERED: '1',
-                    PYTHONIOENCODING: 'utf-8',
-                    PYTHONUTF8: '1',
-                    PYTHONDONTWRITEBYTECODE: '1',
-                    PIP_NO_INPUT: '0',
+                    PYTHONUNBUFFERED:              '1',
+                    PYTHONIOENCODING:              'utf-8',
+                    PYTHONUTF8:                    '1',
+                    PYTHONDONTWRITEBYTECODE:       '1',
+                    PIP_NO_INPUT:                  '0',
                     PIP_DISABLE_PIP_VERSION_CHECK: '1',
-                    PYTHONSTARTUP: '',
+                    PYTHONSTARTUP:                 '',
                 },
-                windowsHide: true
+                windowsHide: true,
             });
 
-            // P1-7: Write PID file so orphan sweep can find and kill this process on restart.
+            // P1-7: Write PID file so orphan sweep can find this process on restart.
             if (this.process.pid) {
                 this.writePidFile(this.process.pid);
             }
 
-            // ── stdout: all JSON protocol messages ──────────────────────
+            // ── stdout: all JSON protocol messages ─────────────────────────────
             this.process.stdout!.on('data', (chunk: Buffer) => {
                 this.buffer += chunk.toString('utf-8');
-                const lines = this.buffer.split('\n');
-                this.buffer = lines.pop() ?? '';
+                const lines  = this.buffer.split('\n');
+                this.buffer  = lines.pop() ?? '';
 
                 for (const line of lines) {
                     const trimmed = line.trim();
@@ -116,21 +113,16 @@ export class BridgeProcess extends EventEmitter {
                         }
                         this.emit('message', msg);
                     } catch {
-                        // Non-JSON from bridge — log but don't crash
                         console.error(`[Bridge ${this.notebookId}] non-JSON: ${trimmed}`);
                     }
                 }
             });
 
-            // ── stderr: Python interpreter fatal errors only ─────────────
+            // ── stderr: Python interpreter fatal errors ────────────────────────
             this.process.stderr!.on('data', (chunk: Buffer) => {
                 const text = chunk.toString('utf-8');
                 console.error(`[Bridge ${this.notebookId}] FATAL: ${text}`);
-                this.emit('message', {
-                    type: 'fatal_error',
-                    notebook_id: this.notebookId,
-                    text
-                });
+                this.emit('message', { type: 'fatal_error', notebook_id: this.notebookId, text });
             });
 
             this.process.on('exit', (code) => {
@@ -138,9 +130,7 @@ export class BridgeProcess extends EventEmitter {
                 this.emit('exit', code);
             });
 
-            this.process.on('error', (err) => {
-                reject(err);
-            });
+            this.process.on('error', (err) => { reject(err); });
 
             // Reject if bridge doesn't signal ready within 15s
             setTimeout(() => {
@@ -149,7 +139,6 @@ export class BridgeProcess extends EventEmitter {
         });
     }
 
-    // Send any JSON command to bridge stdin
     send(message: object): void {
         if (!this.process?.stdin) {
             throw new Error(`Bridge ${this.notebookId} not running`);
@@ -161,14 +150,14 @@ export class BridgeProcess extends EventEmitter {
         this.deletePidFile();
         this.process?.kill('SIGTERM');
         this.process = null;
-        this.ready = false;
+        this.ready   = false;
     }
 
     get isRunning(): boolean {
         return this.process !== null && !this.process.killed;
     }
 
-    // ── P1-7: PID file helpers ────────────────────────────────────────────────
+    // ── PID file helpers (orphan guard) ────────────────────────────────────────
 
     private static getPidsDir(): string {
         const dataDir = process.env.DATA_DIR || './data';
@@ -184,7 +173,6 @@ export class BridgeProcess extends EventEmitter {
                 JSON.stringify({ pid, notebookId: this.notebookId, ts: Date.now() })
             );
         } catch (e) {
-            // Non-fatal — orphan sweep is best-effort
             console.warn('[BridgeProcess] Failed to write PID file:', e);
         }
     }
@@ -193,15 +181,12 @@ export class BridgeProcess extends EventEmitter {
         try {
             const pidFile = path.join(BridgeProcess.getPidsDir(), `${this.notebookId}.pid`);
             if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
-        } catch {
-            // Ignore — file may already be gone
-        }
+        } catch { /* ignore */ }
     }
 
     /**
      * P1-7: Sweep stale PID files from a previous crashed session.
      * Called once at startup before any kernel is started.
-     * Kills any surviving orphan bridge processes and removes their PID files.
      */
     public static sweepOrphans(): void {
         const dir = BridgeProcess.getPidsDir();
@@ -214,18 +199,12 @@ export class BridgeProcess extends EventEmitter {
                 const raw = fs.readFileSync(filePath, 'utf-8');
                 const { pid, notebookId } = JSON.parse(raw) as { pid: number; notebookId: string };
                 let isAlive = false;
-                try {
-                    process.kill(pid, 0); // signal 0 = check if process exists
-                    isAlive = true;
-                } catch { /* ESRCH = process not found, EPERM = exists but no permission */ }
-
+                try { process.kill(pid, 0); isAlive = true; } catch { /* ESRCH */ }
                 if (isAlive) {
                     console.warn(`[Orphan] Killing stale kernel pid=${pid} notebook=${notebookId}`);
                     try { process.kill(pid, 'SIGKILL'); } catch { }
                 }
-            } catch {
-                // Corrupt or unreadable PID file — still remove it
-            } finally {
+            } catch { /* Corrupt PID file */ } finally {
                 try { fs.unlinkSync(filePath); } catch { }
             }
         }

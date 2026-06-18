@@ -45,33 +45,46 @@ async function addToPool(pythonPath: string): Promise<void> {
 }
 
 export async function claimFromPool(
-    notebookId: string, 
-    pythonPath: string = 'python'
+    notebookId:  string,
+    pythonPath:  string = 'python',
+    projectRoot: string | null = null,
 ): Promise<BridgeProcess> {
     if (pool.length > 0) {
         const bridge = pool.shift()!;
-        
-        // Update the bridge's notebook ID
-        bridge.notebookId = notebookId;
-        
+
+        // Update notebook ID and project root on the claimed bridge
+        bridge.notebookId  = notebookId;
+        bridge.projectRoot = projectRoot;
+
         // Send command to bridge to update its notebook ID
         bridge.send({ type: 'set_notebook_id', notebook_id: notebookId });
-        
+
+        // If we have a project root, send the CWD command to the already-running kernel
+        // (pool kernels start without a project root, so we inject it post-claim)
+        if (projectRoot) {
+            bridge.send({
+                type:        'set_project_root',
+                notebook_id: notebookId,
+                project_root: projectRoot,
+            });
+        }
+
         // Immediately warm a replacement (non-blocking)
         addToPool(pythonPath).catch(err => {
             console.error('[KernelPool] Failed to warm replacement kernel:', err);
         });
-        
+
         console.log('[KernelPool] Claimed kernel for', notebookId, ', pool size:', pool.length);
         return bridge;
     }
-    
-    // Pool empty — cold start
+
+    // Pool empty — cold start with project root
     console.log('[KernelPool] Pool empty, cold starting kernel for', notebookId);
-    const bridge = new BridgeProcess(notebookId, pythonPath);
+    const bridge = new BridgeProcess(notebookId, pythonPath, projectRoot);
     await bridge.start();
     return bridge;
 }
+
 
 export function getPoolStatus(): { size: number; maxSize: number } {
     return {

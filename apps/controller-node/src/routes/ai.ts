@@ -1,7 +1,9 @@
 import { FastifyInstance } from 'fastify';
 import { aiService, ErrorFixRequest, GenerateStreamCallbacks } from '../core/ai/AIService.js';
 import { getAllSessions, getAllMessagesForSession, getSessionStats } from '../core/ai/MemoryStore.js';
+import { buildProjectContext } from '../core/ProjectContextService.js';
 import { z } from 'zod';
+
 
 function writeSSE(reply: any, event: string, data: object): void {
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -42,9 +44,17 @@ export async function aiRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         try {
             const validated = AIRequestSchema.parse(request.body);
+
+            // Build project-aware context (file tree + data files) and merge
+            const projectCtx = await buildProjectContext().catch(() => null);
+            const enrichedContext = {
+                ...validated.context,
+                projectSummary: projectCtx?.summary,
+            };
+
             const result = await aiService.generate(
                 validated.prompt,
-                validated.context,
+                enrichedContext,
                 undefined,
                 undefined,
                 validated.sessionId ?? undefined,
@@ -58,6 +68,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
             return reply.code(500).send({ error: error.message });
         }
     });
+
 
     // Streaming AI Assistant endpoint (SSE)
     fastify.post('/assist/stream', async (request, reply) => {

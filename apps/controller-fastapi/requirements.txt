@@ -1,6 +1,0 @@
-fastapi
-uvicorn[standard]
-pydantic
-langchain-openai
-langchain-core# Local kernel package (install with: pip install -e ../kernel-python)
-psutil>=5.9.0

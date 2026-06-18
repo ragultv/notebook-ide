@@ -1,526 +1,629 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+/**
+ * FileExplorer — VS Code-style project file tree.
+ *
+ * Design principles:
+ *  - All paths are VIRTUAL (e.g. /data/file.csv)
+ *  - Backed by useProjectFileTree hook polling the backend
+ *  - Context menu: New File, New Folder, Rename, Delete, Copy Path
+ *  - Drag & drop: move files between folders
+ *  - Upload: drop files from OS onto any folder
+ *  - Clicking a .ipynb → opens notebook via onOpenNotebook
+ *  - Clicking other files → opens as read-only viewer
+ */
+
+import React, {
+    useState, useRef, useEffect, useCallback, DragEvent,
+} from 'react';
 import {
-  Folder, File, ChevronRight, ChevronDown, Upload,
-  FolderOpen, RefreshCw, Trash2, Edit2, FileJson, FileText,
-  Database, Image, FileCode, FolderPlus, FilePlus, FileCode2,
+    ChevronRight, ChevronDown, File, Folder, FolderOpen, MoreVertical,
+    FilePlus, FolderPlus, Pencil, Trash2, Copy, Upload, RefreshCw, Loader2,
+    FileCode, FileText, Image as ImageIcon, Database, FileSpreadsheet,
+    BookOpen, ExternalLink,
 } from 'lucide-react';
-import { controllerClient, FileItem, ProjectInfo } from '../../services/controller.client';
-import { useCenterDialog } from '../shared/CenterDialog';
+import { useProjectFileTree, FileTreeNode } from '../../hooks/useProjectFileTree';
+import { controllerClient } from '../../services/controller.client';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── File icon helpers ─────────────────────────────────────────────────────────
 
-interface FileExplorerProps {
-  onFileSelect: (path: string, type: 'notebook' | 'data' | 'other') => void;
-  onProjectChange?: (project: ProjectInfo | null) => void;
+function FileIcon({ extension, className = 'w-4 h-4' }: { extension?: string; className?: string }) {
+    const ext = extension?.toLowerCase();
+    if (ext === '.ipynb')   return <BookOpen       className={`${className} text-orange-400`} />;
+    if (ext === '.py')      return <FileCode        className={`${className} text-blue-400`} />;
+    if (['.csv', '.tsv'].includes(ext || ''))   return <FileSpreadsheet className={`${className} text-green-400`} />;
+    if (['.xlsx', '.xls'].includes(ext || ''))  return <FileSpreadsheet className={`${className} text-green-500`} />;
+    if (['.json', '.yaml', '.yml', '.toml'].includes(ext || '')) return <FileCode className={`${className} text-yellow-400`} />;
+    if (['.md', '.txt', '.rst'].includes(ext || ''))  return <FileText    className={`${className} text-sim-muted`} />;
+    if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].includes(ext || '')) return <ImageIcon className={`${className} text-purple-400`} />;
+    if (['.pkl', '.pt', '.pth', '.h5', '.onnx', '.joblib'].includes(ext || '')) return <Database  className={`${className} text-red-400`} />;
+    return <File className={`${className} text-sim-muted`} />;
 }
 
-interface TreeNode extends FileItem {
-  children?: TreeNode[];
+function formatSize(bytes?: number): string {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-// ── Icon map ──────────────────────────────────────────────────────────────────
+// ── Context Menu ──────────────────────────────────────────────────────────────
 
-const FILE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  '.ipynb': FileCode,
-  '.py': FileCode,
-  '.json': FileJson,
-  '.csv': Database,
-  '.xlsx': Database,
-  '.xls': Database,
-  '.parquet': Database,
-  '.txt': FileText,
-  '.md': FileText,
-  '.png': Image,
-  '.jpg': Image,
-  '.jpeg': Image,
-  '.gif': Image,
-};
+interface ContextMenuProps {
+    x: number;
+    y: number;
+    node: FileTreeNode;
+    onClose: () => void;
+    onNewFile: (parentPath: string) => void;
+    onNewFolder: (parentPath: string) => void;
+    onRename: (node: FileTreeNode) => void;
+    onDelete: (node: FileTreeNode) => void;
+    onCopyPath: (node: FileTreeNode) => void;
+    onReveal: (node: FileTreeNode) => void;
+}
 
-const FileIcon: React.FC<{ extension?: string; isDir: boolean }> = ({ extension, isDir }) => {
-  if (isDir) return <Folder className="w-4 h-4 text-yellow-500 shrink-0" />;
-  const IconComponent = FILE_ICONS[extension || ''] || File;
-  const color = extension === '.ipynb' ? 'text-sim-red'
-    : extension === '.py' ? 'text-blue-400'
-      : ['.csv', '.json', '.xlsx', '.parquet'].includes(extension || '') ? 'text-green-400'
-        : 'text-gray-400';
-  return <IconComponent className={`w-4 h-4 shrink-0 ${color}`} />;
-};
+const ContextMenu: React.FC<ContextMenuProps> = ({
+    x, y, node, onClose, onNewFile, onNewFolder, onRename, onDelete, onCopyPath, onReveal,
+}) => {
+    const menuRef = useRef<HTMLDivElement>(null);
+    const isDir = node.type === 'directory';
 
-const formatSize = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-};
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [onClose]);
 
-// ── Component ─────────────────────────────────────────────────────────────────
+    const parentPath = isDir ? node.virtualPath : node.virtualPath.substring(0, node.virtualPath.lastIndexOf('/')) || '/';
 
-export const FileExplorer: React.FC<FileExplorerProps> = ({ onFileSelect, onProjectChange }) => {
-  const [project, setProject] = useState<ProjectInfo | null>(null);
-  const [files, setFiles] = useState<TreeNode[]>([]);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{
-    x: number; y: number; path: string; type: string; name: string;
-  } | null>(null);
-  const [recentProjects, setRecentProjects] = useState<Array<{ path: string; name: string; opened: string }>>([]);
-  const [showRecent, setShowRecent] = useState(true);
+    const items = [
+        ...(isDir ? [
+            { icon: FilePlus,   label: 'New File',   action: () => { onClose(); onNewFile(node.virtualPath); } },
+            { icon: FolderPlus, label: 'New Folder', action: () => { onClose(); onNewFolder(node.virtualPath); } },
+            { separator: true },
+        ] : []),
+        { icon: Pencil,  label: 'Rename',    action: () => { onClose(); onRename(node); } },
+        { icon: Trash2,  label: 'Delete',    action: () => { onClose(); onDelete(node); }, danger: true },
+        { separator: true },
+        { icon: Copy,    label: 'Copy Path', action: () => { onClose(); onCopyPath(node); } },
+        { icon: FolderOpen, label: 'Reveal in Explorer', action: () => { onClose(); onReveal(node); } },
+    ];
 
-  // Inline rename state
-  const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
-
-  // Shared centered-dialog hook — no window.prompt/confirm/alert anywhere
-  const { show: showDialog, Dialog } = useCenterDialog();
-
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
-
-  useEffect(() => { loadRecentProjects(); }, []);
-
-  useEffect(() => {
-    if (renaming && renameInputRef.current) {
-      renameInputRef.current.focus();
-      renameInputRef.current.select();
-    }
-  }, [renaming]);
-
-  useEffect(() => {
-    const hide = () => setContextMenu(null);
-    window.addEventListener('click', hide);
-    return () => window.removeEventListener('click', hide);
-  }, []);
-
-  // ── Project loading ────────────────────────────────────────────────────────
-
-  const loadRecentProjects = async () => {
-    try {
-      const result = await controllerClient.getRecentProjects();
-      setRecentProjects(result.recent);
-    } catch { /* ignore — backend may not be ready yet */ }
-  };
-
-  const loadProjectFiles = useCallback(async (projectPath: string) => {
-    setIsLoading(true);
-    try {
-      const result = await controllerClient.listFiles(projectPath);
-      setFiles(result.items.map(item => ({
-        ...item,
-        children: item.type === 'directory' ? [] : undefined,
-      })));
-      setExpandedPaths(new Set());
-    } catch (e: any) {
-      console.error('Failed to load project files', e);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const loadFolder = async (folderPath: string): Promise<TreeNode[]> => {
-    try {
-      const result = await controllerClient.listFiles(folderPath);
-      return result.items.map(item => ({
-        ...item,
-        children: item.type === 'directory' ? [] : undefined,
-      }));
-    } catch { return []; }
-  };
-
-  // ── Tree expansion ─────────────────────────────────────────────────────────
-
-  const updateChildren = (nodes: TreeNode[], target: string, children: TreeNode[]): TreeNode[] =>
-    nodes.map(n => {
-      if (n.path === target) return { ...n, children };
-      if (n.children) return { ...n, children: updateChildren(n.children, target, children) };
-      return n;
-    });
-
-  const toggleFolder = async (node: TreeNode) => {
-    const next = new Set(expandedPaths);
-    if (next.has(node.path)) {
-      next.delete(node.path);
-    } else {
-      next.add(node.path);
-      if (!node.children?.length) {
-        const children = await loadFolder(node.path);
-        setFiles(prev => updateChildren(prev, node.path, children));
-      }
-    }
-    setExpandedPaths(next);
-  };
-
-  // ── Project actions ────────────────────────────────────────────────────────
-
-  const handleOpenProject = async () => {
-    // Electron: use native dialog via IPC
-    const isElectron = typeof window !== 'undefined' && !!(window as any).__ELECTRON__;
-    let folderPath: string | null = null;
-
-    if (isElectron) {
-      try { folderPath = await (window as any).electronAPI?.selectFolder?.() ?? null; } catch { }
-    }
-
-    if (!folderPath) {
-      const result = await showDialog({
-        title: 'Open Folder',
-        description: 'Enter the absolute path to the project folder you want to open.',
-        fields: [{ id: 'path', label: 'Folder Path', placeholder: 'C:\\Users\\you\\MyProject' }],
-        confirmLabel: 'Open',
-      });
-      folderPath = result?.path?.trim() || null;
-    }
-
-    if (!folderPath) return;
-    try {
-      const res = await controllerClient.openProject(
-        folderPath,
-        folderPath.replace(/\\/g, '/').split('/').pop() || 'Project',
-      );
-      setProject(res.project);
-      onProjectChange?.(res.project);
-      await loadProjectFiles(res.project.path);
-      loadRecentProjects();
-      setShowRecent(false);
-    } catch (e: any) {
-      await showDialog({ title: 'Error', description: e.message, fields: [], confirmLabel: 'OK' });
-    }
-  };
-
-  const handleOpenRecentProject = async (rp: { path: string; name: string }) => {
-    try {
-      const res = await controllerClient.openProject(rp.path, rp.name);
-      setProject(res.project);
-      onProjectChange?.(res.project);
-      await loadProjectFiles(res.project.path);
-      setShowRecent(false);
-    } catch (e: any) {
-      await showDialog({ title: 'Error', description: e.message, fields: [], confirmLabel: 'OK' });
-    }
-  };
-
-  // ── File click ─────────────────────────────────────────────────────────────
-
-  const handleFileClick = (node: TreeNode) => {
-    if (node.type === 'directory') {
-      toggleFolder(node);
-    } else {
-      setSelectedPath(node.path);
-      const fileType = node.extension === '.ipynb' ? 'notebook'
-        : ['.csv', '.json', '.xlsx', '.parquet', '.pkl'].includes(node.extension || '') ? 'data'
-          : 'other';
-      onFileSelect(node.path, fileType);
-    }
-  };
-
-  // ── Upload ─────────────────────────────────────────────────────────────────
-
-  const handleUploadFiles = () => {
-    if (!project) return;
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.accept = '.csv,.json,.xlsx,.xls,.parquet,.pkl,.txt,.png,.jpg,.jpeg,.py,.ipynb';
-    input.onchange = async (e) => {
-      const pickedFiles = (e.target as HTMLInputElement).files;
-      if (!pickedFiles?.length) return;
-      try {
-        await controllerClient.uploadFiles(Array.from(pickedFiles), project!.path);
-        await loadProjectFiles(project!.path);
-      } catch (e: any) {
-        await showDialog({ title: 'Upload failed', description: e.message, fields: [], confirmLabel: 'OK' });
-      }
-    };
-    input.click();
-  };
-
-  // ── CRUD operations ────────────────────────────────────────────────────────
-
-  const handleCreateFolder = async (parentPath: string) => {
-    setContextMenu(null);
-    const result = await showDialog({
-      title: 'New Folder',
-      fields: [{ id: 'name', label: 'Folder name', placeholder: 'my-folder' }],
-      confirmLabel: 'Create',
-    });
-    const name = result?.name?.trim();
-    if (!name) return;
-    try {
-      await controllerClient.createFolder(parentPath, name);
-      if (project) await loadProjectFiles(project.path);
-    } catch (e: any) {
-      await showDialog({ title: 'Error', description: e.message, fields: [], confirmLabel: 'OK' });
-    }
-  };
-
-  const handleCreateFile = async (parentPath: string) => {
-    setContextMenu(null);
-    const result = await showDialog({
-      title: 'New File',
-      fields: [{ id: 'name', label: 'File name', placeholder: 'script.py' }],
-      confirmLabel: 'Create',
-    });
-    const name = result?.name?.trim();
-    if (!name) return;
-    const sep = parentPath.includes('/') ? '/' : '\\';
-    try {
-      await controllerClient.saveFile(`${parentPath}${sep}${name}`, '');
-      if (project) await loadProjectFiles(project.path);
-    } catch (e: any) {
-      await showDialog({ title: 'Error', description: e.message, fields: [], confirmLabel: 'OK' });
-    }
-  };
-
-  const handleCreateNotebook = async (parentPath: string) => {
-    setContextMenu(null);
-    const result = await showDialog({
-      title: 'New Notebook',
-      fields: [{ id: 'name', label: 'Notebook name', placeholder: 'analysis', defaultValue: 'Untitled' }],
-      confirmLabel: 'Create',
-    });
-    const rawName = result?.name?.trim();
-    if (!rawName) return;
-    const name = rawName.endsWith('.ipynb') ? rawName : `${rawName}.ipynb`;
-    const sep = parentPath.includes('/') ? '/' : '\\';
-    const filePath = `${parentPath}${sep}${name}`;
-    const starter = {
-      nbformat: 4, nbformat_minor: 5,
-      metadata: { kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' } },
-      cells: [{ cell_type: 'code', id: 'init', metadata: {}, source: ['# New notebook\n'], execution_count: null, outputs: [] }],
-    };
-    try {
-      await controllerClient.saveNotebook(filePath, starter);
-      if (project) await loadProjectFiles(project.path);
-    } catch (e: any) {
-      await showDialog({ title: 'Error', description: e.message, fields: [], confirmLabel: 'OK' });
-    }
-  };
-
-  const handleDeleteFile = async (filePath: string) => {
-    setContextMenu(null);
-    const fileName = filePath.split(/[/\\]/).pop();
-    const result = await showDialog({
-      title: `Delete "${fileName}"?`,
-      description: 'This action cannot be undone. The file will be permanently removed from disk.',
-      fields: [],
-      confirmLabel: 'Delete',
-      danger: true,
-    });
-    if (!result) return; // user cancelled
-    try {
-      await controllerClient.deleteFile(filePath);
-      if (project) await loadProjectFiles(project.path);
-    } catch (e: any) {
-      await showDialog({ title: 'Error', description: e.message, fields: [], confirmLabel: 'OK' });
-    }
-  };
-
-  // ── Inline rename ──────────────────────────────────────────────────────────
-
-  const startRename = (node: TreeNode) => {
-    setContextMenu(null);
-    setRenaming({ path: node.path, name: node.name });
-  };
-
-  const commitRename = async () => {
-    if (!renaming) return;
-    const newName = renameInputRef.current?.value.trim();
-    if (!newName || newName === renaming.name) { setRenaming(null); return; }
-    const dir = renaming.path.slice(0, renaming.path.length - renaming.name.length);
-    const newPath = dir + newName;
-    try {
-      await controllerClient.renameFile(renaming.path, newPath);
-      if (project) await loadProjectFiles(project.path);
-    } catch (e: any) {
-      await showDialog({ title: 'Rename failed', description: e.message, fields: [], confirmLabel: 'OK' });
-    } finally {
-      setRenaming(null);
-    }
-  };
-
-  // ── Context menu ───────────────────────────────────────────────────────────
-
-  const openContextMenu = (e: React.MouseEvent, node: TreeNode) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, path: node.path, type: node.type, name: node.name });
-  };
-
-  // ── Tree rendering ─────────────────────────────────────────────────────────
-
-  const renderNode = (node: TreeNode, depth = 0) => {
-    const isExpanded = expandedPaths.has(node.path);
-    const isSelected = selectedPath === node.path;
-    const isRenamingThis = renaming?.path === node.path;
+    // Clamp to viewport
+    const adjustedX = Math.min(x, window.innerWidth  - 200);
+    const adjustedY = Math.min(y, window.innerHeight - 250);
 
     return (
-      <div key={node.path}>
         <div
-          className={`flex items-center gap-1 py-0.5 cursor-pointer rounded text-sm select-none
-            hover:bg-white/5 transition-colors
-            ${isSelected ? 'bg-sim-red/15 text-white' : 'text-gray-300'}`}
-          style={{ paddingLeft: `${depth * 12 + 8}px`, paddingRight: '8px' }}
-          onClick={() => !isRenamingThis && handleFileClick(node)}
-          onContextMenu={e => openContextMenu(e, node)}
+            ref={menuRef}
+            style={{ top: adjustedY, left: adjustedX }}
+            className="fixed z-[9999] min-w-[180px] bg-[#1c1c1e] border border-[#303035] rounded-xl shadow-2xl py-1 text-sm"
         >
-          {/* Expand chevron */}
-          <span className="w-4 h-4 flex items-center justify-center shrink-0">
-            {node.type === 'directory'
-              ? (isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />)
-              : null}
-          </span>
-
-          <FileIcon extension={node.extension} isDir={node.type === 'directory'} />
-
-          {isRenamingThis ? (
-            <input
-              ref={renameInputRef}
-              defaultValue={renaming!.name}
-              className="flex-1 bg-[#27272a] border border-sim-red/60 text-white text-xs px-1 py-0.5 rounded outline-none"
-              onBlur={commitRename}
-              onKeyDown={e => {
-                e.stopPropagation();
-                if (e.key === 'Enter') commitRename();
-                if (e.key === 'Escape') setRenaming(null);
-              }}
-              onClick={e => e.stopPropagation()}
-            />
-          ) : (
-            <span className="truncate flex-1 text-xs">{node.name}</span>
-          )}
-
-          {!isRenamingThis && node.size != null && node.size > 0 && (
-            <span className="text-[10px] text-gray-600 shrink-0 ml-1">{formatSize(node.size)}</span>
-          )}
+            {items.map((item, idx) => {
+                if ((item as any).separator) {
+                    return <div key={idx} className="h-px bg-[#303035] mx-2 my-1" />;
+                }
+                const Icon = (item as any).icon;
+                return (
+                    <button
+                        key={idx}
+                        onClick={(item as any).action}
+                        className={`w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-white/5 transition-colors
+                            ${(item as any).danger ? 'text-red-400' : 'text-sim-text'}`}
+                    >
+                        <Icon className="w-3.5 h-3.5 opacity-70" />
+                        {(item as any).label}
+                    </button>
+                );
+            })}
         </div>
-
-        {/* Children */}
-        {node.type === 'directory' && isExpanded && node.children && (
-          <div>{node.children.map(child => renderNode(child, depth + 1))}</div>
-        )}
-      </div>
     );
-  };
-
-  // ── Render ─────────────────────────────────────────────────────────────────
-
-  return (
-    <div className="h-full flex flex-col bg-sim-bg text-white" onClick={() => setContextMenu(null)}>
-
-      {/* Mount dialog at top level so it renders above everything */}
-      {Dialog}
-
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-sim-border shrink-0">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Explorer</span>
-        <div className="flex items-center gap-0.5">
-          <button onClick={handleOpenProject} className="p-1.5 hover:bg-sim-border rounded-md text-gray-500 hover:text-gray-200 transition-colors" title="Open Folder">
-            <FolderOpen className="w-3.5 h-3.5" />
-          </button>
-          {project && (
-            <>
-              <button onClick={handleUploadFiles} className="p-1.5 hover:bg-sim-border rounded-md text-gray-500 hover:text-gray-200 transition-colors" title="Upload Files">
-                <Upload className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => loadProjectFiles(project.path)}
-                className="p-1.5 hover:bg-sim-border rounded-md text-gray-500 hover:text-gray-200 transition-colors"
-                title="Refresh"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ── Content ── */}
-      <div className="flex-1 overflow-y-auto">
-
-        {/* Recent projects / empty state */}
-        {!project && showRecent && (
-          <div className="p-3">
-            <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-2 px-1">Recent</p>
-
-            {recentProjects.length === 0 ? (
-              <p className="text-xs text-gray-600 text-center py-6">No recent projects</p>
-            ) : (
-              <div className="space-y-0.5 mb-3">
-                {recentProjects.map((rp, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleOpenRecentProject(rp)}
-                    className="w-full text-left px-2 py-1.5 rounded hover:bg-white/5 transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Folder className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
-                      <span className="text-xs truncate text-gray-300">{rp.name}</span>
-                    </div>
-                    <div className="text-[10px] text-gray-600 truncate pl-5">{rp.path}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <button
-              onClick={handleOpenProject}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2
-                bg-sim-red/10 hover:bg-sim-red/20 text-sim-red
-                border border-sim-red/30 rounded-lg text-xs transition-colors mt-2"
-            >
-              <FolderOpen className="w-3.5 h-3.5" /> Open Folder
-            </button>
-          </div>
-        )}
-
-        {/* File tree */}
-        {project && (
-          <>
-            <div className="px-3 py-1.5 flex items-center gap-1.5 border-b border-sim-border/50 bg-white/[0.02]">
-              <Folder className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
-              <span className="text-xs font-medium truncate text-gray-300">{project.name}</span>
-            </div>
-            <div className="py-1">
-              {files.map(node => renderNode(node))}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ── Context Menu ── */}
-      {contextMenu && (
-        <div
-          className="fixed bg-[#1e1e20] border border-[#3a3a3c] rounded-xl shadow-2xl shadow-black/60 py-1 z-50 min-w-[160px] overflow-hidden"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={e => e.stopPropagation()}
-        >
-          {contextMenu.type === 'directory' && (
-            <>
-              <button onClick={() => handleCreateFolder(contextMenu.path)}
-                className="w-full px-3 py-1.5 text-left text-xs hover:bg-white/5 text-gray-300 flex items-center gap-2 transition-colors">
-                <FolderPlus className="w-3.5 h-3.5 text-gray-500" /> New Folder
-              </button>
-              <button onClick={() => handleCreateFile(contextMenu.path)}
-                className="w-full px-3 py-1.5 text-left text-xs hover:bg-white/5 text-gray-300 flex items-center gap-2 transition-colors">
-                <FilePlus className="w-3.5 h-3.5 text-gray-500" /> New File
-              </button>
-              <button onClick={() => handleCreateNotebook(contextMenu.path)}
-                className="w-full px-3 py-1.5 text-left text-xs hover:bg-white/5 text-gray-300 flex items-center gap-2 transition-colors">
-                <FileCode2 className="w-3.5 h-3.5 text-sim-red" /> New Notebook
-              </button>
-              <div className="border-t border-[#3a3a3c] my-1" />
-            </>
-          )}
-          <button onClick={() => startRename(contextMenu as any)}
-            className="w-full px-3 py-1.5 text-left text-xs hover:bg-white/5 text-gray-300 flex items-center gap-2 transition-colors">
-            <Edit2 className="w-3.5 h-3.5 text-gray-500" /> Rename
-          </button>
-          <button onClick={() => handleDeleteFile(contextMenu.path)}
-            className="w-full px-3 py-1.5 text-left text-xs hover:bg-white/5 text-red-400 flex items-center gap-2 transition-colors">
-            <Trash2 className="w-3.5 h-3.5" /> Delete
-          </button>
-        </div>
-      )}
-    </div>
-  );
 };
 
-export default FileExplorer;
+// ── Tree Node ─────────────────────────────────────────────────────────────────
+
+interface NewItemState {
+    parentPath: string;
+    type: 'file' | 'folder';
+}
+
+interface TreeNodeProps {
+    node:            FileTreeNode;
+    depth:           number;
+    isExpanded:      boolean;
+    isSelected:      boolean;
+    onToggle:        (vp: string) => void;
+    onSelect:        (vp: string) => void;
+    onOpen:          (node: FileTreeNode) => void;
+    onContextMenu:   (e: React.MouseEvent, node: FileTreeNode) => void;
+    onDrop:          (srcPath: string, dstFolder: string) => void;
+    renamingPath:    string | null;
+    onRenameSubmit:  (node: FileTreeNode, newName: string) => void;
+    onRenameCancel:  () => void;
+    // Inline new-item creation
+    newItemState:    NewItemState | null;
+    newItemName:     string;
+    newItemInputRef: React.RefObject<HTMLInputElement>;
+    onNewItemNameChange: (name: string) => void;
+    onNewItemSubmit: () => void;
+    onNewItemCancel: () => void;
+    expandedPaths:   Set<string>;
+    selectedPath:    string | null;
+}
+
+const TreeNode: React.FC<TreeNodeProps> = ({
+    node, depth, isExpanded, isSelected, onToggle, onSelect, onOpen,
+    onContextMenu, onDrop, renamingPath, onRenameSubmit, onRenameCancel,
+    newItemState, newItemName, newItemInputRef, onNewItemNameChange,
+    onNewItemSubmit, onNewItemCancel, expandedPaths, selectedPath,
+}) => {
+    const isDir      = node.type === 'directory';
+    const isRenaming = renamingPath === node.virtualPath;
+    const inputRef   = useRef<HTMLInputElement>(null);
+    const [renameVal, setRenameVal] = useState(node.name);
+    const [isDragOver, setIsDragOver] = useState(false);
+
+    useEffect(() => {
+        if (isRenaming) {
+            setRenameVal(node.name);
+            setTimeout(() => inputRef.current?.select(), 50);
+        }
+    }, [isRenaming, node.name]);
+
+    const handleDragStart = (e: DragEvent) => {
+        e.dataTransfer.setData('text/plain', node.virtualPath);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+        if (!isDir) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setIsDragOver(true);
+    };
+
+    const handleDrop = (e: DragEvent) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        const srcPath = e.dataTransfer.getData('text/plain');
+        if (srcPath && isDir && srcPath !== node.virtualPath) {
+            onDrop(srcPath, node.virtualPath);
+        }
+    };
+
+    const handleDragLeave = () => setIsDragOver(false);
+
+    const indent = depth * 12 + 8;
+
+    return (
+        <div>
+            <div
+                style={{ paddingLeft: indent }}
+                draggable
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                onDragLeave={handleDragLeave}
+                onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node); }}
+                onClick={() => {
+                    onSelect(node.virtualPath);
+                    if (isDir) onToggle(node.virtualPath);
+                    else onOpen(node);
+                }}
+                onDoubleClick={() => { if (!isDir) onOpen(node); }}
+                className={`flex items-center gap-1.5 pr-2 py-[3px] cursor-pointer select-none rounded-sm mx-1 group transition-colors
+                    ${isSelected ? 'bg-white/10 text-white' : 'text-[#cccccc] hover:bg-white/5'}
+                    ${isDragOver ? 'bg-blue-500/20 ring-1 ring-blue-500/50' : ''}`}
+            >
+                {/* Expand arrow for directories */}
+                <span className="w-4 h-4 flex items-center justify-center shrink-0 text-sim-muted">
+                    {isDir ? (
+                        isExpanded
+                            ? <ChevronDown className="w-3 h-3" />
+                            : <ChevronRight className="w-3 h-3" />
+                    ) : null}
+                </span>
+
+                {/* Icon */}
+                {isDir
+                    ? (isExpanded
+                        ? <FolderOpen className="w-4 h-4 text-yellow-400/80 shrink-0" />
+                        : <Folder     className="w-4 h-4 text-yellow-400/60 shrink-0" />)
+                    : <FileIcon extension={node.extension} className="w-4 h-4 shrink-0" />
+                }
+
+                {/* Name / Rename input */}
+                {isRenaming ? (
+                    <input
+                        ref={inputRef}
+                        value={renameVal}
+                        onChange={e => setRenameVal(e.target.value)}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter') onRenameSubmit(node, renameVal);
+                            if (e.key === 'Escape') onRenameCancel();
+                        }}
+                        onBlur={() => onRenameSubmit(node, renameVal)}
+                        onClick={e => e.stopPropagation()}
+                        className="flex-1 bg-[#1a1a1e] border border-sim-red/50 rounded px-1 text-xs text-white outline-none"
+                    />
+                ) : (
+                    <span className="flex-1 text-xs truncate leading-tight">{node.name}</span>
+                )}
+
+                {/* Size badge */}
+                {!isDir && node.size && (
+                    <span className="text-[10px] text-sim-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        {formatSize(node.size)}
+                    </span>
+                )}
+            </div>
+
+            {/* Children */}
+            {isDir && isExpanded && (
+                <div>
+                    {node.children && node.children.map(child => (
+                        <TreeNode
+                            key={child.virtualPath}
+                            node={child}
+                            depth={depth + 1}
+                            isExpanded={expandedPaths.has(child.virtualPath)}
+                            isSelected={selectedPath === child.virtualPath}
+                            onToggle={onToggle}
+                            onSelect={onSelect}
+                            onOpen={onOpen}
+                            onContextMenu={onContextMenu}
+                            onDrop={onDrop}
+                            renamingPath={renamingPath}
+                            onRenameSubmit={onRenameSubmit}
+                            onRenameCancel={onRenameCancel}
+                            newItemState={newItemState}
+                            newItemName={newItemName}
+                            newItemInputRef={newItemInputRef}
+                            onNewItemNameChange={onNewItemNameChange}
+                            onNewItemSubmit={onNewItemSubmit}
+                            onNewItemCancel={onNewItemCancel}
+                            expandedPaths={expandedPaths}
+                            selectedPath={selectedPath}
+                        />
+                    ))}
+                    {/* Inline new-item input inside this folder */}
+                    {newItemState && newItemState.parentPath === node.virtualPath && (
+                        <div
+                            style={{ paddingLeft: (depth + 1) * 12 + 8 }}
+                            className="flex items-center gap-1.5 pr-2 py-[3px] mx-1"
+                        >
+                            {newItemState.type === 'file'
+                                ? <File className="w-4 h-4 text-sim-muted shrink-0" />
+                                : <FolderPlus className="w-4 h-4 text-yellow-400/60 shrink-0" />
+                            }
+                            <input
+                                ref={newItemInputRef}
+                                value={newItemName}
+                                onChange={e => onNewItemNameChange(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter')  onNewItemSubmit();
+                                    if (e.key === 'Escape') onNewItemCancel();
+                                }}
+                                onBlur={onNewItemSubmit}
+                                placeholder={newItemState.type === 'file' ? 'filename.py' : 'folder-name'}
+                                className="flex-1 bg-[#1a1a1e] border border-sim-red/50 rounded px-1 text-xs text-white outline-none"
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Wrapper — only kept for the root-level render call, all recursive children use TreeNode directly
+const TreeNodeWrapper = TreeNode;
+
+// ── Main FileExplorer ─────────────────────────────────────────────────────────
+
+export interface FileExplorerProps {
+    onOpenNotebook?:  (virtualPath: string, name: string) => void;
+    onOpenFile?:      (virtualPath: string, name: string) => void;
+    uploadDestination?: string;
+    onDeleteFile?:     (virtualPath: string) => void;
+}
+
+export const FileExplorer: React.FC<FileExplorerProps> = ({
+    onOpenNotebook, onOpenFile, onDeleteFile,
+}) => {
+    const tree = useProjectFileTree();
+
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: FileTreeNode } | null>(null);
+    const [renamingPath, setRenamingPath] = useState<string | null>(null);
+    const [newItemState, setNewItemState] = useState<{ parentPath: string; type: 'file' | 'folder' } | null>(null);
+    const [newItemName, setNewItemName] = useState('');
+    const newItemInputRef = useRef<HTMLInputElement>(null);
+    const [error, setError] = useState<string | null>(null);
+    const uploadRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (newItemState) {
+            setTimeout(() => newItemInputRef.current?.focus(), 50);
+        }
+    }, [newItemState]);
+
+    // ── Node open handler ────────────────────────────────────────────────────
+
+    const handleOpen = useCallback((node: FileTreeNode) => {
+        if (node.extension === '.ipynb') {
+            onOpenNotebook?.(node.virtualPath, node.name);
+        } else {
+            onOpenFile?.(node.virtualPath, node.name);
+        }
+    }, [onOpenNotebook, onOpenFile]);
+
+    // ── Context menu ─────────────────────────────────────────────────────────
+
+    const handleContextMenu = useCallback((e: React.MouseEvent, node: FileTreeNode) => {
+        e.preventDefault();
+        setContextMenu({ x: e.clientX, y: e.clientY, node });
+    }, []);
+
+    // ── Delete ───────────────────────────────────────────────────────────────
+
+    const handleDelete = useCallback(async (node: FileTreeNode) => {
+        if (!window.confirm(`Delete "${node.name}"? This cannot be undone.`)) return;
+        try {
+            await controllerClient.deleteFile(node.virtualPath);
+            onDeleteFile?.(node.virtualPath);
+            await tree.refresh();
+        } catch (e: any) {
+            setError(e.message);
+        }
+    }, [tree, onDeleteFile]);
+
+    // ── Rename ───────────────────────────────────────────────────────────────
+
+    const handleRenameSubmit = useCallback(async (node: FileTreeNode, newName: string) => {
+        const trimmed = newName.trim();
+        setRenamingPath(null);
+        if (!trimmed || trimmed === node.name) return;
+        const parent  = node.virtualPath.substring(0, node.virtualPath.lastIndexOf('/')) || '/';
+        const newPath = parent === '/' ? `/${trimmed}` : `${parent}/${trimmed}`;
+        try {
+            await controllerClient.renameFile(node.virtualPath, newPath);
+            await tree.refresh();
+        } catch (e: any) {
+            setError(e.message);
+        }
+    }, [tree]);
+
+    // ── Move (drag & drop) ───────────────────────────────────────────────────
+
+    const handleDrop = useCallback(async (srcPath: string, dstFolder: string) => {
+        try {
+            await controllerClient.moveFile(srcPath, dstFolder);
+            await tree.refresh();
+        } catch (e: any) {
+            setError(e.message);
+        }
+    }, [tree]);
+
+    // ── New file / folder ─────────────────────────────────────────────────────
+
+    const handleNewItemSubmit = useCallback(async () => {
+        if (!newItemState || !newItemName.trim()) {
+            setNewItemState(null);
+            setNewItemName('');
+            return;
+        }
+        const name = newItemName.trim();
+        const path = newItemState.parentPath === '/'
+            ? `/${name}`
+            : `${newItemState.parentPath}/${name}`;
+        try {
+            if (newItemState.type === 'file') {
+                await controllerClient.createFile(path, '');
+            } else {
+                await controllerClient.createFolder(newItemState.parentPath, name);
+            }
+            await tree.refresh();
+            tree.expandPath(newItemState.parentPath);
+        } catch (e: any) {
+            setError(e.message);
+        } finally {
+            setNewItemState(null);
+            setNewItemName('');
+        }
+    }, [newItemState, newItemName, tree]);
+
+    // ── Upload ────────────────────────────────────────────────────────────────
+
+    const handleFileUpload = useCallback(async (files: FileList, destination: string) => {
+        try {
+            await controllerClient.uploadFiles(Array.from(files), destination);
+            await tree.refresh();
+            tree.expandPath(destination);
+        } catch (e: any) {
+            setError(e.message);
+        }
+    }, [tree]);
+
+    // ── Copy path to clipboard ────────────────────────────────────────────────
+
+    const handleCopyPath = useCallback((node: FileTreeNode) => {
+        navigator.clipboard.writeText(node.virtualPath).catch(() => {});
+    }, []);
+
+    // ── Reveal in OS explorer ─────────────────────────────────────────────────
+
+    const handleReveal = useCallback(async (node: FileTreeNode) => {
+        try {
+            const { osPath } = await controllerClient.resolveOsPath(node.virtualPath);
+            if ((window as any).octoml?.openInExplorer) {
+                await (window as any).octoml.openInExplorer(osPath);
+            }
+        } catch (e: any) {
+            setError(`Could not reveal in explorer: ${e.message}`);
+        }
+    }, []);
+
+    // ── Render tree recursively ───────────────────────────────────────────────
+
+    function renderNodes(nodes: FileTreeNode[], depth = 0): React.ReactNode {
+        return nodes.map(node => (
+            <TreeNode
+                key={node.virtualPath}
+                node={node}
+                depth={depth}
+                isExpanded={tree.expandedPaths.has(node.virtualPath)}
+                isSelected={tree.selectedPath === node.virtualPath}
+                onToggle={tree.toggleExpand}
+                onSelect={tree.setSelected}
+                onOpen={handleOpen}
+                onContextMenu={handleContextMenu}
+                onDrop={handleDrop}
+                renamingPath={renamingPath}
+                onRenameSubmit={handleRenameSubmit}
+                onRenameCancel={() => setRenamingPath(null)}
+                newItemState={newItemState}
+                newItemName={newItemName}
+                newItemInputRef={newItemInputRef}
+                onNewItemNameChange={setNewItemName}
+                onNewItemSubmit={handleNewItemSubmit}
+                onNewItemCancel={() => { setNewItemState(null); setNewItemName(''); }}
+                expandedPaths={tree.expandedPaths}
+                selectedPath={tree.selectedPath}
+            />
+        ));
+    }
+
+    // ── Toolbar ───────────────────────────────────────────────────────────────
+
+    return (
+        <div className="flex flex-col h-full">
+            {/* Header toolbar */}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[#27272a]">
+                <span className="text-[11px] font-semibold text-sim-muted uppercase tracking-wider">Explorer</span>
+                <div className="flex items-center gap-0.5">
+                    <button
+                        onClick={() => setNewItemState({ parentPath: '/', type: 'file' })}
+                        title="New File"
+                        className="w-6 h-6 flex items-center justify-center rounded text-sim-muted hover:text-white hover:bg-white/5 transition-colors"
+                    >
+                        <FilePlus className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                        onClick={() => setNewItemState({ parentPath: '/', type: 'folder' })}
+                        title="New Folder"
+                        className="w-6 h-6 flex items-center justify-center rounded text-sim-muted hover:text-white hover:bg-white/5 transition-colors"
+                    >
+                        <FolderPlus className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                        onClick={() => uploadRef.current?.click()}
+                        title="Upload Files"
+                        className="w-6 h-6 flex items-center justify-center rounded text-sim-muted hover:text-white hover:bg-white/5 transition-colors"
+                    >
+                        <Upload className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                        onClick={tree.refresh}
+                        title="Refresh"
+                        className="w-6 h-6 flex items-center justify-center rounded text-sim-muted hover:text-white hover:bg-white/5 transition-colors"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${tree.isLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                    {(window as any).octoml?.openInExplorer && (
+                        <button
+                            onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                    const { osPath } = await controllerClient.getProjectOsRoot();
+                                    await (window as any).octoml.openInExplorer(osPath);
+                                } catch (e: any) {
+                                    setError(`Cannot open in Explorer: ${e.message}`);
+                                }
+                            }}
+                            title="Open Project in Explorer"
+                            className="w-6 h-6 flex items-center justify-center rounded text-sim-muted hover:text-white hover:bg-white/5 transition-colors"
+                        >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                        </button>
+                    )}
+                    <input
+                        ref={uploadRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={e => {
+                            if (e.target.files?.length) {
+                                handleFileUpload(e.target.files, '/');
+                                e.target.value = '';
+                            }
+                        }}
+                    />
+                </div>
+            </div>
+
+            {/* Error banner */}
+            {error && (
+                <div className="mx-2 mt-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 flex items-center gap-2">
+                    <span className="flex-1">{error}</span>
+                    <button onClick={() => setError(null)} className="opacity-60 hover:opacity-100">×</button>
+                </div>
+            )}
+
+            {/* Tree */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
+                {tree.isLoading && tree.nodes.length === 0 ? (
+                    <div className="flex items-center gap-2 px-4 py-6 text-sim-muted text-xs">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Loading files...
+                    </div>
+                ) : tree.nodes.length === 0 ? (
+                    <div className="px-4 py-6 text-xs text-sim-muted">
+                        <p>No files found.</p>
+                        <p className="mt-1 opacity-60">Create a file or upload one to get started.</p>
+                    </div>
+                ) : (
+                    <>
+                        {/* New item inline input at root */}
+                        {newItemState && newItemState.parentPath === '/' && (
+                            <div className="flex items-center gap-1.5 px-4 py-1">
+                                {newItemState.type === 'file'
+                                    ? <File className="w-4 h-4 text-sim-muted" />
+                                    : <FolderPlus className="w-4 h-4 text-yellow-400/60" />
+                                }
+                                <input
+                                    ref={newItemInputRef}
+                                    value={newItemName}
+                                    onChange={e => setNewItemName(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter')  handleNewItemSubmit();
+                                        if (e.key === 'Escape') { setNewItemState(null); setNewItemName(''); }
+                                    }}
+                                    onBlur={handleNewItemSubmit}
+                                    placeholder={newItemState.type === 'file' ? 'filename.py' : 'folder-name'}
+                                    className="flex-1 bg-[#1a1a1e] border border-sim-red/50 rounded px-1 text-xs text-white outline-none"
+                                />
+                            </div>
+                        )}
+                        {renderNodes(tree.nodes)}
+                    </>
+                )}
+            </div>
+
+            {/* Context menu */}
+            {contextMenu && (
+                <ContextMenu
+                    x={contextMenu.x}
+                    y={contextMenu.y}
+                    node={contextMenu.node}
+                    onClose={() => setContextMenu(null)}
+                    onNewFile={(p) => { setNewItemState({ parentPath: p, type: 'file' }); if (p !== '/') tree.expandPath(p); }}
+                    onNewFolder={(p) => { setNewItemState({ parentPath: p, type: 'folder' }); if (p !== '/') tree.expandPath(p); }}
+                    onRename={(node) => setRenamingPath(node.virtualPath)}
+                    onDelete={handleDelete}
+                    onCopyPath={handleCopyPath}
+                    onReveal={handleReveal}
+                />
+            )}
+        </div>
+    );
+};

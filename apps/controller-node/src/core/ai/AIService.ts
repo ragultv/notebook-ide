@@ -1,7 +1,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage, AIMessage } from '@langchain/core/messages';
 import { PROVIDERS, DEFAULT_PROVIDER, DEFAULT_MODEL, ModelInfo } from './providers.js';
-import { SYSTEM_PROMPT, ERROR_FIX_PROMPT, getSystemPrompt, AIMode } from './prompts.js';
+import { SYSTEM_PROMPT, ERROR_FIX_PROMPT, getSystemPrompt, injectProjectContext, AIMode } from './prompts.js';
 import { getOrCreateSession, appendMessage, getRecentMessages } from './MemoryStore.js';
 import { retrieve, formatRetrievedContext, indexChunks } from './RAGService.js';
 import { validateOperations } from './operationsSchema.js';
@@ -12,6 +12,8 @@ export interface AIRequest {
     context?: {
         notebookName?: string;
         cells?: Array<{ type: string; content: string }>;
+        /** Project file-tree summary injected automatically by ProjectContextService. */
+        projectSummary?: string;
     };
 }
 
@@ -101,8 +103,8 @@ export class AIService {
             return this.clients.get(cacheKey)!;
         }
 
-        // Handle local providers (ollama, octopod)
-        if (provider === 'ollama' || provider === 'octopod') {
+        // Handle local providers (ollama, octoml)
+        if (provider === 'ollama' || provider === 'octoml') {
             try {
                 const providerConfig = PROVIDERS[provider];
                 let baseUrl = providerConfig.baseUrl;
@@ -227,9 +229,11 @@ export class AIService {
             });
         }
 
+        // Build base system prompt, then inject project context (file tree, data files)
+        const baseSystemPrompt = useMode ? getSystemPrompt(useMode) : SYSTEM_PROMPT;
         const systemContentBase =
             (ragContext ? ragContext + '\n' : '') +
-            (useMode ? getSystemPrompt(useMode) : SYSTEM_PROMPT);
+            injectProjectContext(baseSystemPrompt, context?.projectSummary);
 
         const maxPasses = Math.max(1, config.continuation.maxPasses || 1);
         const modelContext = this.getModelContextSize(useProvider, useModel);
@@ -928,8 +932,8 @@ export class AIService {
             // Fetch dynamic models for local providers
             if (config.dynamic && config.isLocal) {
                 try {
-                    if (key === 'octopod') {
-                        models = await this.fetchOctopodModels(config.baseUrl);
+                    if (key === 'octoml') {
+                        models = await this.fetchOctoMLModels(config.baseUrl);
                     } else if (key === 'ollama') {
                         models = await this.fetchOllamaModels(config.baseUrl);
                     } else {
@@ -952,9 +956,9 @@ export class AIService {
         return providers;
     }
 
-    private async fetchOctopodModels(baseUrl: string): Promise<ModelInfo[]> {
+    private async fetchOctoMLModels(baseUrl: string): Promise<ModelInfo[]> {
         try {
-            // Octopod specific endpoint
+            // OctoML specific endpoint
             const response = await fetch(`${baseUrl}/models`, {
                 signal: AbortSignal.timeout(2000),
             });

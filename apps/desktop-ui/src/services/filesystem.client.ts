@@ -3,6 +3,7 @@
 // File System Access API is used ONLY for open-file (which IS from a user click).
 
 import { v4 as uuidv4 } from 'uuid';
+import { controllerClient } from './controller.client';
 
 export interface NotebookFile {
   id: string;
@@ -73,17 +74,10 @@ function fromIpynbFormat(data: any, name: string, handle?: FileSystemFileHandle)
 
 // ── Backend-based save (no user-gesture requirement) ─────────────────────────
 
-const BACKEND_URL = 'http://localhost:8000';
-
 async function saveViaBackend(path: string, content: string): Promise<void> {
-  const res = await fetch(`${BACKEND_URL}/files/save`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, content }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || `Server error ${res.status}`);
+  const result = await controllerClient.saveFile(path, content);
+  if (result.status !== 'saved' && result.status !== 'success') {
+    throw new Error(`Failed to save file to backend (status: ${result.status})`);
   }
 }
 
@@ -145,14 +139,12 @@ export const filesystemClient = {
   async saveNotebook(notebook: NotebookFile): Promise<NotebookFile> {
     const content = JSON.stringify(toIpynbFormat(notebook), null, 2);
 
-    // ── Option 1: backend path is known (opened via file explorer) ──
+    // ── Option 1: backend path is known (project file) — ONLY this path ──
+    // If the notebook has a virtual path it belongs to the project.
+    // Save via backend and DO NOT fall through to download on failure.
     if (notebook.path) {
-      try {
-        await saveViaBackend(notebook.path, content);
-        return notebook;
-      } catch (e) {
-        console.warn('Backend save failed, trying handle fallback:', e);
-      }
+      await saveViaBackend(notebook.path, content);
+      return notebook;
     }
 
     // ── Option 2: File System Access API handle is available ──
@@ -164,13 +156,14 @@ export const filesystemClient = {
         return notebook;
       } catch (e: any) {
         if (e.name === 'AbortError') return notebook;
-        console.warn('Handle write failed, falling back to download:', e);
+        throw e; // propagate — don't silently download
       }
     }
 
-    // ── Option 3: No path/handle — download the file ──
-    // This works from ANY context (user gesture or timer) because we're not
-    // calling showSaveFilePicker.
+    // ── Option 3: No path/handle — this is a truly unsaved in-memory notebook ──
+    // Only download when the user explicitly calls Save (Ctrl+S) on a brand-new
+    // notebook that has never been given a path. Autosave skips this case
+    // because useAutosave already guards: !nb.path && !nb.handle → return early.
     downloadAsFile(notebook.name, content);
     return notebook;
   },

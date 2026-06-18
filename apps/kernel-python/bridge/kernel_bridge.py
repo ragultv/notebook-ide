@@ -59,9 +59,10 @@ class KernelBridge:
         notebook_id (str): Unique ID of the notebook.
         reconnect_file (str | None): Path to an existing connection file for recovery.
     """
-    def __init__(self, notebook_id: str, reconnect_file: str = None):
+    def __init__(self, notebook_id: str, reconnect_file: str = None, project_root: str = None):
         self.notebook_id = notebook_id
         self.reconnect_file = reconnect_file
+        self.project_root = project_root
         self.km = None
         self.kc = None
         self.execution_map = {}   
@@ -88,6 +89,31 @@ class KernelBridge:
             self.km.write_connection_file()
 
         await self.kc.wait_for_ready(timeout=30)
+
+        # ── Project CWD injection ────────────────────────────────────────────────
+        # Set the kernel's working directory to the project root and expose
+        # PROJECT_ROOT as a kernel-level variable. No monkey-patching — just
+        # os.chdir() so relative paths like "data/file.csv" resolve correctly.
+        if self.project_root:
+            startup_code = (
+                f"import os as _os\n"
+                f"_os.chdir(r'{self.project_root}')\n"
+                f"PROJECT_ROOT = r'{self.project_root}'\n"
+                f"del _os"
+            )
+            try:
+                # Execute silently — no output sent to the user's notebook
+                await self.kc.execute_interactive(
+                    startup_code,
+                    silent=True,
+                    store_history=False,
+                    timeout=10,
+                )
+                send({"type": "debug", "notebook_id": self.notebook_id,
+                      "message": f"Project CWD set to: {self.project_root}"})
+            except Exception as e:
+                send({"type": "debug", "notebook_id": self.notebook_id,
+                      "message": f"CWD injection warning: {str(e)}"})
 
         send({"type": "ready", "notebook_id": self.notebook_id})
         send({"type": "debug", "notebook_id": self.notebook_id, "message": f"Kernel ready, starting listeners. kc={self.kc}, km={self.km}"})
@@ -334,6 +360,32 @@ class KernelBridge:
                 self.notebook_id = new_id
             send({"type": "ready", "notebook_id": self.notebook_id})
 
+        elif cmd == 'set_project_root':
+            # Sent when a pooled kernel (with no initial CWD) is claimed by a project.
+            # Runs os.chdir() and sets PROJECT_ROOT inside the live kernel.
+            project_root = msg.get('project_root')
+            if project_root and self.kc:
+                startup_code = (
+                    f"import os as _os\n"
+                    f"_os.chdir(r'{project_root}')\n"
+                    f"PROJECT_ROOT = r'{project_root}'\n"
+                    f"del _os"
+                )
+                try:
+                    await self.kc.execute_interactive(
+                        startup_code,
+                        silent=True,
+                        store_history=False,
+                        timeout=10,
+                    )
+                    self.project_root = project_root
+                    send({"type": "debug", "notebook_id": self.notebook_id,
+                          "message": f"Project root updated to: {project_root}"})
+                except Exception as e:
+                    send({"type": "debug", "notebook_id": self.notebook_id,
+                          "message": f"set_project_root warning: {str(e)}"})
+
+
         elif cmd == 'comm_msg':
             comm_id = msg.get('comm_id')
             data = msg.get('data', {})
@@ -514,11 +566,15 @@ async def main():
     parser.add_argument('--notebook-id', required=True)
     parser.add_argument('--reconnect', default=None,
                         help='Path to connection file for reconnect after crash')
+    parser.add_argument('--project-root', default=None,
+                        help='Absolute path to the active project root. '
+                             'Sets kernel CWD and injects PROJECT_ROOT variable.')
     args = parser.parse_args()
 
     bridge = KernelBridge(
         notebook_id=args.notebook_id,
-        reconnect_file=args.reconnect
+        reconnect_file=args.reconnect,
+        project_root=args.project_root,
     )
     await bridge.start()
 

@@ -25,8 +25,6 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
       try {
         const rawMetrics: any = await controllerClient.getKernelMetrics(activeFileId || 'default');
 
-        console.log('[useKernelManagement] Realtime Metrics:', rawMetrics);
-
         if (rawMetrics.available || rawMetrics.status === 'running') {
           setKernelMetrics({
             pid: rawMetrics.pid,
@@ -83,46 +81,11 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
     if (codeCells.length === 0) return;
 
     const notebookId = activeFileId || 'default';
-    let updatedCells = [...cells];
-
-    for (const cell of codeCells) {
-      const cellIndex = updatedCells.findIndex(c => c.id === cell.id);
-      if (cellIndex === -1) continue;
-
-      updatedCells[cellIndex] = { ...updatedCells[cellIndex], status: 'running' as const };
-      updateCells([...updatedCells]);
-
-      try {
-        const result = await controllerClient.runCell({
-          cellId: cell.id,
-          code: cell.content,
-          notebookId,
-          device,  // ← 'cpu' or 'cuda' — routes execution to RAM or VRAM
-        });
-
-        updatedCells[cellIndex] = {
-          ...updatedCells[cellIndex],
-          status: result.success ? 'success' as const : 'error' as const,
-          output: result.output,
-          outputs: result.outputs,
-          error: result.error,
-          executionCount: result.executionCount,
-          duration: result.duration,
-        };
-        updateCells([...updatedCells]);
-
-        if (!result.success) break;
-      } catch (error) {
-        updatedCells[cellIndex] = {
-          ...updatedCells[cellIndex],
-          status: 'error' as const,
-          error: (error as Error).message,
-        };
-        updateCells([...updatedCells]);
-        break;
-      }
-    }
-  }, [activeFileId, device]);
+    // Dispatch custom event to trigger sequential execution inside Notebook's WS Context
+    window.dispatchEvent(new CustomEvent('notebook:run-all', {
+      detail: { notebookId }
+    }));
+  }, [activeFileId]);
 
   return {
     handleConnectKernel,
