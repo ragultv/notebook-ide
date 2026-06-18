@@ -2,14 +2,15 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Zap, Sparkles, Power, RotateCcw, Save, PlayCircle, Map,
   ChevronDown, FolderOpen, SaveAll, FileCode2, NotebookPen, Cpu, Check,
-  ChevronUp, Activity,
+  ChevronUp, Activity, LogOut,
 } from 'lucide-react';
 import { useUIStore, KernelStatus, RuntimeType } from '../../store/ui.store';
 import { Tab } from '../../types';
 import { TabBar } from '../TabBar';
 import { controllerClient } from '../../services/controller.client';
 import { useCenterDialog } from '../shared/CenterDialog';
-import octopodLogo from '../../octopod1.png';
+import octomlLogo from '../../octoml1.png';
+import { useProject } from '../../context/ProjectContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -332,14 +333,14 @@ const FileMenu: React.FC<FileMenuProps> = ({
   const handleNewNotebook = async () => {
     setOpen(false);
 
-    // Get current project path from backend so we know where to create the file
-    let basePath = '';
+    // Check if a project is open — if not, create an in-memory notebook
+    let projectOpen = false;
     try {
-      const { project } = await controllerClient.getCurrentProject();
-      if (project?.path) basePath = project.path;
-    } catch { /* no project open — in-memory notebook is fine */ }
+      const { project } = await controllerClient.getProject();
+      projectOpen = !!project?.path;
+    } catch { /* no project open */ }
 
-    if (!basePath) {
+    if (!projectOpen) {
       // No project open → just create an in-memory notebook
       onNewNotebook?.();
       return;
@@ -347,7 +348,7 @@ const FileMenu: React.FC<FileMenuProps> = ({
 
     const result = await show({
       title: 'New Notebook',
-      description: `Will be created inside: ${basePath}`,
+      description: 'Will be saved in the notebooks/ folder of your project.',
       fields: [{
         id: 'name',
         label: 'Notebook name',
@@ -361,8 +362,9 @@ const FileMenu: React.FC<FileMenuProps> = ({
     if (!rawName) return;
 
     const fileName = rawName.endsWith('.ipynb') ? rawName : `${rawName}.ipynb`;
-    const sep = basePath.includes('/') ? '/' : '\\';
-    const filePath = `${basePath}${sep}${fileName}`;
+    // Always use a VIRTUAL path — the backend resolves it to disk.
+    // /notebooks/ maps to PROJECT_ROOT/notebooks/ via VirtualFS.
+    const virtualPath = `/notebooks/${fileName}`;
 
     const starterContent = {
       nbformat: 4,
@@ -376,14 +378,15 @@ const FileMenu: React.FC<FileMenuProps> = ({
     };
 
     try {
-      await controllerClient.saveNotebook(filePath, starterContent);
+      await controllerClient.saveFile(virtualPath, JSON.stringify(starterContent, null, 2));
       const uiCells = starterContent.cells.map(c => ({
         id: crypto.randomUUID(),
         type: c.cell_type as 'code' | 'markdown',
         content: c.source.join(''),
         status: 'idle' as const
       }));
-      onNewNotebook?.(fileName, uiCells, filePath);
+      // Pass the virtual path so autosave / manual save work without a dialog
+      onNewNotebook?.(fileName, uiCells, virtualPath);
     } catch (e: any) {
       await show({ title: 'Failed to create notebook', description: e.message, fields: [], confirmLabel: 'OK' });
     }
@@ -503,22 +506,36 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSaveAll,
 }) => {
   const { kernelStatus } = useUIStore();
+  const { project, closeProject } = useProject();
   const isConnected = kernelStatus === 'idle' || kernelStatus === 'busy';
 
 
   return (
     <div className="h-12 bg-[#09090b] border-b border-[#27272a] flex items-center justify-between px-3 z-20 relative select-none shadow-sm">
 
-      {/* Left: Branding + File menu + RunAll */}
+      {/* Left: Branding + Project + File menu + RunAll */}
       <div className="flex items-center gap-2">
         {/* Branding */}
-        <div className="flex items-center gap-2 mr-3 px-2">
-          <img src={octopodLogo} alt="Octopod Logo" className="w-5 h-5 object-contain" />
+        <div className="flex items-center gap-2 mr-1 px-2">
+          <img src={octomlLogo} alt="OctoML Logo" className="w-5 h-5 object-contain" />
           <div className="font-mono font-bold tracking-wider text-base">
             <span className="text-white">OctoML</span>
           </div>
         </div>
 
+        {/* Project breadcrumb */}
+        {project && (
+          <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-white/5 border border-white/10 max-w-[200px]">
+            <span className="text-xs text-sim-muted truncate">{project.name}</span>
+            <button
+              onClick={closeProject}
+              title="Close Project"
+              className="ml-1 text-sim-muted hover:text-white transition-colors shrink-0"
+            >
+              <LogOut className="w-3 h-3" />
+            </button>
+          </div>
+        )}
         <FileMenu
           onOpenNotebook={onOpenFile}
           onOpenFolder={onOpenFolder}

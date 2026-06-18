@@ -27,8 +27,35 @@ const NotebookInner: React.FC<NotebookProps & {
   notebookId, notebookName, cells, setCells, activeCellId, setActiveCellId, onFixError,
   executionCounter, setExecutionCounter, cellMoveVersion, setCellMoveVersion,
 }) => {
-  const { on, getVariables, kernelStatus } = useNotebookWS();
+  const { on, getVariables, kernelStatus, runCell } = useNotebookWS();
   const [showVariables, setShowVariables] = useState(false);
+
+  // Listen for global Run All command from TopBar via window events
+  React.useEffect(() => {
+    const handleRunAllEvent = async (e: Event) => {
+      const customEvent = e as CustomEvent<{ notebookId: string }>;
+      if (customEvent.detail?.notebookId !== notebookId) return;
+
+      const codeCells = cells.filter(c => c.type === 'code' && c.content.trim());
+      for (const cell of codeCells) {
+        try {
+          const result = await runCell(cell.id);
+          // If a cell failed or was interrupted, halt sequential execution
+          if (result && result.success === false) {
+            break;
+          }
+        } catch (error) {
+          console.error(`Failed to run cell ${cell.id}:`, error);
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('notebook:run-all', handleRunAllEvent);
+    return () => {
+      window.removeEventListener('notebook:run-all', handleRunAllEvent);
+    };
+  }, [notebookId, cells, runCell]);
 
   const addCell = useCallback((index: number, type: 'code' | 'markdown') => {
     const newCell: CellData = { id: uuidv4(), type, content: '', status: 'idle' };

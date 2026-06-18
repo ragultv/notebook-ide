@@ -34,7 +34,7 @@ export function useNotebookWebSocket(notebookId: string | null) {
         if (!notebookId) return;
 
         const connect = () => {
-            const ws = new WebSocket(`${BASE_URL}/ws/${notebookId}`);
+            const ws = new WebSocket(`${BASE_URL}/ws/${encodeURIComponent(notebookId)}`);
             wsRef.current = ws;
 
             ws.onopen = () => {

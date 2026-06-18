@@ -69,11 +69,11 @@ export const PROVIDERS: Record<string, ProviderConfig> = {
         dynamic: true,
         isLocal: true,
     },
-    octopod: {
-        name: 'Octopod (Local)',
+    octoml: {
+        name: 'OctoML (Local)',
         models: [],
         apiKey: '',
-        baseUrl: process.env.OCTOPOD_BASE_URL || 'http://localhost:11435',
+        baseUrl: process.env.OCTOML_BASE_URL || 'http://localhost:11435',
         dynamic: true,
         isLocal: true,
     },

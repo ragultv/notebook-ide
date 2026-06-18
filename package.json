@@ -1,11 +1,18 @@
 {
   "name": "notebook-ide",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "scripts": {
     "controller:install": "cd apps/controller-node && npm install",
-    "controller:build": "cd apps/controller-node && npm run build",
-    "controller:start": "cd apps/controller-node && npm run start",
-    "controller:dev": "cd apps/controller-node && npm run dev"
+    "controller:build":   "cd apps/controller-node && npm run build",
+    "controller:start":   "cd apps/controller-node && npm run start",
+    "controller:dev":     "cd apps/controller-node && npm run dev",
+    "ui:install":         "cd apps/desktop-ui && npm install",
+    "ui:dev":             "cd apps/desktop-ui && npm run dev",
+    "electron:install":   "cd apps/electron && npm install",
+    "electron:build":     "cd apps/electron && npm run build:electron",
+    "electron:dev":       "cd apps/electron && npm run dev",
+    "dev": "concurrently \"npm run controller:dev\" \"npm run ui:dev\"",
+    "install:all": "npm run controller:install && npm run ui:install && npm run electron:install"
   }
-}
+}

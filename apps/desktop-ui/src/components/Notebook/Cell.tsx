@@ -217,7 +217,11 @@ export const Cell: React.FC<CellProps> = ({
   const isStopping = cell.status === 'stopping';
 
   // ── Shared WebSocket from Notebook-level context (single connection per notebook) ─
-  const { execute, interrupt, sendStdin, sendCommMsg, on, connected } = useNotebookWS();
+  const { execute, interrupt, sendStdin, sendCommMsg, on, connected, registerRunCell, unregisterRunCell } = useNotebookWS();
+
+  const pendingResolveRef = useRef<((value: any) => void) | null>(null);
+
+
 
   // ── Auto-scroll output while streaming ──────────────────────────────────────
   useEffect(() => {
@@ -274,6 +278,10 @@ export const Cell: React.FC<CellProps> = ({
       setKernelStatus('idle');
       setInputRequest(null);
       currentExecIdRef.current = null;
+      if (pendingResolveRef.current) {
+        pendingResolveRef.current({ success: true });
+        pendingResolveRef.current = null;
+      }
     }));
 
     // Execution error
@@ -286,6 +294,10 @@ export const Cell: React.FC<CellProps> = ({
       setKernelStatus('error');
       setInputRequest(null);
       currentExecIdRef.current = null;
+      if (pendingResolveRef.current) {
+        pendingResolveRef.current({ success: false, error: clean });
+        pendingResolveRef.current = null;
+      }
     }));
 
     // Input prompt
@@ -321,25 +333,38 @@ export const Cell: React.FC<CellProps> = ({
 
   // ── Run ──────────────────────────────────────────────────────────────────────
 
-  const runCell = useCallback(async () => {
-    if (cell.type === 'markdown') return;
-    if (!cell.content.trim()) return;
+  const runCell = useCallback(() => {
+    return new Promise<any>(async (resolve) => {
+      if (cell.type === 'markdown') return resolve({ success: true });
+      if (!cell.content.trim()) return resolve({ success: true });
 
-    setInputRequest(null);
-    setInputValue('');
-    setActiveWidgets([]);
-    // Set running + record start time + clear previous streaming output
-    onOutputUpdate(cell.id, '', 'running', undefined, undefined, [], undefined);
-    setKernelStatus('busy');
+      pendingResolveRef.current = resolve;
+      setInputRequest(null);
+      setInputValue('');
+      setActiveWidgets([]);
+      // Set running + record start time + clear previous streaming output
+      onOutputUpdate(cell.id, '', 'running', undefined, undefined, [], undefined);
+      setKernelStatus('busy');
 
-    try {
-      const execId = await execute(cell.id, cell.content);
-      currentExecIdRef.current = execId;
-    } catch (e) {
-      onOutputUpdate(cell.id, '', 'error', 'Failed to start execution', undefined, [], undefined);
-      setKernelStatus('error');
-    }
+      try {
+        const execId = await execute(cell.id, cell.content);
+        currentExecIdRef.current = execId;
+      } catch (e) {
+        onOutputUpdate(cell.id, '', 'error', 'Failed to start execution', undefined, [], undefined);
+        setKernelStatus('error');
+        pendingResolveRef.current = null;
+        resolve({ success: false, error: 'Failed to start execution' });
+      }
+    });
   }, [cell.id, cell.type, cell.content, execute, onOutputUpdate, setKernelStatus]);
+
+  // Register runCell function in WS Context so run-all/sequential runs can trigger it
+  useEffect(() => {
+    registerRunCell(cell.id, runCell);
+    return () => {
+      unregisterRunCell(cell.id);
+    };
+  }, [cell.id, runCell, registerRunCell, unregisterRunCell]);
 
   // ── Input submission ──────────────────────────────────────────────────────────
 
@@ -368,6 +393,10 @@ export const Cell: React.FC<CellProps> = ({
       interruptTimeoutRef.current = null;
       onOutputUpdate(cell.id, '', 'error', 'KeyboardInterrupt: Execution interrupted by user', undefined, undefined, undefined);
       currentExecIdRef.current = null;
+      if (pendingResolveRef.current) {
+        pendingResolveRef.current({ success: false, error: 'Interrupted' });
+        pendingResolveRef.current = null;
+      }
     }, 3000);
   }, [interrupt, cell.id, onOutputUpdate]);
 

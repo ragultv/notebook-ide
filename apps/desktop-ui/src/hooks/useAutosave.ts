@@ -23,11 +23,15 @@ export interface AutosaveState {
 /**
  * @param notebook  The active NotebookFile object (contains path, cells, handle).
  * @param cells     The current cells array — changes trigger the debounce timer.
+ * @param hasUnsavedChanges Whether the notebook currently has unsaved changes.
+ * @param onSaveSuccess Callback invoked after a successful save operation.
  * @param debounceMs Debounce window in milliseconds. Defaults to 3000 (3 seconds).
  */
 export function useAutosave(
     notebook:    NotebookFile | null | undefined,
     cells:       any[],
+    hasUnsavedChanges: boolean,
+    onSaveSuccess?: () => void,
     debounceMs:  number = 3000
 ): AutosaveState {
     const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -59,18 +63,20 @@ export function useAutosave(
             await filesystemClient.saveNotebook(notebookWithCells);
             if (isMounted.current) {
                 setLastSaved(new Date().toISOString());
+                onSaveSuccess?.();
             }
         } catch (e) {
             console.error('[Autosave] Failed to save:', e);
         } finally {
             if (isMounted.current) setIsSaving(false);
         }
-    }, []);
+    }, [onSaveSuccess]);
 
     // Debounce on every cells change
     useEffect(() => {
         if (!notebook) return;
         if (!notebook.path && !notebook.handle) return; // no save target — skip silently
+        if (!hasUnsavedChanges) return; // only save if there are unsaved changes
 
         // Clear any pending timer and restart
         if (timerRef.current) clearTimeout(timerRef.current);
@@ -80,7 +86,7 @@ export function useAutosave(
             if (timerRef.current) clearTimeout(timerRef.current);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cells, notebook?.id]); // react to cell changes and notebook switch
+    }, [cells, notebook?.id, hasUnsavedChanges, performSave]);
 
     const saveNow = useCallback(async () => {
         if (timerRef.current) clearTimeout(timerRef.current);

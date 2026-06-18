@@ -136,14 +136,16 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
                     };
 
                     return {
-                        suggestions: completions.map((c: any) => ({
-                            label: c.name,
-                            kind: mapJediTypeToMonacoKind(monaco, c.type),
-                            insertText: c.name,
-                            detail: c.description,
-                            documentation: c.docstring,
-                            range,
-                        }))
+                        suggestions: completions
+                            .filter((c: any) => c && typeof c.name === 'string' && c.name.length > 0)
+                            .map((c: any) => ({
+                                label: c.name,
+                                kind: mapJediTypeToMonacoKind(monaco, c.type),
+                                insertText: c.name,
+                                detail: c.description ?? '',
+                                documentation: c.docstring ?? '',
+                                range,
+                            }))
                     };
                 } catch {
                     return { suggestions: [] };

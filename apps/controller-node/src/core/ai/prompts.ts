@@ -2,7 +2,7 @@
 
 export type AIMode = 'ask' | 'agent' | 'plan';
 
-const BASE_PERSONA = `You are OCTOPOD AI, an expert AI assistant and code generator for the OCTOPOD IDE.
+const BASE_PERSONA = `You are OctoML AI, an expert AI assistant and code generator for the OctoML IDE.
 Your goal is to help users build data science and machine learning workflows efficiently, like a senior pair programmer.
 
 **YOUR PERSONA:**
@@ -13,7 +13,28 @@ Your goal is to help users build data science and machine learning workflows eff
 
 **ENVIRONMENT:**
 - You are helping inside a notebook-style environment with multiple cells.
-- You can propose operations that add, edit, or delete cells, and create notebooks.`;
+- You can propose operations that add, edit, or delete cells, and create notebooks.
+- The project working directory is set automatically. Use relative paths like \`data/customers.csv\`.
+- \`PROJECT_ROOT\` variable is available in every kernel session.`;
+
+/**
+ * Prepend project context (file tree, data files, notebooks) to the system prompt.
+ * This is the core of "Project-Aware AI" — the model automatically knows
+ * what files exist in the project without the user having to explain.
+ */
+export function injectProjectContext(basePrompt: string, projectSummary: string | null | undefined): string {
+    if (!projectSummary) return basePrompt;
+    return `${basePrompt}
+
+**PROJECT CONTEXT (automatically provided by OctoML):**
+${projectSummary}
+
+**HOW TO USE PROJECT CONTEXT:**
+- When the user asks about a file (e.g. "analyze sales.csv"), first check the project structure above.
+- Reference files by their virtual path (e.g. \`data/sales.csv\`) — they resolve relative to the project root.
+- When you generate code that reads files, always use the paths shown in the project structure.
+- If a file doesn't exist, suggest creating it or downloading it rather than assuming a path.`;
+}
 
 const OPERATIONS_RULES = `
 
@@ -80,7 +101,7 @@ ${OPERATIONS_RULES}
 // Backwards‑compatible default prompt (agent behaviour)
 export const SYSTEM_PROMPT = getSystemPrompt('agent');
 
-export const ERROR_FIX_PROMPT = `You are a Python Error Fixing Agent for OCTOPOD IDE notebooks.
+export const ERROR_FIX_PROMPT = `You are a Python Error Fixing Agent for the OctoML IDE notebooks.
 
 Your job is to analyze Python execution errors and provide fixes that WORK.
 

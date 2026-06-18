@@ -6,7 +6,7 @@ import { ModelSelector } from '../ModelSelector';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import octopodLogo from '../../octopod1.png';
+import octomlLogo from '../../octoml1.png';
 
 interface RightSidebarProps {
   isOpen: boolean;
@@ -573,7 +573,7 @@ ${cellContext}
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-60">
               <div className="w-16 h-16 rounded-full bg-sim-red/10 flex items-center justify-center mb-6 animate-pulse">
-                <img src={octopodLogo} alt="Octopod Logo" className="w-12 h-12 object-contain" />
+                <img src={octomlLogo} alt="OctoML Logo" className="w-12 h-12 object-contain" />
               </div>
               <h3 className="text-white font-bold text-lg mb-2">OctoML Intelligence</h3>
               <p className="text-gray-400 text-xs leading-relaxed max-w-[280px]">
@@ -811,7 +811,7 @@ ${cellContext}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 disabled={isLoading}
-                placeholder={attachedFiles.length === 0 ? "Ask OCTOPOD anything..." : "Ask about your data..."}
+                placeholder={attachedFiles.length === 0 ? "Ask OctoML anything..." : "Ask about your data..."}
                 className={`w-full bg-transparent border-none text-white text-[13px] leading-relaxed p-4 focus:ring-0 resize-none placeholder-white/20 outline-none min-h-[60px] max-h-[200px] overflow-y-auto no-scrollbar ${isLoading ? 'opacity-50' : ''}`}
                 rows={1}
                 style={{ height: 'auto' }}

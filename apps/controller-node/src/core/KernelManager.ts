@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { BridgeProcess, BridgeMessage } from './BridgeProcess.js';
 import { claimFromPool, initPool, drainPool } from './KernelPool.js';
+import { projectStore } from './ProjectStore.js';
 
 export interface KernelInfo {
     id: string;
@@ -65,17 +66,19 @@ export class KernelManager extends EventEmitter {
             return this.kernels.get(notebookId)!.info;
         }
 
-        const kernelId = uuidv4();
+        const kernelId  = uuidv4();
+        // Read project root at kernel-start time so CWD is always current project
+        const projectRoot = projectStore.getCurrentProject()?.path ?? null;
 
-        // Get bridge from pool or create new one
-        const bridge = await claimFromPool(notebookId, this.pythonPath);
+        // Get bridge from pool or create new one (passing projectRoot for CWD injection)
+        const bridge = await claimFromPool(notebookId, this.pythonPath, projectRoot);
 
         const state: InternalKernelState = {
             bridge,
             notebookId,
             info: {
-                id: kernelId,
-                status: 'starting',
+                id:             kernelId,
+                status:         'starting',
                 executionCount: 0
             },
             executionCallbacks: new Map(),

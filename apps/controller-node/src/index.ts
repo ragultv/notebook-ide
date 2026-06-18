@@ -10,6 +10,7 @@ import { aiRoutes } from './routes/ai.js';
 import { modelsRoutes } from './routes/models.js';
 import { memoryRoutes } from './routes/memory.js';
 import { websocketRoutes } from './routes/websocket.js';
+import { notebookRoutes } from './routes/notebook.js';
 import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { KernelManager } from './core/KernelManager.js';
@@ -18,6 +19,11 @@ import { KeyStore } from './core/KeyStore.js';
 import { aiService } from './core/ai/AIService.js';
 import { TerminalManager } from './core/TerminalManager.js';
 import { closeMemoryStore } from './core/ai/MemoryStore.js';
+// Octopod runtime managers
+import { persistenceManager } from './core/persistence/PersistenceManager.js';
+import { sessionManager } from './core/session/SessionManager.js';
+import { notebookManager } from './core/notebook/NotebookManager.js';
+import { executionEngine as _executionEngine } from './core/notebook/ExecutionEngine.js'; // side-effect: registers queue executor
 
 const server: FastifyInstance = fastify({
     logger: {
@@ -52,6 +58,9 @@ const gracefulShutdown = async () => {
         }
     }
 
+    // Flush autosave and close DB
+    persistenceManager.shutdown();
+
     closeMemoryStore();
     await server.close();
     process.exit(0);
@@ -64,6 +73,12 @@ const start = async () => {
     try {
         // P1-7: Kill any orphaned kernel processes from a previous crashed session
         BridgeProcess.sweepOrphans();
+
+        // Initialize Octopod runtime managers (order matters: store → session → persistence)
+        // executionEngine is imported above — its constructor registers the queue executor
+        sessionManager.initialize();
+        persistenceManager.initialize(notebookManager);
+        server.log.info('[Octopod] Runtime managers initialized.');
 
         // P1-3: Restore API keys persisted by KeyStore on the previous session.
         // This prevents users from having to re-enter keys after a server restart.
@@ -84,6 +99,7 @@ const start = async () => {
             // Using origin: true (reflect-all) is unnecessarily permissive.
             origin: [
                 'http://localhost:5000',   // Vite dev server
+                'http://localhost:5001',   // Vite dev server
                 'http://localhost:5173',   // Vite default fallback
                 'http://127.0.0.1:5000',
                 'http://127.0.0.1:5173',
@@ -127,6 +143,7 @@ const start = async () => {
         await server.register(modelsRoutes, { prefix: '/ai/models' });
         await server.register(memoryRoutes, { prefix: '/api/memory' });
         await server.register(websocketRoutes);
+        await server.register(notebookRoutes, { prefix: '/notebooks' });
 
         // Health check route
         server.get('/', async () => {

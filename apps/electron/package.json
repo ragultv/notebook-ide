@@ -1,0 +1,28 @@
+{
+  "name": "octoml",
+  "productName": "OctoML",
+  "version": "0.1.0",
+  "description": "Project-centric AI-native desktop notebook for data scientists",
+  "main": "dist/main.js",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:electron\" \"npm run dev:vite\"",
+    "dev:electron": "tsc -p tsconfig.json && electron .",
+    "dev:vite": "cd ../desktop-ui && npm run dev",
+    "build": "tsc -p tsconfig.json && electron-builder",
+    "build:electron": "tsc -p tsconfig.json",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "concurrently": "^8.2.0",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.0.0",
+    "typescript": "^5.4.0"
+  }
+}
