@@ -15,6 +15,7 @@ export interface NotebookFile {
     type: 'code' | 'markdown';
     content: string;
     output?: string;
+    outputs?: any[];
     executionCount?: number | null;
   }>;
 }
@@ -32,37 +33,98 @@ function toIpynbFormat(notebook: NotebookFile): object {
         name: 'python3',
       },
     },
-    cells: notebook.cells.map(cell => ({
-      cell_type: cell.type,
-      id: cell.id,
-      metadata: {},
-      source: cell.content.split('\n').map((line, i, arr) =>
-        i < arr.length - 1 ? line + '\n' : line
-      ),
-      ...(cell.type === 'code' ? {
-        execution_count: cell.executionCount ?? null,
-        outputs: cell.output ? [{
+    cells: notebook.cells.map(cell => {
+      let ipynbOutputs: any[] = [];
+      if (cell.outputs && cell.outputs.length > 0) {
+        ipynbOutputs = cell.outputs.map(out => {
+          if (out.type === 'stream' || out.type === 'text') {
+            return {
+              output_type: 'stream',
+              name: out.stream || 'stdout',
+              text: typeof out.data === 'string' ? out.data.split('\n').map((line, i, arr) => i < arr.length - 1 ? line + '\n' : line) : [String(out.data)],
+            };
+          } else if (out.type === 'error') {
+            return {
+              output_type: 'error',
+              ename: 'Error',
+              evalue: String(out.data),
+              traceback: [String(out.data)]
+            };
+          } else if (out.type === 'result' || out.type === 'display') {
+            const outputType = out.type === 'result' ? 'execute_result' : 'display_data';
+            return {
+              output_type: outputType,
+              data: typeof out.data === 'string' ? { 'text/plain': out.data.split('\n').map((line, i, arr) => i < arr.length - 1 ? line + '\n' : line) } : out.data,
+              metadata: {},
+              ...(out.type === 'result' ? { execution_count: cell.executionCount ?? null } : {})
+            };
+          }
+          return {
+            output_type: 'display_data',
+            data: { 'text/plain': [String(out.data)] },
+            metadata: {}
+          };
+        });
+      } else if (cell.output) {
+        ipynbOutputs = [{
           output_type: 'stream',
           name: 'stdout',
-          text: cell.output.split('\n').map((line, i, arr) =>
-            i < arr.length - 1 ? line + '\n' : line
-          ),
-        }] : [],
-      } : {}),
-    })),
+          text: cell.output.split('\n').map((line, i, arr) => i < arr.length - 1 ? line + '\n' : line)
+        }];
+      }
+
+      return {
+        cell_type: cell.type,
+        id: cell.id,
+        metadata: {},
+        source: cell.content.split('\n').map((line, i, arr) => i < arr.length - 1 ? line + '\n' : line),
+        ...(cell.type === 'code' ? {
+          execution_count: cell.executionCount ?? null,
+          outputs: ipynbOutputs,
+        } : {}),
+      };
+    }),
   };
 }
 
 function fromIpynbFormat(data: any, name: string, handle?: FileSystemFileHandle): NotebookFile {
-  const cells = (data.cells || []).map((cell: any) => ({
-    id: cell.id || uuidv4(),
-    type: cell.cell_type as 'code' | 'markdown',
-    content: Array.isArray(cell.source) ? cell.source.join('') : (cell.source || ''),
-    output: cell.outputs?.[0]?.text
-      ? (Array.isArray(cell.outputs[0].text) ? cell.outputs[0].text.join('') : cell.outputs[0].text)
-      : undefined,
-    executionCount: cell.execution_count ?? null,
-  }));
+  const cells = (data.cells || []).map((cell: any) => {
+    const rawOutputs = cell.outputs || [];
+    
+    const parsedOutputs: any[] = rawOutputs.map((out: any) => {
+      if (out.output_type === 'stream') {
+        return { type: 'stream', stream: out.name || 'stdout', data: Array.isArray(out.text) ? out.text.join('') : (out.text || '') };
+      } else if (out.output_type === 'execute_result') {
+        return { type: 'result', data: out.data };
+      } else if (out.output_type === 'display_data') {
+        return { type: 'display', data: out.data };
+      } else if (out.output_type === 'error') {
+        return { type: 'error', data: `${out.ename}: ${out.evalue}\n${(out.traceback || []).join('\n')}` };
+      }
+      return { type: 'text', data: JSON.stringify(out) };
+    });
+
+    let outputText = '';
+    for (const out of parsedOutputs) {
+      if (out.type === 'stream' || out.type === 'error') {
+        outputText += out.data;
+      } else if (out.type === 'result' || out.type === 'display') {
+        if (out.data && out.data['text/plain']) {
+          const textArr = out.data['text/plain'];
+          outputText += Array.isArray(textArr) ? textArr.join('') : textArr;
+        }
+      }
+    }
+
+    return {
+      id: cell.id || uuidv4(),
+      type: cell.cell_type as 'code' | 'markdown',
+      content: Array.isArray(cell.source) ? cell.source.join('') : (cell.source || ''),
+      output: outputText || undefined,
+      outputs: parsedOutputs.length > 0 ? parsedOutputs : undefined,
+      executionCount: cell.execution_count ?? null,
+    };
+  });
 
   return {
     id: uuidv4(),

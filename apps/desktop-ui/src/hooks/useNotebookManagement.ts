@@ -30,22 +30,10 @@ interface UseNotebookManagementReturn {
 const STORAGE_KEY_NOTEBOOK = 'notebook-ide-current-notebook';
 
 export const useNotebookManagement = (defaultFileId: string): UseNotebookManagementReturn => {
-  const [files, setFiles] = useState<ProjectFile[]>([
-    {
-      id: defaultFileId,
-      name: 'Untitled.ipynb',
-      type: 'application/x-ipynb+json',
-      cells: [{
-        id: crypto.randomUUID(),
-        type: 'code',
-        content: '',
-        status: 'idle',
-      }]
-    }
-  ]);
+  const [files, setFiles] = useState<ProjectFile[]>([]);
 
-  const [activeFileId, setActiveFileId] = useState<string | null>(defaultFileId);
-  const activeFileIdRef = useRef<string | null>(defaultFileId);
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const activeFileIdRef = useRef<string | null>(null);
   const [currentNotebookPath, setCurrentNotebookPath] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -59,16 +47,17 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
     return {
       id:     activeFile.id,
       name:   activeFile.name,
-      path:   currentNotebookPath || undefined,
+      path:   activeFile.path || undefined,
       cells:  activeCells.map(c => ({
         id:             c.id,
         type:           c.type,
         content:        c.content,
         output:         c.output,
+        outputs:        c.outputs,
         executionCount: c.executionCount ?? null,
       })),
     };
-  }, [activeFile, activeCells, currentNotebookPath]);
+  }, [activeFile, activeCells]);
 
   const autosave = useAutosave(
     notebookForAutosave,
@@ -242,12 +231,13 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
         // Include the virtual path so filesystemClient saves silently via the
         // backend (Option 1) — without this, new notebooks without a handle
         // fall through to the browser download dialog (Option 3).
-        path: activeFile.path || currentNotebookPath || undefined,
+        path: activeFile.path || undefined,
         cells: activeFile.cells.map(cell => ({
           id: cell.id,
           type: cell.type,
           content: cell.content,
           output: cell.output,
+          outputs: cell.outputs,
           executionCount: cell.executionCount || null,
         })),
       };
@@ -259,7 +249,7 @@ export const useNotebookManagement = (defaultFileId: string): UseNotebookManagem
       const err = error as Error;
       alert(`Save failed: ${err.message || 'Unknown error'}`);
     }
-  }, [activeFile, currentNotebookPath]);
+  }, [activeFile]);
 
   return {
     files,

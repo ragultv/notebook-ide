@@ -85,7 +85,11 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
                     lastHeightRef.current = contentHeight;
                     container.style.height = `${contentHeight}px`;
                     // Force Monaco to re-layout within the new container dimensions
-                    editor.layout({ width: container.offsetWidth, height: contentHeight });
+                    if (container.offsetWidth > 0) {
+                        editor.layout({ width: container.offsetWidth, height: contentHeight });
+                    } else {
+                        editor.layout();
+                    }
                 }
             } catch (err) {
                 // Ignore layout errors on unmounted editors
@@ -99,6 +103,26 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
             if (rafRef.current !== null) {
                 cancelAnimationFrame(rafRef.current);
             }
+        };
+    }, []);
+
+    // ── Handle container resizing (e.g. tab unhidden) ──────────────────────────
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const observer = new ResizeObserver((entries) => {
+            for (let entry of entries) {
+                if (entry.contentRect.width > 0 && mountedRef.current && editorRef.current && !editorRef.current._isDisposed) {
+                    editorRef.current.layout();
+                }
+            }
+        });
+
+        observer.observe(container);
+
+        return () => {
+            observer.disconnect();
         };
     }, []);
 

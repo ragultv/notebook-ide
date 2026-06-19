@@ -5,6 +5,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { kernelRoutes } from './routes/kernels.js';
 import { executionRoutes } from './routes/execution.js';
+import { providersRoutes } from './routes/providers.js';
 import { filesRoutes } from './routes/files.js';
 import { aiRoutes } from './routes/ai.js';
 import { modelsRoutes } from './routes/models.js';
@@ -140,6 +141,7 @@ const start = async () => {
         await server.register(executionRoutes, { prefix: '/execution' });
         await server.register(filesRoutes, { prefix: '/files' });
         await server.register(aiRoutes, { prefix: '/ai' });
+        await server.register(providersRoutes, { prefix: '/providers' });
         await server.register(modelsRoutes, { prefix: '/ai/models' });
         await server.register(memoryRoutes, { prefix: '/api/memory' });
         await server.register(websocketRoutes);

@@ -6,7 +6,7 @@ import { ModelSelector } from '../ModelSelector';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import octomlLogo from '../../octoml1.png';
+import octomlLogo from '../../../public/icon.png';
 
 interface RightSidebarProps {
   isOpen: boolean;

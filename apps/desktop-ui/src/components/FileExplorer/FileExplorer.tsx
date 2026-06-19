@@ -17,26 +17,13 @@ import React, {
 import {
     ChevronRight, ChevronDown, File, Folder, FolderOpen, MoreVertical,
     FilePlus, FolderPlus, Pencil, Trash2, Copy, Upload, RefreshCw, Loader2,
-    FileCode, FileText, Image as ImageIcon, Database, FileSpreadsheet,
-    BookOpen, ExternalLink,
+    ExternalLink,
 } from 'lucide-react';
 import { useProjectFileTree, FileTreeNode } from '../../hooks/useProjectFileTree';
 import { controllerClient } from '../../services/controller.client';
+import { getFileIcon } from '../shared/FileIcons';
 
 // ── File icon helpers ─────────────────────────────────────────────────────────
-
-function FileIcon({ extension, className = 'w-4 h-4' }: { extension?: string; className?: string }) {
-    const ext = extension?.toLowerCase();
-    if (ext === '.ipynb')   return <BookOpen       className={`${className} text-orange-400`} />;
-    if (ext === '.py')      return <FileCode        className={`${className} text-blue-400`} />;
-    if (['.csv', '.tsv'].includes(ext || ''))   return <FileSpreadsheet className={`${className} text-green-400`} />;
-    if (['.xlsx', '.xls'].includes(ext || ''))  return <FileSpreadsheet className={`${className} text-green-500`} />;
-    if (['.json', '.yaml', '.yml', '.toml'].includes(ext || '')) return <FileCode className={`${className} text-yellow-400`} />;
-    if (['.md', '.txt', '.rst'].includes(ext || ''))  return <FileText    className={`${className} text-sim-muted`} />;
-    if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'].includes(ext || '')) return <ImageIcon className={`${className} text-purple-400`} />;
-    if (['.pkl', '.pt', '.pth', '.h5', '.onnx', '.joblib'].includes(ext || '')) return <Database  className={`${className} text-red-400`} />;
-    return <File className={`${className} text-sim-muted`} />;
-}
 
 function formatSize(bytes?: number): string {
     if (!bytes) return '';
@@ -176,18 +163,26 @@ const TreeNode: React.FC<TreeNodeProps> = ({
     };
 
     const handleDragOver = (e: DragEvent) => {
-        if (!isDir) return;
         e.preventDefault();
+        e.stopPropagation();
         e.dataTransfer.dropEffect = 'move';
-        setIsDragOver(true);
+        if (isDir) {
+            setIsDragOver(true);
+        }
     };
 
     const handleDrop = (e: DragEvent) => {
         e.preventDefault();
+        e.stopPropagation();
         setIsDragOver(false);
         const srcPath = e.dataTransfer.getData('text/plain');
-        if (srcPath && isDir && srcPath !== node.virtualPath) {
-            onDrop(srcPath, node.virtualPath);
+        if (!srcPath) return;
+
+        const targetFolder = isDir ? node.virtualPath : (node.virtualPath.substring(0, node.virtualPath.lastIndexOf('/')) || '/');
+        const srcParent = srcPath.substring(0, srcPath.lastIndexOf('/')) || '/';
+        
+        if (srcParent !== targetFolder && srcPath !== targetFolder) {
+            onDrop(srcPath, targetFolder);
         }
     };
 
@@ -229,7 +224,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                     ? (isExpanded
                         ? <FolderOpen className="w-4 h-4 text-yellow-400/80 shrink-0" />
                         : <Folder     className="w-4 h-4 text-yellow-400/60 shrink-0" />)
-                    : <FileIcon extension={node.extension} className="w-4 h-4 shrink-0" />
+                    : getFileIcon(node.extension, "w-4 h-4 shrink-0")
                 }
 
                 {/* Name / Rename input */}
@@ -570,7 +565,23 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
             )}
 
             {/* Tree */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
+            <div 
+                className="flex-1 overflow-y-auto overflow-x-hidden py-1"
+                onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                }}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    const srcPath = e.dataTransfer.getData('text/plain');
+                    if (srcPath) {
+                        const srcParent = srcPath.substring(0, srcPath.lastIndexOf('/')) || '/';
+                        if (srcParent !== '/' && srcPath !== '/') {
+                            handleDrop(srcPath, '/');
+                        }
+                    }
+                }}
+            >
                 {tree.isLoading && tree.nodes.length === 0 ? (
                     <div className="flex items-center gap-2 px-4 py-6 text-sim-muted text-xs">
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />

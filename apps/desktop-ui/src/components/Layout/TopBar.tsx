@@ -2,14 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Zap, Sparkles, Power, RotateCcw, Save, PlayCircle, Map,
   ChevronDown, FolderOpen, SaveAll, FileCode2, NotebookPen, Cpu, Check,
-  ChevronUp, Activity, LogOut,
+  ChevronUp, Activity, LogOut, Minus, Square, X
 } from 'lucide-react';
-import { useUIStore, KernelStatus, RuntimeType } from '../../store/ui.store';
-import { Tab } from '../../types';
-import { TabBar } from '../TabBar';
+import { useUIStore } from '../../store/ui.store';
 import { controllerClient } from '../../services/controller.client';
 import { useCenterDialog } from '../shared/CenterDialog';
-import octomlLogo from '../../octoml1.png';
+import octomlLogo from '../../../public/icon.png';
 import { useProject } from '../../context/ProjectContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -21,25 +19,11 @@ interface TopBarProps {
   onNewNotebook: (name?: string, cells?: any[], path?: string) => void;
   onOpenFile?: () => void;
   onSaveFile?: () => Promise<void>;
-  onConnectKernel?: (runtime: RuntimeType) => void;
-  onRestartKernel?: () => void;
-  onRunAll?: () => void;
-  onOpenMemoryMap?: () => void;
-  tabs: Tab[];
-  activeTabId: string | null;
-  onActivateTab: (id: string) => void;
-  onCloseTab: (id: string, e: React.MouseEvent) => void;
   onOpenFolder?: (path: string) => void;
   onSaveAll?: () => Promise<void>;
 }
 
-const statusColors: Record<KernelStatus, string> = {
-  disconnected: 'bg-gray-500',
-  connecting: 'bg-sim-red animate-pulse',
-  idle: 'bg-green-500',
-  busy: 'bg-sim-red animate-pulse',
-  error: 'bg-red-600',
-};
+const isElectron = typeof window !== 'undefined' && !!(window as any).octoml;
 
 // ── Small shared components ───────────────────────────────────────────────────
 
@@ -159,114 +143,6 @@ const NotebookResourceBar: React.FC = () => {
 };
 
 
-// ── Runtime Menu (right side of topbar) ───────────────────────────────────────
-
-const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> = ({ onConnect }) => {
-  const [open, setOpen] = useState(false);
-  const { runtimeType, kernelStatus, toggleResourcePanel, resourcePanelOpen } = useUIStore();
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const isConnected = kernelStatus === 'idle' || kernelStatus === 'busy';
-  const isConnecting = kernelStatus === 'connecting';
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  if (isConnected) {
-    return (
-      <div className="flex items-center gap-2">
-        {/* Status pill */}
-        <div className="flex items-center gap-2 px-3 h-8 bg-[#1e1e20] border border-[#27272a] rounded-xl text-[10px] font-mono text-gray-400">
-          <Check className="w-3 h-3 text-green-500" />
-          <div className={`w-1.5 h-1.5 rounded-full ${statusColors[kernelStatus]}`} />
-          <span className="uppercase">{runtimeType} · {kernelStatus}</span>
-        </div>
-        {/* Resource Panel toggle */}
-        <button
-          onClick={toggleResourcePanel}
-          title="Resource Monitor"
-          className={`flex items-center gap-1.5 px-3 h-8 rounded-xl border text-[10px] font-mono transition-all duration-200
-            ${resourcePanelOpen
-              ? 'bg-[#27272a] border-white/20 text-white'
-              : 'bg-[#1e1e20] border-[#27272a] text-gray-500 hover:text-white hover:border-[#3a3a3c]'}`}
-        >
-          <Activity className="w-3.5 h-3.5" />
-          <span>Monitor</span>
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div ref={menuRef} className="relative">
-      <button
-        onClick={() => setOpen(v => !v)}
-        disabled={isConnecting}
-        className={`flex items-center gap-2 px-4 h-8 rounded-xl text-xs font-medium transition-all duration-200 border
-          ${isConnecting
-            ? 'bg-sim-red/10 border-sim-red/20 text-sim-red animate-pulse'
-            : 'bg-sim-red/10 border-sim-red/20 text-sim-red hover:bg-sim-red/20'}`}
-      >
-        <Power className="w-3.5 h-3.5" />
-        <span>{isConnecting ? 'Connecting...' : 'Connect'}</span>
-        <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && (
-        <div
-          className="absolute right-0 top-[calc(100%+6px)] z-50 min-w-[160px]
-            bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl shadow-black/60
-            overflow-hidden py-1.5"
-          style={{ animation: 'dropdownIn 0.12s ease-out' }}
-        >
-          <div className="px-3 pb-1.5 mb-1.5 border-b border-[#27272a]">
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Select Runtime</span>
-          </div>
-
-          {(['cpu', 'gpu'] as const).map((type) => {
-            const isGpu = type === 'gpu';
-            return (
-              <button
-                key={type}
-                onClick={() => {
-                  if (!isGpu) {
-                    onConnect(type);
-                    setOpen(false);
-                  }
-                }}
-                disabled={isGpu}
-                className={`w-full flex items-center justify-between px-3 py-2.5 text-xs transition-colors rounded-lg text-left mb-1
-                  ${isGpu ? 'opacity-50 cursor-not-allowed text-gray-400' : 'hover:bg-white/5 text-gray-300'}
-                  ${runtimeType === type && !isGpu ? 'text-sim-red bg-sim-red/5' : ''}`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-4 h-4 flex items-center justify-center">
-                    {runtimeType === type && !isGpu && <Check className="w-3.5 h-3.5" />}
-                  </div>
-                  <Cpu className={`w-3.5 h-3.5 ${runtimeType === type && !isGpu ? 'text-sim-red' : 'text-gray-500'}`} />
-                  <div className="flex flex-col">
-                    <span className="font-semibold">{type.toUpperCase()} Runtime</span>
-                  </div>
-                </div>
-                {isGpu && (
-                  <span className="text-[9px] bg-[#3a3a3c] text-gray-300 px-1.5 py-0.5 rounded uppercase font-bold tracking-widest">
-                    Coming Soon
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ── File Dropdown ─────────────────────────────────────────────────────────────
 
 interface FileMenuProps {
@@ -299,15 +175,15 @@ const FileMenu: React.FC<FileMenuProps> = ({
 
     // In Electron we'll get a real path from the OS dialog.
     // In the browser, show our centered dialog for the absolute path.
-    // The `window.__ELECTRON__` flag will be set by the Electron preload when packaged.
-    const isElectron = typeof window !== 'undefined' && !!(window as any).__ELECTRON__;
+    // The `window.octoml` object will be set by the Electron preload when packaged.
+    const isElectron = typeof window !== 'undefined' && !!(window as any).octoml;
 
     let folderPath: string | null = null;
 
     if (isElectron) {
       // Electron path: invoke IPC (preload must expose this)
       try {
-        folderPath = await (window as any).electronAPI?.selectFolder?.() ?? null;
+        folderPath = await (window as any).octoml?.showFolderDialog?.() ?? null;
       } catch {
         // fall through to dialog
       }
@@ -494,14 +370,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onNewNotebook,
   onOpenFile,
   onSaveFile,
-  onConnectKernel,
   onRestartKernel,
   onRunAll,
   onOpenMemoryMap,
-  tabs,
-  activeTabId,
-  onActivateTab,
-  onCloseTab,
   onOpenFolder,
   onSaveAll,
 }) => {
@@ -511,10 +382,13 @@ export const TopBar: React.FC<TopBarProps> = ({
 
 
   return (
-    <div className="h-12 bg-[#09090b] border-b border-[#27272a] flex items-center justify-between px-3 z-20 relative select-none shadow-sm">
+    <div 
+      className="h-12 bg-[#09090b] border-b border-[#27272a] flex items-center justify-between px-2 z-20 relative select-none shadow-sm"
+      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+    >
 
       {/* Left: Branding + Project + File menu + RunAll */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         {/* Branding */}
         <div className="flex items-center gap-2 mr-1 px-2">
           <img src={octomlLogo} alt="OctoML Logo" className="w-5 h-5 object-contain" />
@@ -555,20 +429,27 @@ export const TopBar: React.FC<TopBarProps> = ({
         />
       </div>
 
-      {/* Center: TabBar (file tabs) */}
-      <div className="flex-1 mx-4 hidden md:flex items-center h-8 bg-[#1e1e20] border border-white/5 rounded-xl px-1 overflow-hidden">
-        <TabBar
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onActivateTab={onActivateTab}
-          onCloseTab={onCloseTab}
-        />
+      {/* Center: Project Name */}
+      <div 
+        className="flex-1 mx-4 hidden md:flex items-center justify-center h-8"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
+        {project && (
+          <div className="flex items-center gap-1.5 px-3 h-7  max-w-[300px]">
+            <span className="text-xs text-sim-muted truncate">{project.name}</span>
+            {/* <button
+              onClick={closeProject}
+              title="Close Project"
+              className="ml-2 text-sim-muted hover:text-white transition-colors shrink-0"
+            >
+              <LogOut className="w-3 h-3" />
+            </button> */}
+          </div>
+        )}
       </div>
 
       {/* Right: Kernel + Tools */}
-      <div className="flex items-center gap-2">
-
-        <RuntimeMenu onConnect={(type) => onConnectKernel?.(type)} />
+      <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
 
         <TopBarButton
           onClick={onRestartKernel}
@@ -589,6 +470,32 @@ export const TopBar: React.FC<TopBarProps> = ({
           title="AI Assistant"
           isActive={isChatOpen}
         />
+
+        {isElectron && (
+          <>
+            <div className="h-4 w-[1px] bg-[#27272a] mx-2" />
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={() => (window as any).octoml?.minimizeWindow?.()} 
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+              >
+                <Minus className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => (window as any).octoml?.maximizeWindow?.()} 
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+              >
+                <Square className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                onClick={() => (window as any).octoml?.closeWindow?.()} 
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-sim-red hover:text-white text-gray-400 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

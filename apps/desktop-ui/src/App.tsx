@@ -138,7 +138,6 @@ const App: React.FC = () => {
         onSaveFile={notebook.handleSaveFile}
         onSaveAll={notebook.handleSaveFile}
         onOpenFolder={(_path) => { /* FileExplorer manages project state */ }}
-        onConnectKernel={kernel.handleConnectKernel}
         onRestartKernel={kernel.handleRestartKernel}
         onRunAll={() => kernel.handleRunAll(notebook.activeCells, notebook.updateActiveNotebookCells)}
         onOpenMemoryMap={() => {
@@ -149,10 +148,6 @@ const App: React.FC = () => {
           notebook.setActiveFileId(null);
           tabs.setActiveTabId('memory-map');
         }}
-        tabs={tabs.tabs}
-        activeTabId={tabs.activeTabId}
-        onActivateTab={tabs.handleActivateTab}
-        onCloseTab={tabs.handleCloseTab}
       />
 
       <div className="flex-1 flex overflow-hidden relative p-2 gap-2">
@@ -192,6 +187,10 @@ const App: React.FC = () => {
               notebook.setActiveFileId(null);
               tabs.setActiveTabId(newTabId);
             }
+          }}
+          onConnectKernel={kernel.handleConnectKernel}
+          onOpenSettings={() => {
+            window.octoml?.openSettingsWindow();
           }}
         />
 
@@ -245,12 +244,7 @@ const App: React.FC = () => {
           activeCellId={cells.activeCellId}
           updateNotebookCellsById={notebook.updateNotebookCellsById}
           onOpenManageModels={() => {
-            const manageModelsTab = tabs.tabs.find(t => t.id === 'manage-models');
-            if (!manageModelsTab) {
-              tabs.setTabs(prev => [...prev, { id: 'manage-models', title: 'Language Models', type: 'settings' as const }]);
-            }
-            notebook.setActiveFileId(null);
-            tabs.setActiveTabId('manage-models');
+            window.octoml?.openSettingsWindow();
           }}
           onOpenChatHistory={() => {
             const chatHistoryTab = tabs.tabs.find(t => t.id === 'chat-history');
