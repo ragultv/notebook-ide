@@ -6,7 +6,7 @@ import { CellData } from '../types';
 interface UseKernelManagementReturn {
   handleConnectKernel: (runtime: RuntimeType) => Promise<void>;
   handleRestartKernel: () => Promise<void>;
-  handleRunAll: (cells: CellData[], updateCells: (cells: CellData[]) => void) => Promise<void>;
+  handleRunAll: (cells: CellData[]) => void;
 }
 
 export const useKernelManagement = (activeFileId: string | null): UseKernelManagementReturn => {
@@ -76,15 +76,35 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
     }
   }, [setKernelStatus]);
 
-  const handleRunAll = useCallback(async (cells: CellData[], updateCells: (cells: CellData[]) => void) => {
+  /**
+   * Run All via WS 'run_all' message — single execution path.
+   * VS Code equivalent: INotebookExecutionService.executeNotebookCells()
+   *   → one unified path through NotebookExecutionService → KernelProxy → kernel
+   *
+   * This replaces the old window.dispatchEvent approach which created two
+   * competing execution paths and race conditions.
+   */
+  const handleRunAll = useCallback((cells: CellData[]) => {
     const codeCells = cells.filter(c => c.type === 'code' && c.content.trim());
     if (codeCells.length === 0) return;
 
     const notebookId = activeFileId || 'default';
-    // Dispatch custom event to trigger sequential execution inside Notebook's WS Context
-    window.dispatchEvent(new CustomEvent('notebook:run-all', {
-      detail: { notebookId }
-    }));
+
+    // Send run_all message — handled by websocket.ts → ExecutionEngine.runCellsExplicit()
+    // This is the canonical execution path (mirrors VS Code's single execution service)
+    const ws = (window as any).__notebookWS?.[notebookId];
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'run_all',
+        notebook_id: notebookId,
+        cells: codeCells.map(c => ({ cell_id: c.id, code: c.content })),
+      }));
+    } else {
+      // Fallback: dispatch event for Notebook's WS context to handle
+      window.dispatchEvent(new CustomEvent('notebook:run-all', {
+        detail: { notebookId }
+      }));
+    }
   }, [activeFileId]);
 
   return {
