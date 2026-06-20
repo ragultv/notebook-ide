@@ -139,7 +139,7 @@ const App: React.FC = () => {
         onSaveAll={notebook.handleSaveFile}
         onOpenFolder={(_path) => { /* FileExplorer manages project state */ }}
         onRestartKernel={kernel.handleRestartKernel}
-        onRunAll={() => kernel.handleRunAll(notebook.activeCells, notebook.updateActiveNotebookCells)}
+        onRunAll={() => kernel.handleRunAll(notebook.activeCells)}
         onOpenMemoryMap={() => {
           const memoryMapTab = tabs.tabs.find(t => t.id === 'memory-map');
           if (!memoryMapTab) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useMemo } from 'react';
 import Editor, { useMonaco } from "@monaco-editor/react";
 import controllerClient from '../../services/controller.client';
 import { CellData } from '../../types';
@@ -25,7 +25,7 @@ function calcHeight(lineCount: number): number {
     return Math.max(MIN_HEIGHT, lineCount * LINE_HEIGHT + PADDING_V);
 }
 
-export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
+export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = React.memo(function MonacoCellEditor({
     value,
     onChange,
     onRun,
@@ -35,7 +35,15 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
     language = 'python',
     allCells = [],
     cellIndex = 0
-}) => {
+}) {
+    // Stabilize callbacks via refs — prevents editor remount when parent re-renders
+    // (mirrors VS Code's use of stable model/controller refs in CodeEditorWidget)
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
+    const onRunRef = useRef(onRun);
+    onRunRef.current = onRun;
+    const onActivateRef = useRef(onActivate);
+    onActivateRef.current = onActivate;
     const monaco = useMonaco();
     const editorRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -194,11 +202,11 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
         editorRef.current = editor;
 
         editor.onDidFocusEditorText(() => {
-            if (onActivate) onActivate();
+            if (onActivateRef.current) onActivateRef.current();
         });
 
         editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
-            onRun();
+            onRunRef.current();
         });
 
         if (isActive) {
@@ -214,6 +222,21 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
         // Sync height on every content-size change (new lines, word-wrap reflow, etc.)
         editor.onDidContentSizeChange(() => {
             if (mountedRef.current && !editor._isDisposed) syncHeight();
+        });
+
+        // Also sync on model content change — this catches paste events where Monaco
+        // may defer content-size computation past the next animation frame. A double
+        // RAF guarantees Monaco has finished re-flowing the pasted content before we
+        // read getContentHeight(), preventing the "2-line flash then expand" bug.
+        editor.onDidChangeModelContent(() => {
+            if (!mountedRef.current || editor._isDisposed) return;
+            requestAnimationFrame(() => {
+                if (mountedRef.current && !editor._isDisposed) {
+                    requestAnimationFrame(() => {
+                        if (mountedRef.current && !editor._isDisposed) syncHeight();
+                    });
+                }
+            });
         });
 
         // Initial sync after the editor has finished its first layout pass
@@ -242,7 +265,7 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
                 height="100%"
                 defaultLanguage={language}
                 value={value}
-                onChange={(val) => onChange(val || '')}
+                onChange={(val) => onChangeRef.current(val || '')}
                 theme="notebook-dark"
                 onMount={handleEditorDidMount}
                 beforeMount={handleEditorWillMount}
@@ -279,7 +302,18 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = ({
             />
         </div>
     );
-};
+}, (prev, next) => {
+    // Only re-render when the cell content, active state, or notebook changes.
+    // Completion provider changes (allCells, cellIndex) should NOT remount Monaco.
+    return (
+        prev.value === next.value &&
+        prev.isActive === next.isActive &&
+        prev.notebookId === next.notebookId &&
+        prev.language === next.language
+    );
+});
+
+MonacoCellEditor.displayName = 'MonacoCellEditor';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 

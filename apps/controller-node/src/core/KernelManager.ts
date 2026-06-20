@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BridgeProcess, BridgeMessage } from './BridgeProcess.js';
 import { claimFromPool, initPool, drainPool } from './KernelPool.js';
 import { projectStore } from './ProjectStore.js';
+import { executionQueue } from './notebook/ExecutionQueue.js';
 
 export interface KernelInfo {
     id: string;
@@ -255,6 +256,20 @@ export class KernelManager extends EventEmitter {
 
         console.log(`[KernelManager] Attempting to reconnect bridge for ${notebookId}...`);
 
+        // Resolve all pending execution callbacks immediately.
+        // Without this, the ExecutionQueue's Promise chain hangs forever and no
+        // subsequent cells can run, even after the bridge reconnects.
+        const crashError = 'Kernel crashed — execution cancelled';
+        for (const [, cb] of state.executionCallbacks.entries()) {
+            if (!cb.completed) {
+                cb.completed = true;
+                if (cb.timeoutId) clearTimeout(cb.timeoutId);
+                cb.onError(crashError);
+            }
+        }
+        state.executionCallbacks.clear();
+        state.info.status = 'error';
+
         // Wait 1 second then reconnect
         setTimeout(async () => {
             try {
@@ -306,6 +321,8 @@ export class KernelManager extends EventEmitter {
             onOutput?: (output: any) => void;
             onComplete?: (result: ExecutionResult) => void;
             onError?: (error: string) => void;
+            /** Fires when this cell is dequeued and actually starts running on the kernel. */
+            onStarted?: () => void;
         },
         providedExecutionId?: string
     ): Promise<ExecutionResult> {
@@ -337,6 +354,11 @@ export class KernelManager extends EventEmitter {
                     resolve(err);
                     return;
                 }
+
+                // Notify caller that this cell has been dequeued and is now running.
+                // This allows the WebSocket route to emit 'cell_started' to the browser
+                // so the UI transitions from yellow-Queued to green-Running.
+                callbacks?.onStarted?.();
 
                 const outputs: any[] = [];
                 const startTime = Date.now();
@@ -394,8 +416,15 @@ export class KernelManager extends EventEmitter {
 
                 const timeoutId = setTimeout(() => {
                     if (currentState.inputRequestPending) return;
-                    if (currentState.executionCallbacks.has(executionId)) {
+                    const cb = currentState.executionCallbacks.get(executionId);
+                    if (cb && !cb.completed) {
+                        cb.completed = true;
                         currentState.executionCallbacks.delete(executionId);
+
+                        // Send SIGINT so the kernel actually stops executing.
+                        // Without this the kernel stays busy and blocks the next cell.
+                        currentState.bridge.send({ type: 'interrupt', notebook_id: notebookId });
+
                         const timeoutResult: ExecutionResult = {
                             status: 'timeout',
                             stdout: '',
@@ -443,29 +472,36 @@ export class KernelManager extends EventEmitter {
             notebook_id: notebookId
         });
 
-        // 2. Optimistically resolve ALL pending execution callbacks as KeyboardInterrupt.
-        //    This gives instant feedback on the frontend (cell stops immediately) and mirrors
-        //    Google Colab's behavior — the kernel will still receive the actual interrupt and
-        //    any duplicate completion messages will be silently dropped by the `completed` flag.
+        // 2. Resolve all pending callbacks as KeyboardInterrupt.
+        //    CRITICAL: snapshot entries before iterating — onError deletes from the map
+        //    mid-iteration. Call onError WITHOUT pre-marking completed; the wrappedCallbacks
+        //    wrapper handles completed-flag, timeout clearance, map deletion, and
+        //    resolve(executionPromise). Pre-marking completed + deleting BEFORE calling
+        //    onError caused the wrapper's re-lookup to return undefined, so resolve() was
+        //    never called, deadlocking the Promise queue and freezing queued cells forever.
         const interruptError = 'KeyboardInterrupt: Execution interrupted by user';
-        for (const [execId, cb] of state.executionCallbacks.entries()) {
+        const pendingCallbacks = [...state.executionCallbacks.values()];
+        for (const cb of pendingCallbacks) {
             if (!cb.completed) {
-                cb.completed = true;
-                if (cb.timeoutId) clearTimeout(cb.timeoutId);
-                state.executionCallbacks.delete(execId);
                 cb.onError(interruptError);
             }
         }
     }
 
     public async restartKernel(notebookId: string): Promise<void> {
+        // 1. Drain the queue — cancel all pending cells immediately
+        executionQueue.drain(notebookId);
+
+        // 2. Interrupt the active execution — resolves callbacks so queue unblocks
+        await this.interruptKernel(notebookId);
+
+        // 3. Send restart signal to bridge
         const state = this.kernels.get(notebookId);
         if (state) {
-            state.bridge.send({
-                type: 'restart',
-                notebook_id: notebookId
-            });
+            state.bridge.send({ type: 'restart', notebook_id: notebookId });
             state.info.executionCount = 0;
+            state.info.status = 'idle';
+            state.inputRequestPending = false;
         }
     }
 

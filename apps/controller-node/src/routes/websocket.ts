@@ -367,6 +367,19 @@ export async function websocketRoutes(fastify: FastifyInstance) {
                     // so the frontend receives 'output', 'execution_complete', 'execution_error'.
                     // This preserves the exact contract that Cell.tsx depends on.
                     kernelManager.executeCode(notebookId, msg.code, {
+                        onStarted: () => {
+                            // Cell was dequeued from the internal kernel queue and is now running.
+                            // Emit cell_started so NotebookWSContext transitions the cell from
+                            // yellow-Queued to green-Running in the execution store.
+                            socket.send(JSON.stringify({
+                                type:           'cell_started',
+                                notebook_id:    notebookId,
+                                cell_id:        msg.cell_id,
+                                execution_id:   executionId,
+                                queue_position: 0,
+                                queue_size:     1,
+                            }));
+                        },
                         onOutput: (output) => {
                             socket.send(JSON.stringify({
                                 type:         'output',

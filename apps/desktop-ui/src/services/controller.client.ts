@@ -100,10 +100,11 @@ export interface ErrorFixRequest {
 
 // HTTP helper
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
+  const defaultHeaders: any = opts.body ? { 'Content-Type': 'application/json' } : {};
   const res = await fetch(`${BASE_URL}${path}`, {
     ...opts,
     headers: {
-      'Content-Type': 'application/json',
+      ...defaultHeaders,
       ...opts.headers,
     },
   });
