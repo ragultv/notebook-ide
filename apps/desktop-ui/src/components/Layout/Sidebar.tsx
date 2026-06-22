@@ -2,10 +2,12 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Folder, Upload, Trash2, Edit2, Download, X, MoreVertical,
-  File, Image as ImageIcon, FileCode, Search, ChevronRight,
+  File, Image as ImageIcon, FileCode, Search, ChevronRight, Settings
 } from 'lucide-react';
 import { ProjectFile, CellData } from '../../types';
 import { FileExplorer } from '../FileExplorer';
+import { RuntimeType } from '../../store/ui.store';
+import { RuntimeMenu } from './RuntimeMenu';
 
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -24,6 +26,10 @@ interface SidebarProps {
   onOpenNotebook?: (virtualPath: string, name: string) => void;
   /** Called when user opens a non-notebook file */
   onOpenFile?: (virtualPath: string, name: string) => void;
+  /** Connect Kernel Action */
+  onConnectKernel: (runtime: RuntimeType) => void;
+  /** Open Settings Tab */
+  onOpenSettings?: () => void;
 }
 
 type ActivePanel = 'files' | 'search';
@@ -139,6 +145,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCellFocus,
   onOpenNotebook,
   onOpenFile,
+  onConnectKernel,
+  onOpenSettings,
 }) => {
   const [activePanel, setActivePanel] = useState<ActivePanel>('files');
   const [drawerOpen, setDrawerOpen] = useState(true);
@@ -315,6 +323,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => switchPanel('search')}
           label="Search in Notebooks"
         />
+        <div className="mt-auto pb-2">
+          <SidebarIcon
+            icon={Settings}
+            isActive={false}
+            onClick={() => onOpenSettings?.()}
+            label="Settings"
+          />
+        </div>
       </div>
 
       {/* ── Drawer ── */}
@@ -462,6 +478,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </>
         )}
+        
+        {/* ━━ Bottom Kernel Connector ━━ */}
+        <div className="p-3 border-t border-sim-border/30 bg-[#18181b] shrink-0 mt-auto">
+          <RuntimeMenu onConnect={onConnectKernel} />
+        </div>
       </div>
 
       {/* ── Context Menu ── */}

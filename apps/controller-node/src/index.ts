@@ -5,12 +5,16 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { kernelRoutes } from './routes/kernels.js';
 import { executionRoutes } from './routes/execution.js';
+import { providersRoutes } from './routes/providers.js';
 import { filesRoutes } from './routes/files.js';
 import { aiRoutes } from './routes/ai.js';
 import { modelsRoutes } from './routes/models.js';
 import { memoryRoutes } from './routes/memory.js';
 import { websocketRoutes } from './routes/websocket.js';
 import { notebookRoutes } from './routes/notebook.js';
+import { agentRoutes } from './routes/agent.js';
+import { chatSessionRoutes } from './routes/chat-sessions.js';
+import { agentModelsRoutes } from './routes/agent-models.js';
 import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { KernelManager } from './core/KernelManager.js';
@@ -136,14 +140,18 @@ const start = async () => {
         });
 
         // Register routes
-        await server.register(kernelRoutes, { prefix: '/kernels' });
-        await server.register(executionRoutes, { prefix: '/execution' });
-        await server.register(filesRoutes, { prefix: '/files' });
-        await server.register(aiRoutes, { prefix: '/ai' });
-        await server.register(modelsRoutes, { prefix: '/ai/models' });
-        await server.register(memoryRoutes, { prefix: '/api/memory' });
+        await server.register(kernelRoutes,      { prefix: '/kernels' });
+        await server.register(executionRoutes,   { prefix: '/execution' });
+        await server.register(filesRoutes,       { prefix: '/files' });
+        await server.register(aiRoutes,          { prefix: '/ai' });
+        await server.register(modelsRoutes,      { prefix: '/ai/models' });
+        await server.register(memoryRoutes,      { prefix: '/api/memory' });
         await server.register(websocketRoutes);
-        await server.register(notebookRoutes, { prefix: '/notebooks' });
+        await server.register(notebookRoutes,    { prefix: '/notebooks' });
+        await server.register(agentRoutes);
+        await server.register(chatSessionRoutes);
+        await server.register(agentModelsRoutes);
+        await server.register(providersRoutes);  // self-registers at /api/providers/*
 
         // Health check route
         server.get('/', async () => {

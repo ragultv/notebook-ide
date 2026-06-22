@@ -100,10 +100,11 @@ export interface ErrorFixRequest {
 
 // HTTP helper
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
+  const defaultHeaders: any = opts.body ? { 'Content-Type': 'application/json' } : {};
   const res = await fetch(`${BASE_URL}${path}`, {
     ...opts,
     headers: {
-      'Content-Type': 'application/json',
+      ...defaultHeaders,
       ...opts.headers,
     },
   });
@@ -384,18 +385,29 @@ export const controllerClient = {
 
     // Convert standard ipynb format to the frontend's expected format
     const cells = (res.notebook?.cells || []).map((cell: any, idx: number) => {
-      // Reconstruct text output from ipynb outputs array
       const rawOutputs = cell.outputs || [];
-      let outputText = '';
-      for (const out of rawOutputs) {
+      const parsedOutputs: any[] = rawOutputs.map((out: any) => {
         if (out.output_type === 'stream') {
-          const text = Array.isArray(out.text) ? out.text.join('') : (out.text || '');
-          outputText += text;
-        } else if (out.output_type === 'execute_result' || out.output_type === 'display_data') {
-          const textArr = out.data?.['text/plain'];
-          if (textArr) outputText += Array.isArray(textArr) ? textArr.join('') : textArr;
+          return { type: 'stream', stream: out.name || 'stdout', data: Array.isArray(out.text) ? out.text.join('') : (out.text || '') };
+        } else if (out.output_type === 'execute_result') {
+          return { type: 'result', data: out.data };
+        } else if (out.output_type === 'display_data') {
+          return { type: 'display', data: out.data };
         } else if (out.output_type === 'error') {
-          outputText += `${out.ename}: ${out.evalue}\n${(out.traceback || []).join('\n')}`;
+          return { type: 'error', data: `${out.ename}: ${out.evalue}\n${(out.traceback || []).join('\n')}` };
+        }
+        return { type: 'text', data: JSON.stringify(out) };
+      });
+
+      let outputText = '';
+      for (const out of parsedOutputs) {
+        if (out.type === 'stream' || out.type === 'error') {
+          outputText += out.data;
+        } else if (out.type === 'result' || out.type === 'display') {
+          if (out.data && out.data['text/plain']) {
+            const textArr = out.data['text/plain'];
+            outputText += Array.isArray(textArr) ? textArr.join('') : textArr;
+          }
         }
       }
 
@@ -405,7 +417,7 @@ export const controllerClient = {
         content: Array.isArray(cell.source) ? cell.source.join('') : (cell.source || ''),
         output: outputText || undefined,
         executionCount: cell.execution_count ?? null,
-        outputs: rawOutputs,
+        outputs: parsedOutputs.length > 0 ? parsedOutputs : undefined,
       };
     });
 
@@ -425,7 +437,131 @@ export const controllerClient = {
     return request('/files/recent');
   },
 
-  // ── Project management ─────────────────────────────────────────────────────
+  // ─── New Provider API (SQLite-backed, /api/providers/*) ─────────────────
+
+  /** List all providers (built-in + custom) with has_key + model_count. */
+  async listProviders(): Promise<ProviderEntry[]> {
+    return request('/api/providers');
+  },
+
+  /** Save an API key for a built-in or custom provider. */
+  async saveProviderKey(providerId: string, apiKey: string): Promise<void> {
+    await request(`/api/providers/${encodeURIComponent(providerId)}/key`, {
+      method: 'POST',
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+  },
+
+  /** Remove the API key for a provider. */
+  async removeProviderKey(providerId: string): Promise<void> {
+    await request(`/api/providers/${encodeURIComponent(providerId)}/key`, { method: 'DELETE' });
+  },
+
+  /** Fetch models from the provider API and store them in the DB. */
+  async fetchProviderModels(providerId: string): Promise<{ count: number }> {
+    return request(`/api/providers/${encodeURIComponent(providerId)}/fetch-models`, { method: 'POST' });
+  },
+
+  /** Get all fetched models for a specific provider. */
+  async getProviderModels(providerId: string): Promise<ProviderModelEntry[]> {
+    return request(`/api/providers/${encodeURIComponent(providerId)}/models`);
+  },
+
+  /** Get all models across all providers. */
+  async getAllProviderModels(): Promise<Array<ProviderModelEntry & { provider_name: string }>> {
+    return request('/api/providers/models');
+  },
+
+  /** Get only enabled models (for the chat model selector). */
+  async getEnabledModels(): Promise<EnabledModelEntry[]> {
+    return request('/api/providers/models/enabled');
+  },
+
+  /** Enable or disable a model. */
+  async toggleProviderModel(providerId: string, modelId: string, enabled: boolean): Promise<void> {
+    await request('/api/providers/models/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ provider_id: providerId, model_id: modelId, enabled }),
+    });
+  },
+
+  /** Add a custom (user-defined) provider. */
+  async addCustomProvider(p: { id: string; name: string; type: string; base_url: string; api_key?: string }): Promise<ProviderEntry> {
+    return request('/api/providers', {
+      method: 'POST',
+      body: JSON.stringify(p),
+    });
+  },
+
+  /** Delete a custom provider (built-in providers cannot be deleted). */
+  async deleteCustomProvider(providerId: string): Promise<void> {
+    await request(`/api/providers/${encodeURIComponent(providerId)}`, { method: 'DELETE' });
+  },
+
+  // ─── Legacy Dynamic Providers API ───────────────────────────────────────
+
+  async loadProviders(): Promise<ProviderConfig[]> {
+    const response = await fetch(`${BASE_URL}/providers`);
+    if (!response.ok) {
+      console.error('Failed to load providers:', await response.text());
+      return [];
+    }
+    const data = await response.json();
+    return data.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      apiKey: row.api_key || '',
+      baseUrl: row.base_url || '',
+      enabled: row.enabled,
+      enabledModelIds: row.enabled_model_ids || [],
+      availableModelIds: row.available_model_ids || [],
+      lastFetched: row.last_fetched
+    }));
+  },
+
+  async saveProvider(p: ProviderConfig): Promise<ProviderConfig> {
+    const row = {
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      api_key: p.apiKey,
+      base_url: p.baseUrl || '',
+      enabled: p.enabled,
+      enabled_model_ids: p.enabledModelIds,
+      available_model_ids: p.availableModelIds,
+      last_fetched: p.lastFetched || null
+    };
+
+    const response = await fetch(`${BASE_URL}/providers/${encodeURIComponent(p.id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(row),
+    });
+
+    if (!response.ok) throw new Error(`Failed to save provider: HTTP ${response.status}`);
+    
+    const ret = await response.json();
+    return {
+      id: ret.id,
+      name: ret.name,
+      type: ret.type,
+      apiKey: ret.api_key || '',
+      baseUrl: ret.base_url || '',
+      enabled: ret.enabled,
+      enabledModelIds: ret.enabled_model_ids || [],
+      availableModelIds: ret.available_model_ids || [],
+      lastFetched: ret.last_fetched
+    };
+  },
+
+  async deleteProvider(id: string): Promise<void> {
+    await fetch(`${BASE_URL}/providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  // fetchProviderModels removed — use new fetchProviderModels above (POST /api/providers/:id/fetch-models)
+
+  // ─── Settings / Configuration ─────────────────────────────────────────────────────
 
   // Get current open project
   async getProject(): Promise<{ project: { path: string; name: string } | null }> {
@@ -603,9 +739,54 @@ export interface ModelSelection {
   model: string;
 }
 
+export interface ProviderConfig {
+  id: string;
+  name: string;
+  type: string;
+  apiKey: string;
+  baseUrl?: string;
+  enabled: boolean;
+  enabledModelIds: string[];
+  availableModelIds: string[];
+  lastFetched?: string;
+}
+
 export interface SelectedModel {
   provider: string;
-  modelId: string;
+  model: string;
+  name: string;
+}
+
+// ── New provider types ────────────────────────────────────────────────────────
+
+export interface ProviderEntry {
+  id: string;
+  name: string;
+  type: string;
+  base_url: string;
+  is_builtin: boolean;
+  has_key: boolean;
+  model_count: number;
+  enabled_count: number;
+}
+
+export interface ProviderModelEntry {
+  id: number;
+  provider_id: string;
+  model_id: string;
+  model_name: string;
+  context_length: number;
+  is_enabled: number;
+}
+
+export interface EnabledModelEntry {
+  id: number;
+  provider_id: string;
+  model_id: string;
+  model_name: string;
+  context_length: number;
+  is_enabled: number;
+  provider_name: string;
 }
 
 export interface TablePreviewData {

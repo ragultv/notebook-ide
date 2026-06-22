@@ -4,16 +4,24 @@ import './index.css';
 import App from './App';
 import { ProjectProvider } from './context/ProjectContext';
 
+import { SettingsWindowApp } from './components/Settings/SettingsWindowApp';
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
 const root = ReactDOM.createRoot(rootElement);
-// NOTE: React.StrictMode is intentionally omitted.
-// Monaco Editor is incompatible with StrictMode's double-invoke behavior in React 18.
+
+const urlParams = new URLSearchParams(window.location.search);
+const isSettingsView = urlParams.get('view') === 'settings';
+
 root.render(
-  <ProjectProvider>
-    <App />
-  </ProjectProvider>
+  isSettingsView ? (
+    <SettingsWindowApp />
+  ) : (
+    <ProjectProvider>
+      <App />
+    </ProjectProvider>
+  )
 );

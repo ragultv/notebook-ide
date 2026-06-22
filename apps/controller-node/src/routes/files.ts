@@ -136,6 +136,35 @@ export async function filesRoutes(fastify: FastifyInstance) {
         }
     });
 
+    // ── GET /files/raw ──────────────────────────────────────────────────────
+    fastify.get('/raw', async (request, reply) => {
+        const { path: virtualPath } = request.query as { path: string };
+        if (!virtualPath) return reply.code(400).send({ error: 'path query param required' });
+        try {
+            const vfs = getVFS();
+            const ospath = vfs.resolve(virtualPath);
+            const { createReadStream } = await import('fs');
+            const stream = createReadStream(ospath);
+            
+            // Set content type based on extension
+            const ext = path.extname(ospath).toLowerCase();
+            const mimeTypes: Record<string, string> = {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp',
+                '.svg': 'image/svg+xml'
+            };
+            if (mimeTypes[ext]) {
+                reply.header('Content-Type', mimeTypes[ext]);
+            }
+            return reply.send(stream);
+        } catch (error: any) {
+            return reply.code(error.statusCode ?? 500).send({ error: error.message });
+        }
+    });
+
     // ── POST /files/save ────────────────────────────────────────────────────
     fastify.post('/save', async (request, reply) => {
         const { path: virtualPath, content } = request.body as { path: string; content: string };

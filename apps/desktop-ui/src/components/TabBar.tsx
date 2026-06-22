@@ -1,6 +1,7 @@
 import React from 'react';
-import { X, FileCode, Settings, Image as ImageIcon, FileText, Database } from 'lucide-react';
+import { X, Settings } from 'lucide-react';
 import { Tab } from '../types';
+import { getFileIcon } from './shared/FileIcons';
 
 export interface TabBarProps {
     tabs: Tab[];
@@ -10,14 +11,10 @@ export interface TabBarProps {
 }
 
 export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onActivateTab, onCloseTab }) => {
-    const getIcon = (type: Tab['type']) => {
-        switch (type) {
-            case 'notebook': return <FileCode className="w-3.5 h-3.5 text-sim-red" />;
-            case 'settings': return <Settings className="w-3.5 h-3.5 text-gray-400" />;
-            case 'image': return <ImageIcon className="w-3.5 h-3.5 text-sim-red" />;
-            case 'data': return <Database className="w-3.5 h-3.5 text-sim-red" />;
-            default: return <FileText className="w-3.5 h-3.5 text-gray-400" />;
-        }
+    const getIcon = (tab: Tab) => {
+        if (tab.type === 'settings') return <Settings className="w-3.5 h-3.5 text-gray-400" />;
+        const extension = tab.title.includes('.') ? tab.title.substring(tab.title.lastIndexOf('.')) : undefined;
+        return getFileIcon(extension, "w-3.5 h-3.5");
     };
 
     return (
@@ -36,7 +33,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onActivateTab
                             }
             `}
                     >
-                        <span className="flex-shrink-0 opacity-80">{getIcon(tab.type)}</span>
+                        <span className="flex-shrink-0 opacity-80">{getIcon(tab)}</span>
                         <span className="truncate flex-1 font-mono">{tab.title}</span>
                         <button
                             onClick={(e) => {

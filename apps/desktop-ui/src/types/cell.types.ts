@@ -13,6 +13,10 @@ export interface CellOutput {
   // Widget-specific fields
   commId?: string;
   targetName?: string;
+  // Error-specific fields (type === 'error')
+  ename?: string;
+  evalue?: string;
+  traceback?: string[];
 }
 
 export interface CellData {

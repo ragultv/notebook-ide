@@ -40,6 +40,9 @@ export function useNotebookWebSocket(notebookId: string | null) {
             ws.onopen = () => {
                 console.log(`[WebSocket] Connected for notebook: ${notebookId}`);
                 setConnected(true);
+                // Expose WS instance for Run All (useKernelManagement)
+                if (!(window as any).__notebookWS) (window as any).__notebookWS = {};
+                (window as any).__notebookWS[notebookId] = ws;
                 if (reconnectTimeoutRef.current) {
                     clearTimeout(reconnectTimeoutRef.current);
                     reconnectTimeoutRef.current = null;
@@ -50,6 +53,10 @@ export function useNotebookWebSocket(notebookId: string | null) {
                 console.log(`[WebSocket] Disconnected for notebook: ${notebookId}`);
                 setConnected(false);
                 setKernelStatus('starting');
+                // Remove exposed WS instance
+                if ((window as any).__notebookWS) {
+                    delete (window as any).__notebookWS[notebookId];
+                }
 
                 // Auto-reconnect after 2 seconds
                 reconnectTimeoutRef.current = setTimeout(connect, 2000);

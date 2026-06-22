@@ -31,6 +31,7 @@ export interface OctoMLAPI {
   maximizeWindow(): void;
   closeWindow(): void;
   isMaximized(): Promise<boolean>;
+  openSettingsWindow(): void;
 
   // ── Event listeners ─────────────────────────────────────────────────────────
   onServerLog(callback: (log: string) => void): () => void;
@@ -58,6 +59,7 @@ const octomlAPI: OctoMLAPI = {
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
   closeWindow:    () => ipcRenderer.send('window:close'),
   isMaximized:    () => ipcRenderer.invoke('window:isMaximized'),
+  openSettingsWindow: () => ipcRenderer.send('window:openSettings'),
 
   // Event listeners (return unsubscribe function)
   onServerLog: (callback) => {

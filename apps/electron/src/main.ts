@@ -32,6 +32,7 @@ const RENDERER_URL = isDev
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let mainWindow:     BrowserWindow | null = null;
+let settingsWindow: BrowserWindow | null = null;
 let serverProcess:  ChildProcess  | null = null;
 let serverReady    = false;
 
@@ -136,7 +137,7 @@ function createWindow(): void {
     minWidth:       900,
     minHeight:      600,
     show:           false,                    // shown after ready-to-show
-    titleBarStyle:  'hiddenInset',            // native title bar with traffic lights
+    frame:          false,                    // hide default OS window controls
     backgroundColor: '#0d0d0f',              // match app dark background
     webPreferences: {
       preload:           path.join(__dirname, 'preload.js'),
@@ -182,6 +183,63 @@ function createWindow(): void {
   }
 
   mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+function openSettingsWindow(): void {
+  if (settingsWindow) {
+    settingsWindow.focus();
+    return;
+  }
+
+  nativeTheme.themeSource = 'dark';
+
+  settingsWindow = new BrowserWindow({
+    width:          900,
+    height:         700,
+    minWidth:       800,
+    minHeight:      600,
+    show:           false,
+    frame:          false,
+    backgroundColor: '#0d0d0f',
+    webPreferences: {
+      preload:           path.join(__dirname, 'preload.js'),
+      nodeIntegration:   false,
+      contextIsolation:  true,
+      sandbox:           false,
+      webSecurity:       true,
+    },
+    icon: getAppIcon(),
+  });
+
+  settingsWindow.once('ready-to-show', () => {
+    settingsWindow?.show();
+  });
+
+  const settingsUrl = `${RENDERER_URL}?view=settings`;
+
+  const loadRenderer = () => {
+    settingsWindow?.loadURL(settingsUrl).catch((err) => {
+      console.warn('[Electron] Failed to load settings URL, retrying in 500ms...', err.message);
+      setTimeout(loadRenderer, 500);
+    });
+  };
+
+  settingsWindow.webContents.on('did-fail-load', (e, errorCode, errorDescription) => {
+    if (errorCode === -102) {
+      setTimeout(loadRenderer, 1000);
+    }
+  });
+
+  loadRenderer();
+
+  settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 
 function getAppIcon(): string | undefined {
@@ -240,13 +298,24 @@ function registerIPCHandlers(): void {
 
   // ── Window controls ─────────────────────────────────────────────────────────
 
-  ipcMain.on('window:minimize', () => mainWindow?.minimize());
-  ipcMain.on('window:maximize', () => {
-    if (mainWindow?.isMaximized()) mainWindow.unmaximize();
-    else mainWindow?.maximize();
+  ipcMain.on('window:minimize', () => {
+    const win = BrowserWindow.getFocusedWindow();
+    win?.minimize();
   });
-  ipcMain.on('window:close', () => mainWindow?.close());
-  ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false);
+  ipcMain.on('window:maximize', () => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win?.isMaximized()) win.unmaximize();
+    else win?.maximize();
+  });
+  ipcMain.on('window:close', () => {
+    const win = BrowserWindow.getFocusedWindow();
+    win?.close();
+  });
+  ipcMain.handle('window:isMaximized', () => {
+    const win = BrowserWindow.getFocusedWindow();
+    return win?.isMaximized() ?? false;
+  });
+  ipcMain.on('window:openSettings', () => openSettingsWindow());
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────

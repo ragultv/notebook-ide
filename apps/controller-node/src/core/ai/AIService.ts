@@ -1,4 +1,5 @@
 import { ChatOpenAI } from '@langchain/openai';
+import { ChatAnthropic } from '@langchain/anthropic';
 import { HumanMessage, SystemMessage, AIMessage } from '@langchain/core/messages';
 import { PROVIDERS, DEFAULT_PROVIDER, DEFAULT_MODEL, ModelInfo } from './providers.js';
 import { SYSTEM_PROMPT, ERROR_FIX_PROMPT, getSystemPrompt, injectProjectContext, AIMode } from './prompts.js';
@@ -6,6 +7,8 @@ import { getOrCreateSession, appendMessage, getRecentMessages } from './MemorySt
 import { retrieve, formatRetrievedContext, indexChunks } from './RAGService.js';
 import { validateOperations } from './operationsSchema.js';
 import { config } from '../../config.js';
+import { ProviderStore } from '../ProviderStore.js';
+import { KeyStore } from '../KeyStore.js';
 
 export interface AIRequest {
     prompt: string;
@@ -57,7 +60,7 @@ export interface GenerateStreamCallbacks {
 export class AIService {
     private currentProvider: string = DEFAULT_PROVIDER;
     private currentModel: string = DEFAULT_MODEL;
-    private clients: Map<string, ChatOpenAI> = new Map();
+    private clients: Map<string, any> = new Map();
     private selectedModels: SelectedModel[] = [];
     private apiKeys: Map<string, string> = new Map();
 
@@ -96,38 +99,60 @@ export class AIService {
         }
     }
 
-    private async getClient(provider: string, model: string): Promise<ChatOpenAI | null> {
+    private async getClient(provider: string, model: string): Promise<any | null> {
         const cacheKey = `${provider}:${model}`;
 
         if (this.clients.has(cacheKey)) {
             return this.clients.get(cacheKey)!;
         }
 
+        // Handle dynamic or static providers
+        let providerType = provider;
+        let baseUrl: string | undefined;
+        let apiKey: string | undefined;
+
+        // Try dynamic provider first
+        const dynamicProvider = ProviderStore.getProviders().find(p => p.id === provider);
+        if (dynamicProvider) {
+            providerType = dynamicProvider.type;
+            baseUrl = dynamicProvider.baseUrl;
+            // API key from KeyStore, fallback to what's in ProviderStore
+            apiKey = KeyStore.getKey(provider) || dynamicProvider.apiKey;
+        } else {
+            // Fallback to static PROVIDERS
+            const providerConfig = PROVIDERS[provider];
+            if (!providerConfig) {
+                return null;
+            }
+            providerType = provider;
+            baseUrl = providerConfig.baseUrl;
+            apiKey = this.apiKeys.get(provider) || providerConfig.apiKey;
+        }
+
         // Handle local providers (ollama, octoml)
-        if (provider === 'ollama' || provider === 'octoml') {
+        if (providerType === 'ollama' || providerType === 'octoml' || providerType === 'local') {
             try {
-                const providerConfig = PROVIDERS[provider];
-                let baseUrl = providerConfig.baseUrl;
+                if (!baseUrl) return null;
 
                 // Normalize base URL
-                baseUrl = baseUrl.replace(/\/v1$/, '');
-                if (baseUrl.endsWith('/')) {
-                    baseUrl = baseUrl.slice(0, -1);
+                let normalizedBaseUrl = baseUrl.replace(/\/v1$/, '');
+                if (normalizedBaseUrl.endsWith('/')) {
+                    normalizedBaseUrl = normalizedBaseUrl.slice(0, -1);
                 }
 
                 // Probe for /v1 endpoint support
-                let clientBase = `${baseUrl}/v1`;
+                let clientBase = `${normalizedBaseUrl}/v1`;
                 try {
-                    const response = await fetch(`${baseUrl}/v1/models`, {
+                    const response = await fetch(`${normalizedBaseUrl}/v1/models`, {
                         method: 'GET',
                         signal: AbortSignal.timeout(1000),
                     });
                     if (!response.ok) {
-                        clientBase = baseUrl;
+                        clientBase = normalizedBaseUrl;
                     }
                 } catch {
                     // If probe fails, assume /v1 is available
-                    clientBase = `${baseUrl}/v1`;
+                    clientBase = `${normalizedBaseUrl}/v1`;
                 }
 
                 const client = new ChatOpenAI({
@@ -148,25 +173,42 @@ export class AIService {
         }
 
         // Handle cloud providers
-        const providerConfig = PROVIDERS[provider];
-        if (!providerConfig) {
-            return null;
-        }
-
-        const apiKey = this.apiKeys.get(provider) || providerConfig.apiKey;
         if (!apiKey) {
             return null;
         }
 
         try {
-            const client = new ChatOpenAI({
-                modelName: model,
-                temperature: 0.2,
-                apiKey: apiKey,  // Use 'apiKey' instead of 'openAIApiKey' for compatibility
-                configuration: {
-                    baseURL: providerConfig.baseUrl,
-                },
-            });
+            let client;
+            if (providerType === 'anthropic') {
+                client = new ChatAnthropic({
+                    modelName: model,
+                    temperature: 0.2,
+                    anthropicApiKey: apiKey,
+                });
+            } else if (providerType === 'gemini') {
+                // Temporary workaround since we don't have ChatGemini imported directly,
+                // but ChatOpenAI supports OpenAI-compatible endpoints or we could just use ChatOpenAI for now if it is supported or generic. 
+                // Actually, if we don't have ChatGoogleGenerativeAI, we should warn or just pass. 
+                // Wait, previously gemini wasn't supported in getClient? Oh! In the original getClient, only 'anthropic' and default ChatOpenAI were handled.
+                // Let's fallback to ChatOpenAI as an OpenAI-compatible for others.
+                client = new ChatOpenAI({
+                    modelName: model,
+                    temperature: 0.2,
+                    apiKey: apiKey,
+                    configuration: {
+                        baseURL: baseUrl,
+                    },
+                });
+            } else {
+                client = new ChatOpenAI({
+                    modelName: model,
+                    temperature: 0.2,
+                    apiKey: apiKey,
+                    configuration: {
+                        baseURL: baseUrl,
+                    },
+                });
+            }
 
             this.clients.set(cacheKey, client);
             return client;
@@ -175,6 +217,7 @@ export class AIService {
             return null;
         }
     }
+
 
     public async generate(
         prompt: string,
@@ -1027,7 +1070,8 @@ export class AIService {
     }
 
     public setModel(provider: string, model: string): boolean {
-        if (!PROVIDERS[provider]) {
+        const dynamicProvider = ProviderStore.getProviders().find(p => p.id === provider);
+        if (!dynamicProvider && !PROVIDERS[provider]) {
             return false;
         }
 

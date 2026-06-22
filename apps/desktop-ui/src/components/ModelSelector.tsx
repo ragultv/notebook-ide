@@ -11,18 +11,15 @@ interface ModelSelectorProps {
 
 export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refreshTrigger }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [providers, setProviders] = useState<Record<string, ProviderInfo>>({});
+  const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [currentModel, setCurrentModel] = useState<ModelSelection>({ provider: 'nvidia', model: 'meta/llama-3.1-8b-instruct' });
-  const [selectedModels, setSelectedModels] = useState<SelectedModel[]>([]);
   const [loading, setLoading] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load providers on mount and when refreshTrigger changes
   useEffect(() => {
     loadProviders();
   }, [refreshTrigger]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -35,10 +32,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
 
   const loadProviders = async () => {
     try {
-      const data = await controllerClient.getProviders();
-      setProviders(data.providers);
-      setCurrentModel(data.current);
-      setSelectedModels(data.selectedModels || []);
+      const data = await controllerClient.loadProviders();
+      setProviders(data);
+      const current = await controllerClient.getCurrentModel();
+      setCurrentModel(current);
     } catch (err) {
       console.error('Failed to load providers:', err);
     } finally {
@@ -59,47 +56,32 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
   };
 
   const getCurrentModelInfo = () => {
-    const provider = providers[currentModel.provider];
+    const provider = providers.find(p => p.id === currentModel.provider);
     if (!provider) return { name: 'Select Model', isLocal: false };
-    const model = provider.models.find(m => m.id === currentModel.model);
     return {
-      name: model?.name || currentModel.model,
-      isLocal: provider.isLocal || model?.isLocal
+      name: currentModel.model,
+      isLocal: false
     };
   };
 
-  // Get only models that are selected in Manage Provider
   const getAvailableModels = () => {
-    const allModels: Array<{ provider: string; providerInfo: ProviderInfo; model: any }> = [];
+    const allModels: Array<{ provider: string; providerInfo: ProviderConfig; modelId: string }> = [];
 
-    Object.entries(providers).forEach(([providerId, provider]) => {
-      // Skip providers that are not available (e.g., Ollama when disconnected)
-      if (!provider.available) {
-        return;
-      }
+    providers.forEach(provider => {
+      if (!provider.enabled) return;
 
-      provider.models.forEach(model => {
-        const isSelected = selectedModels.some(
-          sm => sm.provider === providerId && sm.modelId === model.id
-        );
-
-        if (isSelected) {
-          allModels.push({ provider: providerId, providerInfo: provider, model });
-        }
+      provider.enabledModelIds.forEach(modelId => {
+        allModels.push({ provider: provider.id, providerInfo: provider, modelId });
       });
     });
 
-    // If no models are available (e.g., Ollama disconnected and no models selected),
-    // provide default NVIDIA models as fallback
     if (allModels.length === 0) {
-      const nvidiaProvider = providers['nvidia'];
-      if (nvidiaProvider && nvidiaProvider.available) {
-        // Add some default NVIDIA models
-        const defaultModels = nvidiaProvider.models.slice(0, 3); // Get first 3 models
-        defaultModels.forEach(model => {
-          allModels.push({ provider: 'nvidia', providerInfo: nvidiaProvider, model });
-        });
-      }
+      // Fallback if no dynamic providers setup
+      allModels.push({
+        provider: 'nvidia',
+        providerInfo: { id: 'nvidia', name: 'NVIDIA NIM', type: 'nvidia', apiKey: '', enabled: true, enabledModelIds: [], availableModelIds: [] },
+        modelId: 'meta/llama-3.1-8b-instruct'
+      });
     }
 
     return allModels;
@@ -107,7 +89,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
 
   const { name: currentName, isLocal: currentIsLocal } = getCurrentModelInfo();
   const availableModels = getAvailableModels();
-  const hasNoSelectedModels = selectedModels.length === 0;
+  const hasNoSelectedModels = availableModels.length === 0;
 
   if (loading) return null;
 
@@ -115,7 +97,16 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
     <div className="relative font-mono" ref={dropdownRef}>
       {/* Selector Button - Text Only Style */}
       <button
-        onClick={() => hasNoSelectedModels ? onOpenManage() : setIsOpen(!isOpen)}
+        onClick={() => {
+          if (hasNoSelectedModels) {
+            onOpenManage();
+          } else {
+            if (!isOpen) {
+              loadProviders();
+            }
+            setIsOpen(!isOpen);
+          }
+        }}
         className="flex items-center gap-2 px-2 py-1 hover:bg-sim-surface rounded transition-colors text-xs text-sim-muted hover:text-sim-text group"
       >
         <span className={`transition-colors ${currentIsLocal ? 'text-sim-red' : ''}`}>
@@ -142,14 +133,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
             ) : (
               <div className="flex flex-col">
                 <div className="px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Model</div>
-                {availableModels.map(({ provider, providerInfo, model }) => {
-                  const isSelected = currentModel.provider === provider && currentModel.model === model.id;
-                  const isLocal = providerInfo.isLocal || model.isLocal;
+                {availableModels.map(({ provider, providerInfo, modelId }) => {
+                  const isSelected = currentModel.provider === provider && currentModel.model === modelId;
+                  const isLocal = providerInfo.type === 'local' || providerInfo.type === 'ollama';
 
                   return (
                     <button
-                      key={`${provider}-${model.id}`}
-                      onClick={() => handleSelectModel(provider, model.id)}
+                      key={`${provider}-${modelId}`}
+                      onClick={() => handleSelectModel(provider, modelId)}
                       className={`w-full px-3 py-1.5 text-left flex items-center gap-2 transition-colors ${isSelected
                         ? 'bg-sim-border/50 text-white'
                         : 'hover:bg-sim-border/30 text-gray-400 hover:text-gray-200'
@@ -157,7 +148,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-xs truncate flex items-center gap-2">
-                          {model.name}
+                          {modelId}
                           {isLocal && (
                             <span className="w-1.5 h-1.5 rounded-full bg-sim-red" title="Local" />
                           )}

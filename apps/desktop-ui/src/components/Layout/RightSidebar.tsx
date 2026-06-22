@@ -1,26 +1,27 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, User, CornerDownLeft, Zap, ChevronDown, Wrench, Paperclip, AlertTriangle, Check, Ban, File as FileIcon, Code, Plus, Loader2, MessageSquarePlus, MessageCircle, Bot, ListChecks, History } from 'lucide-react';
-import { controllerClient } from '../../services/controller.client';
-import { CellData, ProjectFile } from '../../types';
-import { ModelSelector } from '../ModelSelector';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { X, Send, Square, Paperclip, ChevronRight, ChevronDown, Plus, Clock, Trash2, ChevronLeft } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
-import octomlLogo from '../../octoml1.png';
+import { useAgentChat, TOOL_ACTIVITIES } from '../../hooks/useAgentChat';
+import { useProject } from '../../context/ProjectContext';
+import type { CellData, ProjectFile } from '../../types';
 
+// ── Props ────────────────────────────────────────────────────────────────────
 interface RightSidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddCell: (content: string, type: 'code' | 'markdown') => void;
+  onAddCell: (content: string, type: 'code' | 'markdown', id?: string) => void;
   onDeleteCell: (index: number) => void;
   onMoveCell: (fromIndex: number, toIndex: number) => void;
   onEditCell: (index: number, content: string, type?: 'code' | 'markdown') => void;
   onAddPackages: (packages: string[]) => void;
   onCreateNotebook: (nameOrCells?: string | CellData[], initialCells?: CellData[], path?: string) => string | null;
+  onNotebookCreatedByAgent?: (path: string) => void;
   updateNotebookCellsById?: (notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
   onDeleteNotebook: (name?: string) => void;
   notebookCells: CellData[];
   notebookName: string;
+  notebookPath?: string;
   projectFiles: ProjectFile[];
   activeCellId?: string | null;
   onOpenManageModels: () => void;
@@ -31,869 +32,707 @@ interface RightSidebarProps {
   onStartResizing: () => void;
 }
 
-type AIMode = 'ask' | 'agent' | 'plan';
+type Mode = 'ASK' | 'PLAN' | 'AGENT' | 'AGENTIC';
 
-interface Message {
-  id: string;
-  role: 'user' | 'ai';
-  text: string;
-  tokenInfo?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
-  streaming?: boolean;
-  pendingConfirmation?: {
-    type: 'delete_notebook';
-    name?: string;
-  } | {
-    type: 'plan_execute';
-    operations: Array<{ type: string; params: Record<string, any> }>;
-  };
-  isConfirmed?: boolean; // true = accepted, false = rejected
-  attachments?: AttachedFile[];
-  mode?: AIMode; // mode used when this message was sent (for AI messages)
+const MODE_DOT: Record<Mode, string> = {
+  ASK:     'bg-blue-400',
+  PLAN:    'bg-purple-400',
+  AGENT:   'bg-orange-400',
+  AGENTIC: 'bg-red-400',
+};
+
+const MODE_TEXT: Record<Mode, string> = {
+  ASK:     'text-blue-400',
+  PLAN:    'text-purple-400',
+  AGENT:   'text-orange-400',
+  AGENTIC: 'text-red-400',
+};
+
+const MODE_HINTS: Record<Mode, string> = {
+  ASK:     'Read & explain',
+  PLAN:    'Read & plan',
+  AGENT:   'Read & write',
+  AGENTIC: 'Full execution',
+};
+
+const ACTIVITY_ICONS: Record<string, string> = {
+  'Thinking':              '💭',
+  'Reading file':          '📄',
+  'Reading cell':          '📋',
+  'Exploring':             '🔍',
+  'Reading memory':        '🧠',
+  'Exploring store':       '🗄️',
+  'Planning':              '📝',
+  'Updating plan':         '📝',
+  'Writing file':          '✏️',
+  'Creating notebook':     '📓',
+  'Creating file':         '📁',
+  'Adding cell':           '➕',
+  'Updating cell':         '✏️',
+  'Writing cell':          '✏️',
+  'Requesting permission': '🔐',
+  'Deleting cell':         '🗑️',
+  'Indexing':              '🔢',
+  'Executing cell':        '▶️',
+  'Running notebook':      '⚡',
+  'Analyzing':             '📊',
+};
+
+function relativeTime(ms: number): string {
+  const diff = Date.now() - ms;
+  const min  = Math.floor(diff / 60_000);
+  if (min < 1)  return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24)  return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
 }
 
-interface AttachedFile {
-  id: string;
-  name: string;
+// ── Inline components ─────────────────────────────────────────────────────────
+
+function ActivityTag({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] text-white/35 animate-pulse">
+      <span>{ACTIVITY_ICONS[label] ?? '⚙️'}</span>
+      <span>{label}…</span>
+    </span>
+  );
+}
+
+function ToolBlock({ tool, input, result, done }: {
+  tool: string; input: unknown; result?: unknown; done: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = TOOL_ACTIVITIES[tool] ?? tool;
+  return (
+    <div className="my-1 text-xs font-mono">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-white/40 hover:text-white/65 transition-colors w-full text-left"
+      >
+        <span className="text-white/25">{open ? '▾' : '▸'}</span>
+        <span>{label}</span>
+        {done
+          ? <span className="ml-auto text-green-400/60 text-[10px]">✓</span>
+          : <span className="ml-auto w-2.5 h-2.5 border border-white/20 border-t-white/50 rounded-full animate-spin flex-shrink-0" />
+        }
+      </button>
+      {open && (
+        <div className="mt-1 pl-3 space-y-1 border-l border-white/8">
+          {input !== undefined && (
+            <pre className="text-white/30 whitespace-pre-wrap break-all leading-relaxed">
+              {JSON.stringify(input, null, 2)}
+            </pre>
+          )}
+          {done && result !== undefined && (
+            <>
+              <div className="text-white/20 text-[10px]">result</div>
+              <pre className="text-white/30 whitespace-pre-wrap break-all leading-relaxed">
+                {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
+              </pre>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssistantMessage({ content, isStreaming, activities, msgToolCalls }: {
   content: string;
-  type: 'file' | 'cell';
+  isStreaming: boolean;
+  activities: string[];
+  msgToolCalls: Array<{ id: string; tool: string; input: unknown; result?: unknown; done: boolean }>;
+}) {
+  const showThinking = isStreaming && !content && activities.length === 0 && msgToolCalls.length === 0;
+  return (
+    <div className="py-3">
+      {(showThinking || activities.length > 0) && (
+        <div className="flex flex-wrap gap-3 mb-2">
+          {showThinking && <ActivityTag label="Thinking" />}
+          {activities.map((a, i) => <ActivityTag key={`act-${i}-${a}`} label={a} />)}
+        </div>
+      )}
+      {msgToolCalls.map(tc => (
+        <ToolBlock key={tc.id} tool={tc.tool} input={tc.input} result={tc.result} done={tc.done} />
+      ))}
+      {content && (
+        <div className="
+          prose prose-invert prose-sm max-w-none
+          prose-p:my-1.5 prose-p:leading-relaxed prose-p:text-white/75
+          prose-pre:bg-white/4 prose-pre:border-0 prose-pre:rounded-lg prose-pre:text-xs
+          prose-code:bg-white/6 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+          prose-code:text-[#4ea7fc] prose-code:before:content-none prose-code:after:content-none
+          prose-headings:text-white/85 prose-headings:font-semibold prose-headings:mb-1 prose-headings:mt-3
+          prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
+          prose-blockquote:border-l-2 prose-blockquote:border-white/15 prose-blockquote:text-white/50
+          prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-li:text-white/75
+          prose-strong:text-white/85 prose-em:text-white/65
+        ">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
+      )}
+      {isStreaming && content && (
+        <span className="inline-block w-0.5 h-3.5 bg-white/30 ml-0.5 animate-pulse rounded-sm align-middle" />
+      )}
+    </div>
+  );
 }
 
+// ── Model Selector Dropdown ───────────────────────────────────────────────────
+const MODEL_SELECTOR_API = 'http://localhost:3001';
+
+interface FetchedModel { id: string; name: string; provider_id: string; provider_name: string }
+
+function ModelSelector({
+  currentModel, onSelect,
+}: {
+  currentModel: { provider_id: string; model_id: string; model_name: string; provider_name: string } | null;
+  onSelect: (providerId: string, modelId: string) => void;
+}) {
+  const [open,    setOpen]    = useState(false);
+  const [search,  setSearch]  = useState('');
+  const [models,  setModels]  = useState<FetchedModel[]>([]);
+  const [loading, setLoading] = useState(false);
+  const ref                   = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setSearch(''); }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  // Fetch fresh enabled models whenever dropdown opens
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetch(`${MODEL_SELECTOR_API}/api/providers/models/enabled`)
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: Array<{ provider_id: string; provider_name: string; model_id: string; model_name: string }>) => {
+        setModels(rows.map(r => ({
+          id:            r.model_id,
+          name:          r.model_name || r.model_id,
+          provider_id:   r.provider_id,
+          provider_name: r.provider_name,
+        })));
+      })
+      .catch(() => setModels([]))
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  const filtered = models.filter(m =>
+    !search ||
+    m.name.toLowerCase().includes(search.toLowerCase()) ||
+    m.provider_name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  // Group by provider for display
+  const grouped = filtered.reduce<Record<string, { name: string; models: FetchedModel[] }>>((acc, m) => {
+    if (!acc[m.provider_id]) acc[m.provider_id] = { name: m.provider_name, models: [] };
+    acc[m.provider_id].models.push(m);
+    return acc;
+  }, {});
+
+  const displayName = currentModel?.model_name
+    ? (currentModel.model_name.length > 26 ? currentModel.model_name.slice(0, 25) + '…' : currentModel.model_name)
+    : 'Select model';
+
+  const hasModel = !!currentModel?.model_id;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-[11px] text-white/40 hover:text-white/70 transition-colors bg-white/4 hover:bg-white/7 rounded-lg px-2 py-1 max-w-[180px]"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hasModel ? 'bg-green-400/70' : 'bg-white/20'}`} />
+        <span className="truncate">{displayName}</span>
+        <ChevronDown size={9} className="text-white/20 flex-shrink-0 ml-auto" />
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-1.5 bg-[#141416] rounded-xl border border-white/8 shadow-2xl z-50 flex flex-col" style={{ width: 280, maxHeight: 360 }}>
+          <div className="p-2 border-b border-white/5">
+            <input autoFocus placeholder="Search models…" value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white/70 placeholder-white/20 outline-none" />
+          </div>
+
+          <div className="overflow-y-auto flex-1">
+            {loading ? (
+              <div className="text-center py-6 text-[11px] text-white/25">Loading…</div>
+            ) : Object.keys(grouped).length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-[11px] text-white/25">No enabled models</p>
+                <p className="text-[10px] text-white/15 mt-1">Open Settings → Models and enable some models</p>
+              </div>
+            ) : Object.entries(grouped).map(([providerId, group]) => (
+              <div key={providerId}>
+                <div className="px-3 pt-2.5 pb-1 sticky top-0 bg-[#141416]">
+                  <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{group.name}</span>
+                </div>
+                {group.models.map(m => {
+                  const isActive = currentModel?.model_id === m.id && currentModel?.provider_id === m.provider_id;
+                  return (
+                    <button key={m.id}
+                      onClick={() => { onSelect(m.provider_id, m.id); setOpen(false); setSearch(''); }}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 ${
+                        isActive ? 'text-white/90 bg-white/7' : 'text-white/55 hover:text-white/85 hover:bg-white/4'
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-blue-400' : 'bg-green-400/40'}`} />
+                      <span className="flex-1 truncate">{m.name}</span>
+                      {isActive && <span className="text-[9px] text-blue-400/70 flex-shrink-0">active</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Chat History Panel ────────────────────────────────────────────────────────
+function HistoryPanel({
+  sessions, onLoad, onDelete, onBack,
+}: {
+  sessions: Array<{ id: string; title: string; mode: string; updated_at: number; message_count?: number }>;
+  onLoad: (id: string) => void;
+  onDelete: (id: string) => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5">
+        <button onClick={onBack} className="text-white/30 hover:text-white/70 transition-colors p-0.5">
+          <ChevronLeft size={14} />
+        </button>
+        <span className="text-[11px] font-semibold tracking-widest text-white/30 uppercase">Chat History</span>
+      </div>
+
+      {/* Session list */}
+      <div className="flex-1 overflow-y-auto">
+        {sessions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 py-16">
+            <Clock size={24} className="text-white/15" />
+            <p className="text-white/25 text-xs">No conversations yet</p>
+          </div>
+        ) : (
+          <div className="py-2">
+            {sessions.map(s => (
+              <div
+                key={s.id}
+                onClick={() => onLoad(s.id)}
+                className="group flex items-start gap-3 px-4 py-3 hover:bg-white/4 cursor-pointer transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white/70 truncate leading-snug">{s.title || 'New conversation'}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[10px] font-medium ${
+                      s.mode === 'ASK' ? 'text-blue-400/60' :
+                      s.mode === 'PLAN' ? 'text-purple-400/60' :
+                      s.mode === 'AGENT' ? 'text-orange-400/60' : 'text-red-400/60'
+                    }`}>{s.mode}</span>
+                    <span className="text-[10px] text-white/20">{relativeTime(s.updated_at)}</span>
+                    {s.message_count !== undefined && (
+                      <span className="text-[10px] text-white/20">{Math.floor(s.message_count / 2)} turns</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={e => { e.stopPropagation(); onDelete(s.id); }}
+                  className="opacity-0 group-hover:opacity-100 p-1 text-white/25 hover:text-red-400/70 transition-all rounded flex-shrink-0"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 export const RightSidebar: React.FC<RightSidebarProps> = ({
-  isOpen,
-  onClose,
-  onAddCell,
-  onDeleteCell,
-  onMoveCell,
-  onEditCell,
-  onAddPackages,
-  onCreateNotebook,
-  onDeleteNotebook,
-  notebookCells,
-  notebookName,
-  projectFiles,
+  isOpen, onClose,
+  onAddCell, onEditCell,
+  onNotebookCreatedByAgent,
+  notebookCells, notebookName, notebookPath: notebookPathProp,
   activeCellId,
-  onOpenManageModels,
-  onOpenChatHistory,
   modelsRefreshTrigger,
-  width,
-  isResizing,
-  onStartResizing,
-  updateNotebookCellsById
+  width, isResizing, onStartResizing,
 }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState('');
-  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<AIMode>('agent');
+  const { project } = useProject();
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Derive notebook path for the agent request (so it can write cells to the file directly)
+  const notebookPath = notebookPathProp ?? (notebookName
+    ? `notebooks/${notebookName.endsWith('.ipynb') ? notebookName : notebookName + '.ipynb'}`
+    : undefined);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const agentCells = useMemo(() =>
+    notebookCells.map(c => ({ id: c.id, type: c.type as 'code' | 'markdown', source: c.content })),
+    [notebookCells],
+  );
+
+  const {
+    messages, toolCalls, kernelLines, escalation, pendingPerm,
+    isLoading, mode, activeActivities, attachedFiles,
+    sessions, currentModel, modelProviders,
+    sendMessage, setMode, dismissEscalation,
+    confirmPermission, denyPermission, stopGeneration,
+    addFile, removeFile, selectModel, loadModels,
+    startNewChat, loadSession, deleteSession,
+  } = useAgentChat({
+    projectPath:       project?.path ?? '',
+    notebookCells:     agentCells,
+    notebookPath,
+    onCellCreate:      (_afterId, cellType, source, newCellId) => onAddCell(source, cellType, newCellId),
+    onCellUpdate:      (cellId, source) => {
+      const idx = notebookCells.findIndex(c => c.id === cellId);
+      if (idx >= 0) onEditCell(idx, source);
+    },
+    onCellDelete:      () => {},
+    onNotebookCreate:  onNotebookCreatedByAgent,
+  });
+
+  const [input,       setInput]       = useState('');
+  const [isDragOver,  setIsDragOver]  = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [kernelOpen,  setKernelOpen]  = useState(false);
+
+  const bottomRef    = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reload models whenever the settings page changes model selection
+  useEffect(() => {
+    if (modelsRefreshTrigger) loadModels();
+  }, [modelsRefreshTrigger, loadModels]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (!showHistory) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length, activeActivities.length, showHistory]);
 
-  // Active cell logic
-  const activeCell = activeCellId ? notebookCells.find(c => c.id === activeCellId) : null;
-  const activeCellIndex = activeCell ? notebookCells.findIndex(c => c.id === activeCellId) : -1;
-  const suggestedCellId = activeCell ? `cell-${activeCellIndex + 1}` : null;
-  const isSuggestedAttached = suggestedCellId && attachedFiles.some(f => f.id === suggestedCellId);
+  // Active cell — show as chip
+  const activeCell = useMemo(() =>
+    activeCellId ? notebookCells.find(c => c.id === activeCellId) : undefined,
+    [activeCellId, notebookCells],
+  );
 
-  const addActiveCellAttachment = () => {
-    if (activeCell && suggestedCellId && !isSuggestedAttached) {
-      setAttachedFiles(prev => [...prev, {
-        id: suggestedCellId,
-        name: `Cell ${activeCellIndex + 1}`,
-        content: activeCell.content,
-        type: 'cell'
-      }]);
-    }
-  };
+  const includeCellChip = useCallback(() => {
+    if (!activeCell) return;
+    addFile(new File([activeCell.content], `cell.${activeCell.type === 'code' ? 'py' : 'md'}`, { type: 'text/plain' }));
+  }, [activeCell, addFile]);
 
-  const generateProjectContext = () => {
-    // 1. Notebook Context
-    const cellContext = notebookCells.map((cell, index) => {
-      let contentPreview = cell.content;
-      if (contentPreview.length > 500) contentPreview = contentPreview.substring(0, 500) + "...(truncated)";
-      return `[Cell ${index + 1}] (${cell.type}):\n${contentPreview}`;
-    }).join('\n\n');
+  const handleSend = useCallback(() => {
+    const t = input.trim();
+    if (!t && attachedFiles.length === 0) return;
+    setInput('');
+    sendMessage(t);
+  }, [input, attachedFiles.length, sendMessage]);
 
-    // 2. File Context (List of available files)
-    const fileContext = projectFiles.map(f => {
-      const sizeText = f.file ? `${f.file.size} bytes` : 'Virtual/In-Memory';
-      return `- ${f.name} (${f.type}, ${sizeText})`;
-    }).join('\n');
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  }, [handleSend]);
 
-    return `
-=== SYSTEM CONTEXT ===
-The user is currently viewing the file: "${notebookName}". 
-This is the ACTIVE NOTEBOOK.
-Unless the user explicitly mentions another file, assume all questions (e.g., "add a cell", "fix the error", "what does this code do") refer to "${notebookName}".
-
-=== AVAILABLE FILES IN PROJECT ===
-${fileContext || "No files uploaded."}
-
-=== CONTENT OF ACTIVE NOTEBOOK ("${notebookName}") ===
-${cellContext}
-=== END CONTEXT ===
-`;
-  };
-
-  const handleSend = async () => {
-    if ((!inputValue.trim() && attachedFiles.length === 0) || isLoading) return;
-
-    // Capture attached files before clearing
-    const currentAttachments = [...attachedFiles];
-
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      text: inputValue,
-      attachments: currentAttachments
-    };
-
-    setMessages(prev => [...prev, userMsg]);
-    setInputValue('');
-    setAttachedFiles([]);
-
-    setIsLoading(true);
-
-    // Build Context
-    const projectOverview = generateProjectContext();
-
-    const attachmentContext = currentAttachments.map(f => {
-      if (f.type === 'cell') {
-        return `\n\n=== CELL CONTEXT: ${f.name} ===\nUser has explicitly dragged this cell for context:\n\`\`\`\n${f.content}\n\`\`\`\n`;
-      }
-      return `\n\n=== FILE ATTACHMENT: ${f.name} ===\nUser has explicitly attached this file for context:\n\`\`\`\n${f.content}\n\`\`\`\n`;
-    }).join('');
-
-    const finalMessage = `${projectOverview}${attachmentContext}\n\nUSER QUERY: ${inputValue}`;
-
-    const currentMode = selectedMode;
-    const placeholderId = `streaming-${Date.now()}`;
-    setMessages(prev => [...prev, {
-      id: placeholderId,
-      role: 'ai',
-      text: '',
-      streaming: true,
-      mode: currentMode,
-    }]);
-
-    const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): string[] => {
-      const actionDescriptions: string[] = [];
-      console.log('[RightSidebar.runOperations] Executing operations:', ops);
-
-      // Step 1: Pre-process notebook creations and group their initial cells
-      const notebooksToCreate: Record<string, CellData[]> = {};
-      const operationsToRun: Array<{ type: string; params: Record<string, any> }> = [];
-      let currentCreatedNotebook: string | null = null;
-
-      for (const op of ops) {
-        if (op.type === 'create_notebook') {
-          const name = op.params.name;
-          notebooksToCreate[name] = [];
-          currentCreatedNotebook = name;
-          operationsToRun.push(op); // keep it so we can execute it later
-        } else if (op.type === 'add_cell' && (op.params.notebookName || currentCreatedNotebook)) {
-          const targetNotebook = op.params.notebookName || currentCreatedNotebook;
-          if (notebooksToCreate[targetNotebook]) {
-            const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
-            notebooksToCreate[targetNotebook].push({
-              id: crypto.randomUUID(),
-              type: cellType,
-              content: op.params.content ?? '',
-              status: 'idle'
-            });
-          } else {
-            operationsToRun.push(op);
-          }
-        } else {
-          if (op.type !== 'add_cell') {
-            currentCreatedNotebook = null; // reset if doing something else
-          }
-          operationsToRun.push(op);
-        }
-      }
-
-      // Step 2: Execute operations
-      const createdNotebookIds: Record<string, string> = {}; // keep track of names to IDs
-
-      operationsToRun.forEach((op, idx) => {
-        try {
-          console.log(`[RightSidebar.runOperations] Executing operation ${idx + 1}/${operationsToRun.length}: ${op.type}`, op.params);
-          switch (op.type) {
-            case 'create_notebook': {
-              const name = op.params.name;
-              const initialCells = notebooksToCreate[name] || undefined;
-              const newId = onCreateNotebook(name, initialCells);
-              if (newId) createdNotebookIds[name] = newId;
-              actionDescriptions.push(`Created notebook: ${name}${initialCells?.length ? ` with ${initialCells.length} cells` : ''}`);
-              break;
-            }
-            case 'add_cell': {
-              const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
-              const targetNotebookName = op.params.notebookName;
-
-              const isTargetingCurrent = !targetNotebookName || targetNotebookName === notebookName || targetNotebookName === notebookName + '.ipynb';
-
-              if (isTargetingCurrent) {
-                console.log(`[RightSidebar.runOperations] Calling onAddCell with content length=${(op.params.content ?? '').length}, type=${cellType}`);
-                onAddCell(op.params.content ?? '', cellType);
-              } else if (updateNotebookCellsById) {
-                // Resolve ID (it might be newly created or pre-existing)
-                const targetNotebookId = createdNotebookIds[targetNotebookName] || projectFiles.find(f => f.name === targetNotebookName || f.name === targetNotebookName + '.ipynb')?.id;
-                if (targetNotebookId) {
-                  updateNotebookCellsById(targetNotebookId, prev => [...prev, {
-                    id: crypto.randomUUID(),
-                    type: cellType,
-                    content: op.params.content ?? '',
-                    status: 'idle'
-                  }]);
-                } else {
-                  throw new Error(`Target notebook "${targetNotebookName}" not found`);
-                }
-              } else {
-                throw new Error(`Target notebook "${targetNotebookName}" specified, but updateNotebookCellsById is not available`);
-              }
-
-              const preview = (op.params.content || '').slice(0, 50).replace(/\n/g, ' ');
-              actionDescriptions.push(`Added ${cellType} cell${preview ? `: ${preview}${(op.params.content?.length || 0) > 50 ? '...' : ''}` : ''}`);
-              console.log(`[RightSidebar.runOperations] onAddCell called successfully`);
-              break;
-            }
-            case 'move_cell':
-              onMoveCell(op.params.fromIndex, op.params.toIndex);
-              actionDescriptions.push(`Moved cell ${op.params.fromIndex} → ${op.params.toIndex}`);
-              break;
-            case 'delete_cell':
-              onDeleteCell(op.params.cellIndex);
-              actionDescriptions.push(`Deleted cell ${op.params.cellIndex}`);
-              break;
-            case 'delete_notebook':
-              setMessages(prev => [...prev, {
-                id: (Date.now() + Math.random()).toString(),
-                role: 'ai',
-                text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
-                pendingConfirmation: { type: 'delete_notebook', name: op.params.name }
-              }]);
-              break;
-            case 'edit_cell': {
-              const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
-              onEditCell(op.params.cellIndex, op.params.content ?? '', editType);
-              actionDescriptions.push(`Edited cell ${op.params.cellIndex}`);
-              break;
-            }
-            case 'add_package':
-              onAddPackages(op.params.packages || []);
-              actionDescriptions.push(`Added packages: ${(op.params.packages || []).join(', ')}`);
-              break;
-            default:
-              console.warn(`[RightSidebar.runOperations] Unknown operation type: ${op.type}`);
-          }
-        } catch (err: any) {
-          console.error(`[RightSidebar.runOperations] Error executing operation ${op.type}:`, err);
-          actionDescriptions.push(`Error executing ${op.type}: ${err.message}`);
-        }
-      });
-      console.log(`[RightSidebar.runOperations] Completed, ${actionDescriptions.length} actions executed`);
-      return actionDescriptions;
-    };
-
-    const stripOperationsBlock = (t: string): string => {
-      let out = t.replace(/```(?:json|operations)?\s*\n[\s\S]*?\n```/g, '').trim();
-      if (out.match(/\[\s*\{[\s\S]*?\}\s*\]/)) out = out.replace(/\[\s*\{[\s\S]*?\}\s*\]/g, '').trim();
-      return out;
-    };
-
-    const req = {
-      prompt: finalMessage,
-      sessionId: sessionId ?? undefined,
-      mode: currentMode,
-      context: { notebookName, cells: notebookCells.map(c => ({ type: c.type, content: c.content })) },
-    };
-
-    const applyNonStreamResponse = (response: { text: string; operations?: Array<{ type: string; params: Record<string, any> }>; tokenInfo?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null; sessionId?: string }) => {
-      const executeOps = currentMode !== 'ask' && (response.operations?.length ?? 0) > 0;
-      if (currentMode === 'plan' && response.operations?.length) {
-        setMessages(prev => prev.map(m => m.id === placeholderId
-          ? { ...m, streaming: false, text: stripOperationsBlock(response.text), tokenInfo: response.tokenInfo ?? null, pendingConfirmation: { type: 'plan_execute', operations: response.operations! } }
-          : m));
-      } else if (executeOps) {
-        const descriptions = runOperations(response.operations!);
-        setMessages(prev => prev.map(m => m.id === placeholderId
-          ? { ...m, streaming: false, text: stripOperationsBlock(response.text) + (descriptions.length ? `\n\n**Applied:** ${descriptions.join('; ')}` : ''), tokenInfo: response.tokenInfo ?? null }
-          : m));
-      } else {
-        setMessages(prev => prev.map(m => m.id === placeholderId
-          ? { ...m, streaming: false, text: response.text || "I couldn't process that request.", tokenInfo: response.tokenInfo ?? null }
-          : m));
-      }
-      if (response.sessionId) setSessionId(response.sessionId);
-      setIsLoading(false);
-    };
-
-    controllerClient.askAIStream(req, {
-      onChunk: (delta) => {
-        setMessages(prev => prev.map(m => m.id === placeholderId ? { ...m, text: m.text + delta } : m));
-      },
-      onOperations: (operations) => {
-        console.log('[RightSidebar] onOperations called:', { currentMode, operations, operationsCount: operations.length });
-        if (currentMode === 'ask') {
-          console.log('[RightSidebar] Skipping operations - mode is "ask"');
-          return;
-        }
-        if (currentMode === 'plan') {
-          console.log('[RightSidebar] Skipping operations - mode is "plan"');
-          return;
-        }
-        console.log('[RightSidebar] Executing operations:', operations);
-        const descriptions = runOperations(operations);
-        console.log('[RightSidebar] Operations executed, descriptions:', descriptions);
-        if (descriptions.length > 0) {
-          setMessages(prev => prev.map(m => m.id === placeholderId
-            ? { ...m, text: m.text + `\n\n**Applied:** ${descriptions.join('; ')}` }
-            : m));
-        }
-      },
-      onPlanReady: (operations) => {
-        if (currentMode !== 'plan') return;
-        setMessages(prev => prev.map(m => m.id === placeholderId
-          ? { ...m, pendingConfirmation: { type: 'plan_execute', operations } }
-          : m));
-      },
-      onDone: (payload) => {
-        if (payload.sessionId) setSessionId(payload.sessionId);
-        setMessages(prev => prev.map(m => {
-          if (m.id !== placeholderId) return m;
-          const updated = { ...m, streaming: false, tokenInfo: payload.tokenInfo ?? null, text: stripOperationsBlock(m.text) };
-          return updated;
-        }));
-        setIsLoading(false);
-      },
-      onError: (message) => {
-        setMessages(prev => prev.map(m => m.id === placeholderId
-          ? { ...m, text: `Error: ${message}`, streaming: false }
-          : m));
-        setIsLoading(false);
-      },
-    }).catch(async (err) => {
-      try {
-        const response = await controllerClient.askAI(req);
-        applyNonStreamResponse(response);
-      } catch (fallbackErr: any) {
-        const msg = fallbackErr?.message || err?.message || 'Failed to connect to AI service.';
-        setMessages(prev => prev.map(m => m.id === placeholderId
-          ? { ...m, text: `Error: ${msg}. Make sure the controller is running (e.g. npm run dev in apps/controller-node).`, streaming: false }
-          : m));
-        setIsLoading(false);
-      }
-    });
-  };
-
-  const handleConfirmation = (
-    messageId: string,
-    accepted: boolean,
-    actionData?: { type: 'delete_notebook'; name?: string } | { type: 'plan_execute'; operations: Array<{ type: string; params: Record<string, any> }> }
-  ) => {
-    setMessages(prev => prev.map(m => {
-      if (m.id === messageId) {
-        return { ...m, isConfirmed: accepted, pendingConfirmation: accepted ? m.pendingConfirmation : undefined };
-      }
-      return m;
-    }));
-
-    if (accepted && actionData) {
-      if (actionData.type === 'delete_notebook') {
-        onDeleteNotebook(actionData.name);
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          role: 'ai',
-          text: `Notebook "${actionData.name || 'Current'}" deleted successfully.`
-        }]);
-      } else if (actionData.type === 'plan_execute') {
-        const runOperations = (ops: Array<{ type: string; params: Record<string, any> }>): void => {
-          ops.forEach((op) => {
-            switch (op.type) {
-              case 'create_notebook': {
-                const name = op.params.name;
-                onCreateNotebook(name);
-                break;
-              }
-              case 'add_cell': {
-                const cellType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown';
-                onAddCell(op.params.content ?? '', cellType);
-                break;
-              }
-              case 'move_cell':
-                onMoveCell(op.params.fromIndex, op.params.toIndex);
-                break;
-              case 'delete_cell':
-                onDeleteCell(op.params.cellIndex);
-                break;
-              case 'edit_cell': {
-                const editType = (op.params.type === 'markdown' ? 'markdown' : 'code') as 'code' | 'markdown' | undefined;
-                onEditCell(op.params.cellIndex, op.params.content ?? '', editType);
-                break;
-              }
-              case 'add_package':
-                onAddPackages(op.params.packages || []);
-                break;
-              case 'delete_notebook':
-                setMessages(prev => [...prev, {
-                  id: (Date.now() + Math.random()).toString(),
-                  role: 'ai',
-                  text: `Request to DELETE notebook: "${op.params.name || 'Current Notebook'}". This action cannot be undone.`,
-                  pendingConfirmation: { type: 'delete_notebook', name: op.params.name }
-                }]);
-                break;
-            }
-          });
-        };
-        runOperations(actionData.operations);
-        setMessages(prev => prev.map(m =>
-          m.id === messageId ? { ...m, text: m.text + '\n\n**Plan executed successfully.**', pendingConfirmation: undefined } : m
-        ));
-      }
-    } else if (!accepted) {
-      setMessages(prev => prev.map(m =>
-        m.id === messageId ? { ...m, text: m.text + '\n\n**Plan cancelled.**', pendingConfirmation: undefined } : m
-      ));
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (!isDragOver) setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-    setIsDragOver(false);
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
+    Array.from(e.dataTransfer.files).forEach(f => addFile(f));
+  }, [addFile]);
 
-    // 1. Check for Cell Drag Data (JSON)
-    const jsonData = e.dataTransfer.getData('application/json');
-    if (jsonData) {
-      try {
-        const data = JSON.parse(jsonData);
-        if (data.type === 'cell-drag') {
-          const cellId = `cell-${data.index}`;
-          if (attachedFiles.some(af => af.id === cellId)) return;
+  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    Array.from(e.target.files ?? []).forEach(f => addFile(f));
+    e.target.value = '';
+  }, [addFile]);
 
-          setAttachedFiles(prev => [...prev, {
-            id: cellId,
-            name: `Cell ${data.index}`,
-            content: data.content,
-            type: 'cell'
-          }]);
-          return;
-        }
-      } catch (err) {
-        // Not JSON or invalid format, continue to other checks
-      }
-    }
+  const handleLoadSession = useCallback(async (id: string) => {
+    await loadSession(id);
+    setShowHistory(false);
+  }, [loadSession]);
 
-    // 2. Check for File Drag Data (Sim ID)
-    const simFileId = e.dataTransfer.getData('application/x-sim-file-id');
-    if (simFileId) {
-      const file = projectFiles.find(f => f.id === simFileId);
-      if (file) {
-        if (attachedFiles.some(af => af.id === file.id)) return;
-        let content = '';
-        if (file.cells) {
-          content = file.cells.map((c, i) => `[Cell ${i + 1}] (${c.type})\n${c.content}`).join('\n\n');
-        } else if (file.file) {
-          try {
-            if (file.file.size > 1024 * 1024) {
-              content = (await file.file.text()).substring(0, 5000) + "\n...(truncated)";
-            } else {
-              content = await file.file.text();
-            }
-          } catch (err) {
-            content = "[Error reading file content. Binary file?]";
-          }
-        } else {
-          content = "[Empty or Virtual File]";
-        }
-        setAttachedFiles(prev => [...prev, { id: file.id, name: file.name, content: content, type: 'file' }]);
-      }
-      return;
-    }
+  if (!isOpen) return null;
 
-    // 3. Fallback to Plain Text
-    const text = e.dataTransfer.getData('text/plain');
-    if (text) {
-      setInputValue(prev => {
-        const separator = prev.length > 0 ? ' ' : '';
-        return prev + separator + text;
-      });
-    }
-  };
-
-  const removeAttachment = (id: string) => {
-    setAttachedFiles(prev => prev.filter(f => f.id !== id));
-  };
+  // Which tool calls belong to the last assistant message
+  const assistantIds = messages.filter(m => m.role === 'assistant').map(m => m.id);
+  const lastAid = assistantIds[assistantIds.length - 1];
 
   return (
     <div
-      className={`shrink-0 overflow-hidden ${isResizing ? '' : 'transition-all duration-300 ease-in-out'}`}
-      style={{ width: isOpen ? `${width}px` : '0px' }}
+      className="relative flex flex-col h-full overflow-hidden flex-shrink-0"
+      style={{ width, userSelect: isResizing ? 'none' : undefined, background: '#0d0d0f' }}
     >
+      {/* Resize strip (invisible but draggable) */}
       <div
-        className={`bg-sim-bg flex flex-col z-20 h-full rounded-2xl border border-sim-border overflow-hidden shadow-lg
-          ${isResizing ? '' : 'transition-transform duration-300 ease-in-out'}`}
-        style={{
-          width: `${width}px`,
-          transform: isOpen ? 'translateX(0)' : 'translateX(100%)',
-        }}
-      >
-        {/* Header */}
+        onMouseDown={onStartResizing}
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10"
+      />
 
+      {showHistory ? (
+        <HistoryPanel
+          sessions={sessions}
+          onLoad={handleLoadSession}
+          onDelete={deleteSession}
+          onBack={() => setShowHistory(false)}
+        />
+      ) : (
+        <>
+          {/* ── Header ───────────────────────────────────────────────────── */}
+          <div className="flex items-center px-4 py-2.5 flex-shrink-0">
+            <span className="text-[10px] font-semibold tracking-[0.15em] text-white/20 uppercase flex-1 select-none">
+              OctoML Agent
+            </span>
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={startNewChat}
+                title="New chat"
+                className="w-7 h-7 flex items-center justify-center text-white/25 hover:text-white/70 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <Plus size={14} />
+              </button>
+              <button
+                onClick={() => setShowHistory(true)}
+                title="Chat history"
+                className="w-7 h-7 flex items-center justify-center text-white/25 hover:text-white/70 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <Clock size={13} />
+              </button>
+              <button
+                onClick={onClose}
+                className="w-7 h-7 flex items-center justify-center text-white/25 hover:text-white/70 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </div>
 
-        {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto p-4 bg-black/20 space-y-5 font-mono">
-          {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-60">
-              <div className="w-16 h-16 rounded-full bg-sim-red/10 flex items-center justify-center mb-6 animate-pulse">
-                <img src={octomlLogo} alt="OctoML Logo" className="w-12 h-12 object-contain" />
+          {/* ── Mode tabs ─────────────────────────────────────────────────── */}
+          <div className="flex items-center gap-0.5 px-3 pb-2 flex-shrink-0">
+            {(['ASK', 'PLAN', 'AGENT', 'AGENTIC'] as Mode[]).map(m => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                title={MODE_HINTS[m]}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                  mode === m
+                    ? `bg-white/7 ${MODE_TEXT[m]}`
+                    : 'text-white/25 hover:text-white/55 hover:bg-white/4'
+                }`}
+              >
+                {mode === m && <span className={`w-1.5 h-1.5 rounded-full ${MODE_DOT[m]} flex-shrink-0`} />}
+                {m}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Messages ──────────────────────────────────────────────────── */}
+          <div className="flex-1 overflow-y-auto px-4 min-h-0">
+            {messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4 pb-16">
+                <div className="w-12 h-12 rounded-2xl bg-white/4 flex items-center justify-center text-2xl select-none">🐙</div>
+                <div className="text-center space-y-1">
+                  <p className="text-white/40 text-sm">Ask OctoML anything</p>
+                  <p className="text-white/20 text-xs">{MODE_HINTS[mode]}</p>
+                </div>
               </div>
-              <h3 className="text-white font-bold text-lg mb-2">OctoML Intelligence</h3>
-              <p className="text-gray-400 text-xs leading-relaxed max-w-[280px]">
-                Drag cells or files here to attach context, or ask me to perform operations on your notebook.
-              </p>
-              <div className="mt-8 grid grid-cols-1 gap-2 w-full max-w-[280px]">
-                {[
-                  { icon: Plus, text: "Add a visualization cell" },
-                  { icon: Wrench, text: "How to fix the syntax error?" },
-                  { icon: Code, text: "Convert this to a pivot table" }
-                ].map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setInputValue(s.text)}
-                    className="flex items-center gap-3 bg-white/5 border border-white/5 hover:bg-white/10 p-3 rounded-xl text-[11px] text-left transition-all hover:translate-x-1"
-                  >
-                    <s.icon className="w-3.5 h-3.5 text-sim-red" />
-                    <span className="text-gray-300 truncate">{s.text}</span>
-                  </button>
-                ))}
+            ) : (
+              messages.map(msg => {
+                if (msg.role === 'user') {
+                  return (
+                    <div key={msg.id} className="py-2.5 flex justify-end">
+                      <div className="max-w-[88%] text-sm text-white/75 leading-relaxed bg-white/5 rounded-2xl rounded-tr-sm px-3.5 py-2.5 whitespace-pre-wrap break-words">
+                        {msg.content}
+                      </div>
+                    </div>
+                  );
+                }
+                const isLast = msg.id === lastAid;
+                // Live streaming: use in-memory toolCalls state.
+                // Historical: convert persisted tool_calls to the same shape.
+                const historicCalls = (msg.tool_calls ?? []).map((tc, i) => ({
+                  id:     `hist-${msg.id}-${i}`,
+                  tool:   tc.tool,
+                  input:  tc.input,
+                  result: tc.result,
+                  done:   true,
+                }));
+                return (
+                  <AssistantMessage
+                    key={msg.id}
+                    content={msg.content}
+                    isStreaming={isLast && isLoading}
+                    activities={isLast ? activeActivities : []}
+                    msgToolCalls={isLast ? toolCalls : historicCalls}
+                  />
+                );
+              })
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* ── Kernel output ─────────────────────────────────────────────── */}
+          {kernelLines.length > 0 && (
+            <div className="flex-shrink-0 max-h-40 border-t border-white/5">
+              <button
+                onClick={() => setKernelOpen(o => !o)}
+                className="flex items-center gap-2 w-full px-4 py-1.5 text-[11px] text-white/25 hover:text-white/50 transition-colors"
+              >
+                {kernelOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                <span>Kernel · {kernelLines.length} lines</span>
+              </button>
+              {kernelOpen && (
+                <div className="overflow-y-auto max-h-28 px-4 pb-2 font-mono text-[11px] space-y-0.5">
+                  {kernelLines.map((l, i) => (
+                    <div key={i} className={l.stream === 'stderr' ? 'text-red-400/70' : 'text-green-400/60'}>{l.text}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Escalation banner ─────────────────────────────────────────── */}
+          {escalation && (
+            <div className="mx-3 mb-1.5 flex-shrink-0 px-3 py-2 rounded-xl bg-yellow-500/8 text-xs flex items-start gap-2">
+              <span className="text-yellow-400 mt-0.5 flex-shrink-0">⚡</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-yellow-300/80 font-medium">{escalation.suggest_mode} suggested</p>
+                <p className="text-yellow-300/50 text-[11px] mt-0.5">{escalation.reason}</p>
+              </div>
+              <div className="flex gap-1 flex-shrink-0">
+                <button
+                  onClick={() => {
+                    const lastUserMsg = messages.filter(m => m.role === 'user').at(-1)?.content ?? '';
+                    const targetMode  = escalation.suggest_mode;
+                    setMode(targetMode);
+                    dismissEscalation();
+                    if (lastUserMsg) sendMessage(lastUserMsg, targetMode);
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-yellow-500/12 text-yellow-300/80 hover:bg-yellow-500/20 transition-colors text-[11px]"
+                >Switch &amp; continue</button>
+                <button onClick={dismissEscalation} className="px-2 py-0.5 rounded-lg hover:bg-white/4 text-white/25 transition-colors text-[11px]">✕</button>
               </div>
             </div>
           )}
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-              <div className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''} w-full`}>
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 border mt-1
-                  ${msg.role === 'ai' ? 'bg-transparent border-transparent' : 'bg-sim-red border-sim-red text-white'}
-                `}>
-                  {msg.role === 'ai' ? (
-                    <Zap className="w-3.5 h-3.5 text-sim-red fill-current" />
-                  ) : (
-                    <User className="w-3.5 h-3.5" />
-                  )}
-                </div>
 
-                <div className={`flex flex-col gap-1 max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  {/* Message Attachments */}
-                  {msg.attachments && msg.attachments.length > 0 && (
-                    <div className={`flex flex-wrap gap-2 mb-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      {msg.attachments.map(file => (
-                        <div key={file.id} className="flex items-center gap-1.5 bg-sim-surface border border-sim-border text-[10px] font-mono text-gray-300 px-2 py-1 rounded select-none shadow-sm">
-                          {file.type === 'cell' ? <Code className="w-3 h-3 text-sim-red" /> : <FileIcon className="w-3 h-3 text-sim-muted" />}
-                          <span className="truncate max-w-[150px]">{file.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className={`text-sm leading-relaxed w-full
-                    ${msg.role === 'ai'
-                      ? 'text-gray-300 pl-0'
-                      : 'bg-[#27272a] text-white border border-sim-border rounded-lg p-3 shadow-sm'}
-                  `}>
-                    {msg.role === 'ai' ? (
-                      <div className="text-gray-300">
-                        {/* While streaming, the markdown may be incomplete (e.g. unfinished ``` fences).
-                          Rendering with syntax highlighting can break incremental updates. */}
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          rehypePlugins={msg.streaming ? [] : [rehypeHighlight]}
-                          components={{
-                            p: (props) => <p className="my-2 whitespace-pre-wrap" {...props} />,
-                            a: (props) => <a className="text-sim-red underline" target="_blank" rel="noreferrer" {...props} />,
-                            ul: (props) => <ul className="list-disc ml-5 my-2" {...props} />,
-                            ol: (props) => <ol className="list-decimal ml-5 my-2" {...props} />,
-                            li: (props) => <li className="my-1" {...props} />,
-                            code: ({ inline, className, children, ...props }: any) => {
-                              if (inline) {
-                                return (
-                                  <code className="px-1 py-0.5 rounded bg-white/5 border border-white/10 text-[12px]" {...props}>
-                                    {children}
-                                  </code>
-                                );
-                              }
-                              return (
-                                <code className={`${className ?? ''}`} {...props}>
-                                  {children}
-                                </code>
-                              );
-                            },
-                            pre: (props) => (
-                              <pre className="my-3 p-3 rounded-lg bg-black/40 border border-white/10 overflow-x-auto text-[12px] leading-relaxed" {...props} />
-                            ),
-                            blockquote: (props) => (
-                              <blockquote className="border-l-2 border-white/20 pl-3 my-2 text-white/70" {...props} />
-                            ),
-                            hr: (props) => <hr className="my-3 border-white/10" {...props} />,
-                          }}
-                        >
-                          {msg.text}
-                        </ReactMarkdown>
-                        {msg.streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-sim-red animate-pulse align-text-bottom" />}
-                      </div>
-                    ) : (
-                      <div className="whitespace-pre-wrap">{msg.text}{msg.streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-sim-red animate-pulse" />}</div>
-                    )}
-                  </div>
-                  {/* Token info */}
-                  {msg.tokenInfo && (
-                    <div className={`text-[11px] font-mono mt-1 ${msg.role === 'user' ? 'text-sim-muted text-right' : 'text-sim-muted text-left'}`}>
-                      Tokens: {msg.tokenInfo.total_tokens ?? msg.tokenInfo.prompt_tokens ?? 0}
-                    </div>
-                  )}
-                </div>
+          {/* ── Permission banner ─────────────────────────────────────────── */}
+          {pendingPerm && (
+            <div className="mx-3 mb-1.5 flex-shrink-0 px-3 py-2 rounded-xl bg-red-500/8 text-xs flex items-start gap-2">
+              <Trash2 size={11} className="text-red-400/70 mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-red-300/80 font-medium">Permission required</p>
+                <p className="text-red-300/50 text-[11px] mt-0.5">
+                  {pendingPerm.action === 'delete_cell'
+                    ? `Delete cell ${(pendingPerm.payload as Record<string, unknown>)['cell_id']}`
+                    : pendingPerm.action}
+                </p>
               </div>
-
-              {/* Confirmation UI Block */}
-              {msg.pendingConfirmation && msg.isConfirmed === undefined && (
-                <div className={`ml-10 w-[85%] rounded-lg p-3 flex flex-col gap-2 ${msg.pendingConfirmation.type === 'plan_execute'
-                  ? 'bg-sim-surface/50 border border-white/20'
-                  : 'bg-sim-surface/50 border border-sim-red/50'
-                  }`}>
-                  <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${msg.pendingConfirmation.type === 'plan_execute' ? 'text-white' : 'text-sim-red'
-                    }`}>
-                    {msg.pendingConfirmation.type === 'plan_execute' ? (
-                      <ListChecks className="w-4 h-4" />
-                    ) : (
-                      <AlertTriangle className="w-4 h-4" />
-                    )}
-                    {msg.pendingConfirmation.type === 'plan_execute' ? 'Plan Ready' : 'Confirmation Required'}
-                  </div>
-                  <p className="text-xs text-sim-muted">
-                    {msg.pendingConfirmation.type === 'plan_execute'
-                      ? 'Review the plan above. Execute to apply changes to your notebook, or cancel to discard.'
-                      : 'Please confirm you want to proceed with this destructive action.'}
-                  </p>
-                  <div className="flex gap-2 mt-1">
-                    <button
-                      onClick={() => handleConfirmation(msg.id, true, msg.pendingConfirmation)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 text-white text-xs font-bold py-1.5 rounded transition-colors ${msg.pendingConfirmation.type === 'plan_execute'
-                        ? 'bg-sim-red hover:bg-sim-redHover'
-                        : 'bg-sim-red hover:bg-sim-redHover'
-                        }`}
-                    >
-                      {msg.pendingConfirmation.type === 'plan_execute' ? (
-                        <><Check className="w-3.5 h-3.5" /> EXECUTE PLAN</>
-                      ) : (
-                        <><Check className="w-3.5 h-3.5" /> ACCEPT</>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => handleConfirmation(msg.id, false)}
-                      className="flex-1 flex items-center justify-center gap-1.5 bg-sim-surface border border-sim-border hover:bg-sim-border text-sim-muted text-xs font-bold py-1.5 rounded transition-colors"
-                    >
-                      {msg.pendingConfirmation.type === 'plan_execute' ? (
-                        <><Ban className="w-3.5 h-3.5" /> CANCEL</>
-                      ) : (
-                        <><Ban className="w-3.5 h-3.5" /> REJECT</>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Post-Confirmation Status - only for delete_notebook (plan_execute updates message text) */}
-              {msg.pendingConfirmation?.type === 'delete_notebook' && msg.isConfirmed !== undefined && (
-                <div className={`ml-10 text-xs font-mono font-bold flex items-center gap-2 mt-1 ${msg.isConfirmed ? 'text-green-500' : 'text-sim-muted'}`}>
-                  {msg.isConfirmed ? <Check className="w-3 h-3" /> : <Ban className="w-3 h-3" />}
-                  {msg.isConfirmed ? 'ACTION AUTHORIZED' : 'ACTION REJECTED'}
-                </div>
-              )}
+              <div className="flex gap-1 flex-shrink-0">
+                <button onClick={confirmPermission} className="px-2 py-0.5 rounded-lg bg-red-500/12 text-red-300/80 hover:bg-red-500/20 transition-colors text-[11px]">Confirm</button>
+                <button onClick={denyPermission} className="px-2 py-0.5 rounded-lg hover:bg-white/4 text-white/25 transition-colors text-[11px]">Cancel</button>
+              </div>
             </div>
-          ))}
-          {/* Removed Loading Bubble - Logic handled by input area state now */}
-          <div ref={messagesEndRef} />
-        </div>
+          )}
 
-        {/* Redesigned Prompt Area */}
-        <div className="p-4 bg-transparent shrink-0">
-          <div
-            className={`
-            relative flex flex-col gap-0
-            bg-[#1a1a1c]/80 backdrop-blur-xl border border-white/5 rounded-2xl transition-all duration-300 shadow-2xl
-            ${isDragOver ? 'ring-2 ring-sim-red/50 bg-sim-red/5' : ''}
-            ${isLoading ? 'opacity-70 cursor-not-allowed' : 'focus-within:border-white/20 focus-within:bg-[#1a1a1c]'}
-          `}
-            onDragOver={!isLoading ? handleDragOver : undefined}
-            onDragLeave={!isLoading ? handleDragLeave : undefined}
-            onDrop={!isLoading ? handleDrop : undefined}
-          >
-            {/* Loading Overlay */}
-            {isLoading && (
-              <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 backdrop-blur-[2px] rounded-2xl">
-                <div className="flex items-center gap-3 text-white text-xs font-bold tracking-tighter animate-pulse bg-sim-red/90 px-4 py-2 rounded-full shadow-lg shadow-sim-red/20 uppercase">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Processing Response
-                </div>
-              </div>
-            )}
-
-            {/* Drag Overlay */}
-            {isDragOver && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-sim-red/20 backdrop-blur-md text-white font-bold text-sm rounded-2xl border-2 border-dashed border-sim-red/50 animate-in fade-in zoom-in duration-200">
-                <Paperclip className="w-8 h-8 mb-2 animate-bounce" />
-                ATTACH CONTEXT
-              </div>
-            )}
-
-            {/* Context Chips */}
-            {(attachedFiles.length > 0 || (activeCell && !isSuggestedAttached)) && (
-              <div className="flex flex-wrap gap-2 p-3 pb-0">
-                {/* Active Attachments */}
-                {attachedFiles.map(file => (
-                  <div key={file.id} className="flex items-center gap-2 bg-white/5 border border-white/10 text-[10px] font-bold text-gray-300 px-2.5 py-1.5 rounded-lg cursor-default group hover:bg-white/10 transition-all select-none shadow-sm">
-                    {file.type === 'cell' ? <Code className="w-3.5 h-3.5 text-sim-red" /> : <Paperclip className="w-3.5 h-3.5 text-sim-muted" />}
-                    <span className="truncate max-w-[120px]">{file.name}</span>
-                    <button
-                      onClick={() => removeAttachment(file.id)}
-                      className="text-sim-muted hover:text-white transition-colors"
-                      disabled={isLoading}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-
-                {/* Active Cell Suggestion */}
-                {activeCell && !isSuggestedAttached && !isLoading && (
+          {/* ── Input area ────────────────────────────────────────────────── */}
+          <div className="px-3 pb-3 pt-1 flex-shrink-0">
+            {/* Chips row */}
+            {(attachedFiles.length > 0 || activeCell) && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {/* Active cell chip */}
+                {activeCell && !attachedFiles.some(f => f.name.startsWith('cell.')) && (
                   <button
-                    onClick={addActiveCellAttachment}
-                    className="flex items-center gap-2 bg-sim-red/10 border border-sim-red/20 border-dashed text-[10px] font-bold text-sim-red px-2.5 py-1.5 rounded-lg cursor-pointer hover:bg-sim-red/20 transition-all select-none hover:border-sim-red/40"
+                    onClick={includeCellChip}
+                    title="Include active cell in message"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-white/5 border border-white/8 text-white/40 hover:text-white/70 hover:bg-white/8 transition-colors"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Attach Cell {activeCellIndex + 1}</span>
+                    <span>📋</span>
+                    <span className="max-w-[100px] truncate font-mono">
+                      {activeCell.type === 'code' ? 'cell.py' : 'cell.md'}
+                    </span>
+                    <span className="text-white/20">+ include</span>
                   </button>
                 )}
+                {/* File chips */}
+                {attachedFiles.map(f => (
+                  <span key={f.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-white/6 border border-white/8 text-white/50">
+                    <span>{f.name.endsWith('.py') ? '🐍' : f.name.endsWith('.csv') ? '📊' : f.name.endsWith('.json') ? '{}' : '📄'}</span>
+                    <span className="max-w-[110px] truncate">{f.name}</span>
+                    <button onClick={() => removeFile(f.id)} className="hover:text-white/80 transition-colors flex-shrink-0">
+                      <X size={9} />
+                    </button>
+                  </span>
+                ))}
               </div>
             )}
 
-            {/* Text Input Area */}
-            <div className="relative">
+            {/* Textarea container */}
+            <div
+              className={`rounded-2xl transition-all ${
+                isDragOver ? 'ring-1 ring-blue-400/30 bg-blue-400/4' : 'bg-white/4 hover:bg-white/5'
+              }`}
+              onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+            >
+              {isDragOver && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                  <span className="text-xs text-white/35 bg-black/50 px-3 py-1.5 rounded-full">Drop to attach</span>
+                </div>
+              )}
               <textarea
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                value={input}
+                onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={isLoading}
-                placeholder={attachedFiles.length === 0 ? "Ask OctoML anything..." : "Ask about your data..."}
-                className={`w-full bg-transparent border-none text-white text-[13px] leading-relaxed p-4 focus:ring-0 resize-none placeholder-white/20 outline-none min-h-[60px] max-h-[200px] overflow-y-auto no-scrollbar ${isLoading ? 'opacity-50' : ''}`}
-                rows={1}
-                style={{ height: 'auto' }}
+                placeholder={`Ask OctoML…  ↵ send  ⇧↵ newline`}
+                rows={3}
+                className="w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm text-white/75 placeholder-white/18 outline-none leading-relaxed"
               />
-            </div>
 
-            {/* Mode selector + Action Bar */}
-            <div className="flex flex-col gap-2 px-3 pb-3 select-none">
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider mr-1">Mode:</span>
-                {(['ask', 'agent', 'plan'] as const).map((m) => (
+              {/* Bottom toolbar */}
+              <div className="flex items-center px-2 pb-2 gap-2">
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                  <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileInput} />
                   <button
-                    key={m}
-                    onClick={() => !isLoading && setSelectedMode(m)}
-                    disabled={isLoading}
-                    className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold transition-colors ${selectedMode === m
-                      ? 'bg-sim-red text-white'
-                      : 'text-white/50 hover:text-white/80 hover:bg-white/5'
-                      }`}
-                    title={m === 'ask' ? 'Ask questions only, no edits' : m === 'agent' ? 'Ask when unclear, then act' : 'Show plan first, execute on confirm'}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach files (or drag & drop)"
+                    className="p-1.5 text-white/20 hover:text-white/55 transition-colors rounded-lg hover:bg-white/5"
                   >
-                    {m === 'ask' && <MessageCircle className="w-3 h-3" />}
-                    {m === 'agent' && <Bot className="w-3 h-3" />}
-                    {m === 'plan' && <ListChecks className="w-3 h-3" />}
-                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                    <Paperclip size={13} />
                   </button>
-                ))}
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  {(messages.length > 0 || sessionId) && (
-                    <button
-                      onClick={() => { setSessionId(null); setMessages([]); }}
-                      disabled={isLoading}
-                      className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
-                      title="New chat"
-                    >
-                      <MessageSquarePlus className="w-4 h-4" />
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <ModelSelector
+                      currentModel={currentModel}
+                      onSelect={selectModel}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {isLoading && (
+                    <button onClick={stopGeneration} title="Stop" className="p-1.5 text-white/25 hover:text-white/60 rounded-lg hover:bg-white/5 transition-colors">
+                      <Square size={12} />
                     </button>
                   )}
-                  <ModelSelector onOpenManage={onOpenManageModels} refreshTrigger={modelsRefreshTrigger} />
-                  {onOpenChatHistory && (
-                    <>
-                      <div className="h-4 w-[1px] bg-white/5 mx-1" />
-                      <button
-                        onClick={onOpenChatHistory}
-                        className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
-                        title="Chat History"
-                      >
-                        <History className="w-4 h-4" />
-                      </button>
-                    </>
-                  )}
-                  <div className="h-4 w-[1px] bg-white/5 mx-1" />
-                  <button className="p-1.5 text-white/30 hover:text-white/60 transition-colors" title="Voice query (Coming Soon)">
-                    {/* Placeholder icon or future feature */}
+                  <button
+                    onClick={handleSend}
+                    disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
+                    className="w-7 h-7 flex items-center justify-center rounded-xl bg-white/12 hover:bg-white/20 text-white/60 hover:text-white/90 transition-all disabled:opacity-20 disabled:cursor-not-allowed"
+                  >
+                    <Send size={12} />
                   </button>
                 </div>
-
-                <button
-                  onClick={handleSend}
-                  disabled={isLoading || (!inputValue.trim() && attachedFiles.length === 0)}
-                  className={`flex items-center justify-center p-2 rounded-xl transition-all duration-300
-                ${(inputValue.trim() || attachedFiles.length > 0) && !isLoading
-                      ? 'bg-sim-red text-white shadow-lg shadow-sim-red/20 hover:scale-105 active:scale-95'
-                      : 'bg-white/5 text-white/10 cursor-not-allowed'}
-              `}
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                </button>
               </div>
             </div>
           </div>
-          {/* <p className="mt-3 text-[10px] text-center text-white/20 font-medium tracking-tight">
-            AI generated content may contain inaccuracies.
-          </p> */}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 };
