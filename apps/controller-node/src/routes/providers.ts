@@ -1,148 +1,206 @@
-import { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { ProviderStore } from '../core/ProviderStore.js';
+import type { FastifyInstance } from 'fastify';
 import { KeyStore } from '../core/KeyStore.js';
+import {
+  listProviders, getProvider, upsertProvider, deleteCustomProvider,
+  listProviderModels, getAllModels, getEnabledModels, upsertModels, setModelEnabled,
+} from '../db/provider-db.js';
 
-function getDynamicProviders() {
-    return ProviderStore.getProviders();
+// ── Model fetcher ─────────────────────────────────────────────────────────────
+
+async function fetchProviderModels(
+  type: string,
+  baseUrl: string,
+  apiKey: string,
+): Promise<Array<{ model_id: string; model_name: string; context_length: number }>> {
+  const base = baseUrl.replace(/\/+$/, '');
+  let url = `${base}/models`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+  if (type === 'anthropic') {
+    headers['x-api-key'] = apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+  } else if (type === 'gemini') {
+    url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+  } else {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`${res.status} ${text.slice(0, 300)}`);
+  }
+
+  const data: any = await res.json();
+
+  // OpenAI-compatible (openai, groq, openrouter, togetherai, nvidia, deepseek, custom)
+  if (Array.isArray(data?.data)) {
+    return data.data.map((m: any) => ({
+      model_id:       m.id ?? m.model ?? '',
+      model_name:     m.id ?? m.model ?? '',
+      context_length: m.context_length ?? m.context_window ?? 0,
+    })).filter((m: any) => m.model_id);
+  }
+
+  // Anthropic (data.data but with display_name)
+  if (data?.data?.[0]?.display_name) {
+    return data.data.map((m: any) => ({
+      model_id:       m.id,
+      model_name:     m.display_name ?? m.id,
+      context_length: 200_000,
+    }));
+  }
+
+  // Gemini
+  if (Array.isArray(data?.models)) {
+    return data.models
+      .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+      .map((m: any) => ({
+        model_id:       (m.name ?? '').replace('models/', ''),
+        model_name:     m.displayName ?? (m.name ?? '').replace('models/', ''),
+        context_length: m.inputTokenLimit ?? 0,
+      }))
+      .filter((m: any) => m.model_id);
+  }
+
+  return [];
 }
 
-function toDbRow(p: any) {
-    return {
-        id: p.id,
-        name: p.name,
-        type: p.type,
-        api_key: p.apiKey || '',
-        base_url: p.baseUrl || '',
-        enabled: p.enabled,
-        enabled_model_ids: p.enabledModelIds || [],
-        available_model_ids: p.availableModelIds || [],
-        last_fetched: p.lastFetched || null,
-    };
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+export async function providersRoutes(app: FastifyInstance): Promise<void> {
+
+  /**
+   * GET /api/providers
+   * List all providers (built-in + custom) with has_key and model_count.
+   */
+  app.get('/api/providers', async () => {
+    return listProviders().map(p => ({
+      id:          p.id,
+      name:        p.name,
+      type:        p.type,
+      base_url:    p.base_url,
+      is_builtin:  p.is_builtin === 1,
+      has_key:     !!KeyStore.getKey(p.id),
+      model_count: listProviderModels(p.id).length,
+      enabled_count: listProviderModels(p.id).filter(m => m.is_enabled).length,
+    }));
+  });
+
+  /**
+   * POST /api/providers/:id/key
+   * Save API key for a provider. Accepts { api_key: string }.
+   */
+  app.post('/api/providers/:id/key', async (req, reply) => {
+    const id      = (req.params as Record<string, string>).id;
+    const body    = req.body as Record<string, string>;
+    const api_key = body?.api_key?.trim();
+
+    if (!api_key) return reply.status(400).send({ error: 'api_key is required' });
+
+    const provider = getProvider(id);
+    if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
+
+    KeyStore.setKey(id, api_key);
+    return { success: true, provider_id: id };
+  });
+
+  /**
+   * DELETE /api/providers/:id/key
+   * Remove API key for a provider.
+   */
+  app.delete('/api/providers/:id/key', async (req, reply) => {
+    const id = (req.params as Record<string, string>).id;
+    const provider = getProvider(id);
+    if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
+    KeyStore.deleteKey(id);
+    return { success: true };
+  });
+
+  /**
+   * POST /api/providers/:id/fetch-models
+   * Fetch available models from the provider's API and store them.
+   */
+  app.post('/api/providers/:id/fetch-models', async (req, reply) => {
+    const id       = (req.params as Record<string, string>).id;
+    const provider = getProvider(id);
+    if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
+
+    const apiKey = KeyStore.getKey(id) ?? '';
+    if (!apiKey) return reply.status(400).send({ error: 'No API key saved for this provider. Save a key first.' });
+
+    try {
+      const models = await fetchProviderModels(provider.type, provider.base_url, apiKey);
+      if (models.length === 0) return reply.status(502).send({ error: 'Provider returned no models' });
+      upsertModels(id, models);
+      return { success: true, count: models.length };
+    } catch (err) {
+      app.log.error({ err, providerId: id }, '[providers] fetch-models failed');
+      return reply.status(502).send({ error: String(err) });
+    }
+  });
+
+  /**
+   * GET /api/providers/:id/models
+   * List models for a specific provider.
+   */
+  app.get('/api/providers/:id/models', async (req, reply) => {
+    const id       = (req.params as Record<string, string>).id;
+    const provider = getProvider(id);
+    if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
+    return listProviderModels(id);
+  });
+
+  /**
+   * GET /api/providers/models
+   * List all models across all providers (for the Models page).
+   */
+  app.get('/api/providers/models', async () => getAllModels());
+
+  /**
+   * GET /api/providers/models/enabled
+   * List only enabled models (for agent model selector + chat area).
+   */
+  app.get('/api/providers/models/enabled', async () => getEnabledModels());
+
+  /**
+   * POST /api/providers/models/toggle
+   * Enable or disable a model. Body: { provider_id, model_id, enabled }.
+   */
+  app.post('/api/providers/models/toggle', async (req, reply) => {
+    const { provider_id, model_id, enabled } = req.body as Record<string, any>;
+    if (!provider_id || !model_id || enabled === undefined) {
+      return reply.status(400).send({ error: 'provider_id, model_id, and enabled are required' });
+    }
+    setModelEnabled(provider_id, model_id, !!enabled);
+    return { success: true };
+  });
+
+  /**
+   * POST /api/providers (add custom provider)
+   * Body: { id, name, type, base_url, api_key? }
+   */
+  app.post('/api/providers', async (req, reply) => {
+    const body = req.body as Record<string, any>;
+    const { id, name, type, base_url, api_key } = body ?? {};
+    if (!id || !name || !base_url) {
+      return reply.status(400).send({ error: 'id, name, and base_url are required' });
+    }
+    const provider = upsertProvider({ id, name, type: type ?? 'custom', base_url });
+    if (api_key) KeyStore.setKey(id, api_key.trim());
+    return { ...provider, has_key: !!KeyStore.getKey(id) };
+  });
+
+  /**
+   * DELETE /api/providers/:id (delete custom provider only)
+   */
+  app.delete('/api/providers/:id', async (req, reply) => {
+    const id       = (req.params as Record<string, string>).id;
+    const provider = getProvider(id);
+    if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
+    if (provider.is_builtin) return reply.status(400).send({ error: 'Cannot delete built-in providers' });
+    deleteCustomProvider(id);
+    KeyStore.deleteKey(id);
+    return { success: true };
+  });
 }
-
-export const providersRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
-    fastify.get('/', async (_request, reply) => {
-        try {
-            const providers = getDynamicProviders();
-            return reply.send(providers.map(toDbRow));
-        } catch (error: any) {
-            return reply.status(500).send({ detail: error.message });
-        }
-    });
-
-    fastify.post('/:id', async (request: any, reply) => {
-        try {
-            const id = request.params.id;
-            const p = request.body;
-            
-            const config: any = {
-                id: p.id,
-                name: p.name,
-                type: p.type,
-                apiKey: p.api_key,
-                baseUrl: p.base_url,
-                enabled: p.enabled,
-                enabledModelIds: p.enabled_model_ids || [],
-                availableModelIds: p.available_model_ids || [],
-                lastFetched: p.last_fetched,
-            };
-
-            if (config.apiKey && config.apiKey.trim() !== '') {
-                KeyStore.setKey(id, config.apiKey);
-            } else {
-                const existing = KeyStore.getKey(id);
-                if (existing) {
-                    config.apiKey = 'saved';
-                }
-            }
-
-            ProviderStore.saveProvider(config);
-            return reply.send(toDbRow(config));
-        } catch (error: any) {
-            return reply.status(500).send({ detail: error.message });
-        }
-    });
-
-    fastify.delete('/:id', async (request: any, reply) => {
-        try {
-            const id = request.params.id;
-            ProviderStore.deleteProvider(id);
-            KeyStore.deleteKey(id);
-            return reply.status(204).send();
-        } catch (error: any) {
-            return reply.status(500).send({ detail: error.message });
-        }
-    });
-
-    fastify.get('/:id/models', async (request: any, reply) => {
-        try {
-            const id = request.params.id;
-            const providers = ProviderStore.getProviders();
-            const provider = providers.find(p => p.id === id);
-            
-            if (!provider) {
-                return reply.status(404).send({ detail: 'Provider not found' });
-            }
-
-            let apiKey = provider.apiKey;
-            if (apiKey === 'saved') {
-                apiKey = KeyStore.getKey(id) || '';
-            }
-
-            if (!apiKey && provider.type !== 'openai-compatible' && provider.type !== 'nvidia') {
-                return reply.status(400).send({ detail: 'API Key is missing for this provider' });
-            }
-
-            let baseUrl = provider.baseUrl;
-            if (!baseUrl) {
-                const defaults: any = {
-                    'openai': 'https://api.openai.com/v1',
-                    'gemini': 'https://generativelanguage.googleapis.com/v1beta',
-                    'nvidia': 'https://integrate.api.nvidia.com/v1',
-                    'groq': 'https://api.groq.com/openai/v1',
-                    'openrouter': 'https://openrouter.ai/api/v1',
-                    'anthropic': 'https://api.anthropic.com/v1'
-                };
-                baseUrl = defaults[provider.type] || '';
-            }
-
-            let fetchUrl = `${(baseUrl || '').replace(/\/+$/, '')}/models`;
-            
-            const headers: any = {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            };
-
-            if (provider.type === 'anthropic') {
-                headers['x-api-key'] = apiKey;
-                headers['anthropic-version'] = '2023-06-01';
-                delete headers['Authorization'];
-            } else if (provider.type === 'gemini') {
-                fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-                delete headers['Authorization'];
-            }
-
-            console.log(`[Providers] Fetching models from ${fetchUrl}`);
-            const response = await fetch(fetchUrl, { headers });
-
-            if (!response.ok) {
-                const err = await response.text();
-                console.error(`[Providers] Model fetch error: ${err}`);
-                return reply.status(response.status).send({ detail: `Failed to fetch models: ${response.statusText}` });
-            }
-
-            const data: any = await response.json();
-            
-            let models: string[] = [];
-            if (data.data && Array.isArray(data.data)) {
-                models = data.data.map((m: any) => m.id);
-            } else if (data.models && Array.isArray(data.models)) {
-                models = data.models.map((m: any) => m.name.replace('models/', ''));
-            }
-
-            return reply.send(models);
-        } catch (error: any) {
-            return reply.status(500).send({ detail: error.message });
-        }
-    });
-};

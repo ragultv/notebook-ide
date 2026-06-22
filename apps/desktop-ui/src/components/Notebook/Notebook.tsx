@@ -72,7 +72,7 @@ const NotebookInner: React.FC<NotebookProps & {
                 if (c.id !== id) return c;
                 return {
                     ...c,
-                    outputs: outputs.length > 0 ? outputs : c.outputs,
+                    outputs: outputs,
                     error: error ?? undefined,
                     output: error ? undefined : c.output,
                 };

@@ -1,4 +1,5 @@
 // Central export for all hooks
+export { useAgentChat } from './useAgentChat';
 export { useNotebookManagement } from './useNotebookManagement';
 export { useTabManagement } from './useTabManagement';
 export { useCellOperations } from './useCellOperations';

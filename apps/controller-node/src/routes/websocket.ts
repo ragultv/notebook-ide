@@ -204,9 +204,10 @@ export async function websocketRoutes(fastify: FastifyInstance) {
                     notebook_id:  notebookId,
                     execution_id: e.executionId,
                     cell_id:      e.cellId,
+                    duration_ms:  e.durationMs,
                     result: {
                         executionCount: e.executionCount,
-                        execution_time: e.durationMs,
+                        execution_time: e.durationMs != null ? e.durationMs / 1000 : null,
                         outputs: e.outputs,
                     }
                 }));

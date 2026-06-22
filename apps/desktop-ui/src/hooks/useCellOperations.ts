@@ -4,7 +4,7 @@ import { CellData } from '../types';
 interface UseCellOperationsReturn {
   activeCellId: string | null;
   setActiveCellId: React.Dispatch<React.SetStateAction<string | null>>;
-  handleAddCellFromAI: (content: string, type: 'code' | 'markdown') => void;
+  handleAddCellFromAI: (content: string, type: 'code' | 'markdown', id?: string) => void;
   handleDeleteCellFromAI: (index: number) => void;
   handleMoveCellFromAI: (fromIndex: number, toIndex: number) => void;
   handleEditCellFromAI: (index: number, content: string, type?: 'code' | 'markdown') => void;
@@ -16,14 +16,14 @@ export const useCellOperations = (
 ): UseCellOperationsReturn => {
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
 
-  const handleAddCellFromAI = useCallback((content: string, type: 'code' | 'markdown') => {
+  const handleAddCellFromAI = useCallback((content: string, type: 'code' | 'markdown', id?: string) => {
     const newCell: CellData = {
-      id: crypto.randomUUID(),
+      // Use server-provided ID if given (Bug 3 fix — keeps ID in sync with agent)
+      id: id ?? crypto.randomUUID(),
       type,
       content,
       status: 'idle',
     };
-    // Use functional update to always get latest cells state
     updateCells(prev => [...prev, newCell]);
   }, [updateCells]);
 
