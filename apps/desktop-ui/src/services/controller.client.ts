@@ -437,7 +437,68 @@ export const controllerClient = {
     return request('/files/recent');
   },
 
-  // ─── Dynamic Providers API ──────────────────────────────────────────────
+  // ─── New Provider API (SQLite-backed, /api/providers/*) ─────────────────
+
+  /** List all providers (built-in + custom) with has_key + model_count. */
+  async listProviders(): Promise<ProviderEntry[]> {
+    return request('/api/providers');
+  },
+
+  /** Save an API key for a built-in or custom provider. */
+  async saveProviderKey(providerId: string, apiKey: string): Promise<void> {
+    await request(`/api/providers/${encodeURIComponent(providerId)}/key`, {
+      method: 'POST',
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+  },
+
+  /** Remove the API key for a provider. */
+  async removeProviderKey(providerId: string): Promise<void> {
+    await request(`/api/providers/${encodeURIComponent(providerId)}/key`, { method: 'DELETE' });
+  },
+
+  /** Fetch models from the provider API and store them in the DB. */
+  async fetchProviderModels(providerId: string): Promise<{ count: number }> {
+    return request(`/api/providers/${encodeURIComponent(providerId)}/fetch-models`, { method: 'POST' });
+  },
+
+  /** Get all fetched models for a specific provider. */
+  async getProviderModels(providerId: string): Promise<ProviderModelEntry[]> {
+    return request(`/api/providers/${encodeURIComponent(providerId)}/models`);
+  },
+
+  /** Get all models across all providers. */
+  async getAllProviderModels(): Promise<Array<ProviderModelEntry & { provider_name: string }>> {
+    return request('/api/providers/models');
+  },
+
+  /** Get only enabled models (for the chat model selector). */
+  async getEnabledModels(): Promise<EnabledModelEntry[]> {
+    return request('/api/providers/models/enabled');
+  },
+
+  /** Enable or disable a model. */
+  async toggleProviderModel(providerId: string, modelId: string, enabled: boolean): Promise<void> {
+    await request('/api/providers/models/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ provider_id: providerId, model_id: modelId, enabled }),
+    });
+  },
+
+  /** Add a custom (user-defined) provider. */
+  async addCustomProvider(p: { id: string; name: string; type: string; base_url: string; api_key?: string }): Promise<ProviderEntry> {
+    return request('/api/providers', {
+      method: 'POST',
+      body: JSON.stringify(p),
+    });
+  },
+
+  /** Delete a custom provider (built-in providers cannot be deleted). */
+  async deleteCustomProvider(providerId: string): Promise<void> {
+    await request(`/api/providers/${encodeURIComponent(providerId)}`, { method: 'DELETE' });
+  },
+
+  // ─── Legacy Dynamic Providers API ───────────────────────────────────────
 
   async loadProviders(): Promise<ProviderConfig[]> {
     const response = await fetch(`${BASE_URL}/providers`);
@@ -498,14 +559,7 @@ export const controllerClient = {
     await fetch(`${BASE_URL}/providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
-  async fetchProviderModels(id: string): Promise<string[]> {
-    const response = await fetch(`${BASE_URL}/providers/${encodeURIComponent(id)}/models`);
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
-      throw new Error(err?.detail || `Failed to fetch models`);
-    }
-    return response.json();
-  },
+  // fetchProviderModels removed — use new fetchProviderModels above (POST /api/providers/:id/fetch-models)
 
   // ─── Settings / Configuration ─────────────────────────────────────────────────────
 
@@ -701,6 +755,38 @@ export interface SelectedModel {
   provider: string;
   model: string;
   name: string;
+}
+
+// ── New provider types ────────────────────────────────────────────────────────
+
+export interface ProviderEntry {
+  id: string;
+  name: string;
+  type: string;
+  base_url: string;
+  is_builtin: boolean;
+  has_key: boolean;
+  model_count: number;
+  enabled_count: number;
+}
+
+export interface ProviderModelEntry {
+  id: number;
+  provider_id: string;
+  model_id: string;
+  model_name: string;
+  context_length: number;
+  is_enabled: number;
+}
+
+export interface EnabledModelEntry {
+  id: number;
+  provider_id: string;
+  model_id: string;
+  model_name: string;
+  context_length: number;
+  is_enabled: number;
+  provider_name: string;
 }
 
 export interface TablePreviewData {

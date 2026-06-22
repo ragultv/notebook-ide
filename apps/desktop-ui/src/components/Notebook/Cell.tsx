@@ -175,6 +175,7 @@ export const Cell: React.FC<CellProps> = React.memo(({
     }, [cell.id, on, onFinalOutput, sendCommMsg]);
 
     // ── Run ───────────────────────────────────────────────────────────────────
+    const { setStopping, setIdle, setQueued: optimisticSetQueued, setRunning: optimisticSetRunning } = useExecutionStore();
     const pendingResolveRef = useRef<((value: any) => void) | null>(null);
     const interruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -185,9 +186,26 @@ export const Cell: React.FC<CellProps> = React.memo(({
 
             pendingResolveRef.current = resolve;
 
+            // Optimistic update: immediately enter the correct state so old outputs
+            // clear before the server responds. If the kernel appears free (no other
+            // cells active), go directly to Running — no Queued flash. If another
+            // cell is already running, show Queued until it's our turn.
+            const pendingId = `__pending_${Date.now()}__`;
+            const { cells: activeCells } = useExecutionStore.getState();
+            const kernelBusy = Object.entries(activeCells).some(
+                ([id, c]) =>
+                    id !== cell.id &&
+                    (c.state === 'running' || c.state === 'queued' || c.state === 'stopping'),
+            );
+            if (kernelBusy) {
+                optimisticSetQueued(cell.id, pendingId, 0);
+            } else {
+                optimisticSetRunning(cell.id, pendingId);
+            }
+
             try {
                 await execute(cell.id, cell.content);
-                // execution_started WS message → execution.store.setQueued()
+                // execution_started WS message → execution.store.setRunning() (or setQueued)
                 // cell_started WS message     → execution.store.setRunning()
                 // execution_complete          → execution.store.setSuccess() + this listener
                 // execution_error             → execution.store.setError()
@@ -196,7 +214,7 @@ export const Cell: React.FC<CellProps> = React.memo(({
                 resolve({ success: false, error: 'Failed to start execution' });
             }
         });
-    }, [cell.id, cell.type, cell.content, execute]);
+    }, [cell.id, cell.type, cell.content, execute, optimisticSetQueued, optimisticSetRunning]);
 
     // Resolve the pending promise when execution finishes
     useEffect(() => {
@@ -238,7 +256,6 @@ export const Cell: React.FC<CellProps> = React.memo(({
     }, [cell.id, runCell, registerRunCell, unregisterRunCell]);
 
     // ── Cancel queued cell (remove from queue before it starts) ──────────────
-    const { setStopping, setIdle } = useExecutionStore();
     const handleCancelQueue = useCallback(() => {
         // Immediately reset the cell's visual state to idle — the execution
         // will silently run in the background (output discarded since
@@ -408,7 +425,7 @@ export const Cell: React.FC<CellProps> = React.memo(({
                         {(isRunning || isStopping) && (
                             <div className="flex flex-col items-center mt-1">
                                 <span className={`text-[10px] font-mono tabular-nums ${isStopping ? 'text-sim-redHover' : 'text-green-400'}`}>
-                                    {isStopping ? 'Stopping' : formatDuration(elapsedMs)}
+                                    {isStopping ? 'Stopping' : (elapsedMs < 1 ? '0ms' : formatDuration(elapsedMs))}
                                 </span>
                             </div>
                         )}

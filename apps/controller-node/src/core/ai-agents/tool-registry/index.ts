@@ -1,0 +1,43 @@
+import type { Mode, ToolEntry } from '../types/index.js';
+import { readFileEntry, searchNotebookEntry, loadMemoryEntry, searchEmbeddingsEntry, readCellEntry } from './read-tools.js';
+import { createPlanEntry, updatePlanEntry } from './plan-tools.js';
+import {
+  writeFileEntry, createCellEntry, updateCellEntry, writeCellEntry,
+  requestDeleteCellEntry, deleteCellEntry, saveMemoryEntry,
+  createNotebookEntry, createFileEntry,
+} from './write-tools.js';
+import { runCellEntry, runNotebookEntry, createArtifactEntry } from './exec-tools.js';
+
+export type { ToolEntry };
+
+const ALL_TOOLS: ToolEntry[] = [
+  // ASK-level (read)
+  readFileEntry,
+  searchNotebookEntry,
+  loadMemoryEntry,
+  searchEmbeddingsEntry,
+  readCellEntry,
+  // PLAN-level
+  createPlanEntry,
+  updatePlanEntry,
+  // AGENT-level (write)
+  writeFileEntry,
+  createNotebookEntry,
+  createFileEntry,
+  createCellEntry,
+  updateCellEntry,
+  writeCellEntry,
+  requestDeleteCellEntry,
+  deleteCellEntry,
+  saveMemoryEntry,
+  // AGENTIC-level (execute)
+  runCellEntry,
+  runNotebookEntry,
+  createArtifactEntry,
+];
+
+export function getPermittedTools(mode: Mode): ToolEntry[] {
+  return ALL_TOOLS.filter(t => t.definition.permittedModes.includes(mode));
+}
+
+export { setKernelBridge } from './exec-tools.js';

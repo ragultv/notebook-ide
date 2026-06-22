@@ -237,6 +237,10 @@ const App: React.FC = () => {
           onEditCell={cells.handleEditCellFromAI}
           onAddPackages={() => { }}
           onCreateNotebook={notebook.handleNewNotebook}
+          onNotebookCreatedByAgent={(path) => {
+            const name = path.split('/').pop() || path;
+            notebook.handleOpenNotebook(path, name);
+          }}
           onDeleteNotebook={() => { }}
           notebookCells={notebook.activeCells}
           notebookName={notebook.activeFile?.name || 'Untitled'}

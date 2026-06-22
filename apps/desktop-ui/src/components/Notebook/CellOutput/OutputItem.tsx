@@ -40,7 +40,7 @@ import { resolveMimeType, isImageMime } from '../../../lib/mimeTypes';
 const TracebackRenderer: React.FC<{ ename: string; evalue: string; traceback: string[] }> = ({ ename, evalue, traceback }) => {
     const lines = traceback.length > 0 ? traceback.join('\n') : `${ename}: ${evalue}`;
     return (
-        <div className="rounded-lg border border-red-500/20 bg-red-950/20 p-3 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto">
             <AnsiRenderer
                 text={lines}
                 className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.55]"

@@ -57,9 +57,23 @@ export function NotebookWSProvider({
 
         const cleanups: (() => void)[] = [];
 
-        // execution_started: server confirmed the cell was accepted into its queue
+        // execution_started: server confirmed the cell was accepted into its queue.
+        // If the kernel is idle (no other cells running/queued), skip the Queued
+        // visual state entirely and go directly to Running — the cell will get
+        // cell_started almost immediately anyway. Only show Queued when the cell
+        // truly has to wait behind another active execution.
         cleanups.push(ws.on('execution_started', (msg: any) => {
-            setQueued(msg.cell_id, msg.execution_id, msg.queue_position);
+            const { cells } = useExecutionStore.getState();
+            const hasOtherActiveCells = Object.entries(cells).some(
+                ([id, c]) =>
+                    id !== msg.cell_id &&
+                    (c.state === 'running' || c.state === 'queued' || c.state === 'stopping'),
+            );
+            if (hasOtherActiveCells) {
+                setQueued(msg.cell_id, msg.execution_id, msg.queue_position);
+            } else {
+                setRunning(msg.cell_id, msg.execution_id);
+            }
         }));
 
         // cell_started: kernel dequeued this cell and is actively running it

@@ -112,27 +112,6 @@ export const CellOutputView: React.FC<CellOutputViewProps> = React.memo(({
     // Scroll ref
     const outputContainerRef = useRef<HTMLDivElement>(null);
 
-    // ── Race condition fix: one-frame delay before switching to persisted outputs ──
-    // When state transitions running→success/error, the last batch of output chunks
-    // may still be pending in the RAF queue (useBatchedState). Without this delay,
-    // the component switches to persistedOutputs before the last chunks render.
-    const [completionDelay, setCompletionDelay] = useState(false);
-    const completionRafRef = useRef<number | null>(null);
-    useEffect(() => {
-        if (state === 'success' || state === 'error') {
-            // Stay in live mode for one more frame to let RAF buffer flush
-            setCompletionDelay(true);
-            completionRafRef.current = requestAnimationFrame(() => {
-                completionRafRef.current = null;
-                setCompletionDelay(false);
-            });
-        }
-        return () => {
-            if (completionRafRef.current !== null) {
-                cancelAnimationFrame(completionRafRef.current);
-            }
-        };
-    }, [state]);
 
     // ── Clear buffer when a new execution starts ─────────────────────────────
     const prevExecIdRef = useRef<string | null>(null);
@@ -215,17 +194,24 @@ export const CellOutputView: React.FC<CellOutputViewProps> = React.memo(({
     }, [bufferRef.current.length, state]);
 
     // ── Determine what to display ─────────────────────────────────────────────
-    // During running: show live buffer.
-    // After completion: wait one RAF (completionDelay) then switch to persisted outputs.
-    // This ensures the last streaming chunks are rendered before the handoff.
-    const isLive = state === 'running' || state === 'stopping' || state === 'queued' || completionDelay;
-    const displayOutputs: CellOutput[] = isLive
-        ? bufferRef.current
-        : (persistedOutputs ?? []);
+    // Primary source: the live streaming buffer (populated during and after execution).
+    // The buffer is cleared ONLY when a new execution starts (executionId changes) or
+    // when the component is unmounted (e.g. tab switch). This means the buffer stays
+    // intact after completion, so there is no timing gap between "live" and "persisted".
+    //
+    // Fallback: persistedOutputs — used only when buffer is empty (component just
+    // mounted after a tab switch or notebook reload with prior execution data).
+    const isLive = state === 'running' || state === 'stopping' || state === 'queued';
+    const displayOutputs: CellOutput[] =
+        bufferRef.current.length > 0
+            ? bufferRef.current        // prefer live buffer (current execution)
+            : isLive
+                ? []                   // running but no output yet — don't show previous run
+                : (persistedOutputs ?? []);  // idle/success/error — show persisted
 
     const hasOutput =
-        isLive ||
         displayOutputs.length > 0 ||
+        isLive ||
         !!persistedText ||
         state === 'error';
 
@@ -312,7 +298,7 @@ export const CellOutputView: React.FC<CellOutputViewProps> = React.memo(({
 
                 {/* Error output — render with ANSI colors (tracebacks have escape codes) */}
                 {state === 'error' && persistedError && (
-                    <div className="mt-2 bg-red-950/20 p-3 rounded-lg border border-red-500/20 overflow-x-auto">
+                    <div className="mt-4 overflow-x-auto">
                         <AnsiRenderer
                             text={persistedError}
                             className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.55]"
