@@ -3,6 +3,7 @@ import { X, Send, Square, Paperclip, ChevronRight, ChevronDown, Plus, Clock, Tra
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAgentChat, TOOL_ACTIVITIES } from '../../hooks/useAgentChat';
+import type { ActivePlan, MsgSegment } from '../../hooks/useAgentChat';
 import { controllerClient } from '../../services/controller.client';
 import { useProject } from '../../context/ProjectContext';
 import type { CellData, ProjectFile } from '../../types';
@@ -20,6 +21,9 @@ interface RightSidebarProps {
   onCreateNotebook: (nameOrCells?: string | CellData[], initialCells?: CellData[], path?: string) => string | null;
   onNotebookCreatedByAgent?: (path: string) => void;
   updateNotebookCellsById?: (notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
+  onOpenFile?: (path: string) => void;
+  onCellRunStart?: (cellId: string) => void;
+  onCellRunComplete?: (cellId: string, success: boolean) => void;
   onDeleteNotebook: (name?: string) => void;
   notebookCells: CellData[];
   notebookName: string;
@@ -76,7 +80,6 @@ const ACTIVITY_ICONS: Record<string, string> = {
   'Deleting cell':         '🗑️',
   'Indexing':              '🔢',
   'Executing cell':        '▶️',
-  'Running notebook':      '⚡',
   'Analyzing':             '📊',
 };
 
@@ -140,42 +143,73 @@ function ToolBlock({ tool, input, result, done }: {
   );
 }
 
-function AssistantMessage({ content, isStreaming, activities, msgToolCalls }: {
+const MD_PROSE = `
+  prose prose-invert prose-sm max-w-none
+  prose-p:my-1 prose-p:leading-relaxed prose-p:text-white/72
+  prose-pre:bg-white/4 prose-pre:border-0 prose-pre:rounded-lg prose-pre:text-[11px]
+  prose-code:bg-white/6 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[10.5px]
+  prose-code:text-[#4ea7fc] prose-code:before:content-none prose-code:after:content-none
+  prose-headings:text-white/85 prose-headings:font-semibold prose-headings:mb-1 prose-headings:mt-2.5
+  prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
+  prose-blockquote:border-l-2 prose-blockquote:border-white/15 prose-blockquote:text-white/50
+  prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-li:text-white/72
+  prose-strong:text-white/85 prose-em:text-white/65
+  prose-table:text-[11px]
+`.trim();
+
+function MarkdownBlock({ text }: { text: string }) {
+  return (
+    <div style={{ fontSize: '11.5px', lineHeight: '1.55' }} className={MD_PROSE}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segments, activePlan, onOpenPlan, onProceedWithPlan, isLast }: {
   content: string;
   isStreaming: boolean;
   activities: string[];
   msgToolCalls: Array<{ id: string; tool: string; input: unknown; result?: unknown; done: boolean }>;
+  segments?: MsgSegment[];
+  activePlan?: ActivePlan | null;
+  onOpenPlan?: (path: string) => void;
+  onProceedWithPlan?: () => void;
+  isLast: boolean;
 }) {
   const showThinking = isStreaming && !content && activities.length === 0 && msgToolCalls.length === 0;
+  const useSegments  = !isStreaming && segments && segments.length > 0;
+
   return (
-    <div className="py-3">
+    <div className="py-2.5">
       {(showThinking || activities.length > 0) && (
         <div className="flex flex-wrap gap-3 mb-2">
           {showThinking && <ActivityTag label="Thinking" />}
           {activities.map((a, i) => <ActivityTag key={`act-${i}-${a}`} label={a} />)}
         </div>
       )}
-      {msgToolCalls.map(tc => (
-        <ToolBlock key={tc.id} tool={tc.tool} input={tc.input} result={tc.result} done={tc.done} />
-      ))}
-      {content && (
-        <div className="
-          prose prose-invert prose-sm max-w-none
-          prose-p:my-1.5 prose-p:leading-relaxed prose-p:text-white/75
-          prose-pre:bg-white/4 prose-pre:border-0 prose-pre:rounded-lg prose-pre:text-xs
-          prose-code:bg-white/6 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-          prose-code:text-[#4ea7fc] prose-code:before:content-none prose-code:after:content-none
-          prose-headings:text-white/85 prose-headings:font-semibold prose-headings:mb-1 prose-headings:mt-3
-          prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
-          prose-blockquote:border-l-2 prose-blockquote:border-white/15 prose-blockquote:text-white/50
-          prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-li:text-white/75
-          prose-strong:text-white/85 prose-em:text-white/65
-        ">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-        </div>
+
+      {useSegments ? (
+        // Render segments in insertion order — text and tool calls interleaved correctly
+        segments!.map((seg, i) =>
+          seg.kind === 'text'
+            ? <MarkdownBlock key={i} text={seg.text} />
+            : <ToolBlock key={seg.id} tool={seg.tool} input={seg.input} result={seg.result} done={seg.done} />
+        )
+      ) : (
+        // Fallback: tools first then text (live streaming or old messages without segments)
+        <>
+          {msgToolCalls.map(tc => (
+            <ToolBlock key={tc.id} tool={tc.tool} input={tc.input} result={tc.result} done={tc.done} />
+          ))}
+          {content && <MarkdownBlock text={content} />}
+        </>
       )}
+
       {isStreaming && content && (
-        <span className="inline-block w-0.5 h-3.5 bg-white/30 ml-0.5 animate-pulse rounded-sm align-middle" />
+        <span className="inline-block w-0.5 h-3 bg-white/30 ml-0.5 animate-pulse rounded-sm align-middle" />
+      )}
+      {isLast && activePlan && onProceedWithPlan && (
+        <PlanShortcut plan={activePlan} onOpen={onOpenPlan} onProceed={onProceedWithPlan} />
       )}
     </div>
   );
@@ -300,6 +334,34 @@ function ModelSelector({
   );
 }
 
+// ── Plan Shortcut ─────────────────────────────────────────────────────────────
+function PlanShortcut({ plan, onOpen, onProceed }: {
+  plan: ActivePlan;
+  onOpen?: (path: string) => void;
+  onProceed: () => void;
+}) {
+  const label = plan.goal.length > 36 ? plan.goal.slice(0, 35) + '…' : plan.goal;
+  return (
+    <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+      <button
+        onClick={() => onOpen?.(plan.plan_path)}
+        title="Open plan in editor"
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 text-[11px] text-purple-300/70 hover:text-purple-200 hover:bg-purple-500/18 transition-colors"
+      >
+        <span>📋</span>
+        <span className="font-medium">{label}</span>
+        <span className="text-purple-400/40 ml-0.5">↗</span>
+      </button>
+      <button
+        onClick={onProceed}
+        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-500/12 border border-orange-500/20 text-[11px] text-orange-300/80 hover:bg-orange-500/22 transition-colors font-medium"
+      >
+        ▶ Proceed in Agent
+      </button>
+    </div>
+  );
+}
+
 // ── Chat History Panel ────────────────────────────────────────────────────────
 function HistoryPanel({
   sessions, onLoad, onDelete, onBack,
@@ -372,6 +434,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   activeCellId,
   modelsRefreshTrigger,
   width, isResizing, onStartResizing,
+  onOpenFile, onCellRunStart, onCellRunComplete,
 }) => {
   const { project } = useProject();
 
@@ -389,21 +452,25 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     messages, toolCalls, kernelLines, escalation, pendingPerm,
     isLoading, mode, activeActivities, attachedFiles,
     sessions, currentModel, modelProviders,
+    activePlan,
     sendMessage, setMode, dismissEscalation,
     confirmPermission, denyPermission, stopGeneration,
     addFile, removeFile, selectModel, loadModels,
     startNewChat, loadSession, deleteSession,
+    proceedWithPlan,
   } = useAgentChat({
-    projectPath:       project?.path ?? '',
-    notebookCells:     agentCells,
+    projectPath:        project?.path ?? '',
+    notebookCells:      agentCells,
     notebookPath,
-    onCellCreate:      (_afterId, cellType, source, newCellId) => onAddCell(source, cellType, newCellId),
-    onCellUpdate:      (cellId, source) => {
+    onCellCreate:       (_afterId, cellType, source, newCellId) => onAddCell(source, cellType, newCellId),
+    onCellUpdate:       (cellId, source) => {
       const idx = notebookCells.findIndex(c => c.id === cellId);
       if (idx >= 0) onEditCell(idx, source);
     },
-    onCellDelete:      () => {},
-    onNotebookCreate:  onNotebookCreatedByAgent,
+    onCellDelete:       () => {},
+    onNotebookCreate:   onNotebookCreatedByAgent,
+    onCellRunStart,
+    onCellRunComplete,
   });
 
   const [input,       setInput]       = useState('');
@@ -431,8 +498,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   const includeCellChip = useCallback(() => {
     if (!activeCell) return;
-    addFile(new File([activeCell.content], `cell.${activeCell.type === 'code' ? 'py' : 'md'}`, { type: 'text/plain' }));
-  }, [activeCell, addFile]);
+    const nbName = notebookName ? notebookName.replace('.ipynb', '') : 'notebook';
+    addFile(new File([activeCell.content], `${nbName}.${activeCell.id}.${activeCell.type === 'code' ? 'py' : 'md'}`, { type: 'text/plain' }));
+  }, [activeCell, addFile, notebookName]);
 
   const handleSend = useCallback(() => {
     const t = input.trim();
@@ -462,7 +530,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         const data = JSON.parse(cellDataStr);
         if (data.type === 'cell-drag' && data.content) {
           const ext = data.cellType === 'code' ? 'py' : 'md';
-          const file = new File([data.content], `cell.${ext}`, { type: 'text/plain' });
+          const fileName = data.notebookId && data.cellId ? `${data.notebookId}.${data.cellId}.${ext}` : `cell.${ext}`;
+          const file = new File([data.content], fileName, { type: 'text/plain' });
           addFile(file);
           return;
         }
@@ -585,10 +654,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               messages.map(msg => {
                 if (msg.role === 'user') {
                   return (
-                    <div key={msg.id} className="py-2.5 flex justify-end">
+                    <div key={msg.id} className="py-2 flex justify-end">
                       <div className="max-w-[88%] flex flex-col items-end gap-1.5">
                         {msg.content && (
-                          <div className="text-sm text-white/75 leading-relaxed bg-white/5 rounded-2xl rounded-tr-sm px-3.5 py-2.5 whitespace-pre-wrap break-words">
+                          <div className="text-[11.5px] text-white/72 leading-relaxed bg-white/5 rounded-2xl rounded-tr-sm px-3 py-2 whitespace-pre-wrap break-words">
                             {msg.content}
                           </div>
                         )}
@@ -606,9 +675,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                     </div>
                   );
                 }
-                const isLast = msg.id === lastAid;
-                // Live streaming: use in-memory toolCalls state.
-                // Historical: convert persisted tool_calls to the same shape.
+                const isLast        = msg.id === lastAid;
+                const isCurrentlyStreaming = isLast && isLoading;
+                // During live streaming: use in-memory toolCalls (shown above text as they arrive).
+                // After streaming or on reload: use historicCalls only as fallback when segments absent.
                 const historicCalls = (msg.tool_calls ?? []).map((tc, i) => ({
                   id:     `hist-${msg.id}-${i}`,
                   tool:   tc.tool,
@@ -616,13 +686,19 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   result: tc.result,
                   done:   true,
                 }));
+                const msgToolCalls = isCurrentlyStreaming ? toolCalls : historicCalls;
                 return (
                   <AssistantMessage
                     key={msg.id}
                     content={msg.content}
-                    isStreaming={isLast && isLoading}
+                    isStreaming={isCurrentlyStreaming}
                     activities={isLast ? activeActivities : []}
-                    msgToolCalls={isLast ? toolCalls : historicCalls}
+                    msgToolCalls={msgToolCalls}
+                    segments={msg.segments}
+                    isLast={isLast}
+                    activePlan={isLast ? activePlan : null}
+                    onOpenPlan={onOpenFile}
+                    onProceedWithPlan={isLast ? proceedWithPlan : undefined}
                   />
                 );
               })
@@ -699,15 +775,15 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             {(attachedFiles.length > 0 || activeCell) && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {/* Active cell chip */}
-                {activeCell && !attachedFiles.some(f => f.name.startsWith('cell.')) && (
+                {activeCell && !attachedFiles.some(f => f.name.includes(`.${activeCell.id}.`)) && (
                   <button
                     onClick={includeCellChip}
                     title="Include active cell in message"
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-white/5 border border-white/8 text-white/40 hover:text-white/70 hover:bg-white/8 transition-colors"
                   >
                     <span>📋</span>
-                    <span className="max-w-[100px] truncate font-mono">
-                      {activeCell.type === 'code' ? 'cell.py' : 'cell.md'}
+                    <span className="max-w-[150px] truncate font-mono">
+                      {notebookName ? notebookName.replace('.ipynb', '') : 'notebook'}.{activeCell.id}.{activeCell.type === 'code' ? 'py' : 'md'}
                     </span>
                     <span className="text-white/20">+ include</span>
                   </button>

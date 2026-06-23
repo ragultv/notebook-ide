@@ -112,6 +112,9 @@ export type AgentEvent =
   | { type: 'escalation'; suggest_mode: Mode; reason: string }
   | { type: 'permission_request'; action: string; payload: unknown }
   | { type: 'notebook_create'; path: string }
+  | { type: 'plan_created'; plan_id: string; plan_path: string; goal: string; tasks: Array<{ id: string; description: string; status: string }> }
+  | { type: 'cell_run_start'; cell_id: string }
+  | { type: 'cell_run_complete'; cell_id: string; success: boolean }
   | { type: 'done' };
 
 // ── Request / Context types ───────────────────────────────────────────────────
