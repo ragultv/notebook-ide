@@ -3,8 +3,10 @@ import { X, Send, Square, Paperclip, ChevronRight, ChevronDown, Plus, Clock, Tra
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAgentChat, TOOL_ACTIVITIES } from '../../hooks/useAgentChat';
+import { controllerClient } from '../../services/controller.client';
 import { useProject } from '../../context/ProjectContext';
 import type { CellData, ProjectFile } from '../../types';
+import octomlLogo from '../../icon.png';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 interface RightSidebarProps {
@@ -443,10 +445,44 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }, [handleSend]);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    Array.from(e.dataTransfer.files).forEach(f => addFile(f));
+
+    // 1. Native OS files
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      Array.from(e.dataTransfer.files).forEach(f => addFile(f));
+      return;
+    }
+
+    // 2. Cell drag
+    try {
+      const cellDataStr = e.dataTransfer.getData('application/json');
+      if (cellDataStr) {
+        const data = JSON.parse(cellDataStr);
+        if (data.type === 'cell-drag' && data.content) {
+          const ext = data.cellType === 'code' ? 'py' : 'md';
+          const file = new File([data.content], `cell.${ext}`, { type: 'text/plain' });
+          addFile(file);
+          return;
+        }
+      }
+    } catch (err) {
+      // ignore parse errors
+    }
+
+    // 3. File Explorer drag (virtual path)
+    const path = e.dataTransfer.getData('text/plain');
+    if (path && path.startsWith('/')) {
+      try {
+        const { content } = await controllerClient.readFile(path);
+        const fileName = path.split('/').pop() || 'file';
+        const file = new File([content], fileName, { type: 'text/plain' });
+        addFile(file);
+      } catch (err) {
+        console.error("Failed to read dropped file from explorer", err);
+      }
+    }
   }, [addFile]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -467,7 +503,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   return (
     <div
-      className="relative flex flex-col h-full overflow-hidden flex-shrink-0"
+      className="relative flex flex-col h-full overflow-hidden flex-shrink-0 rounded-2xl border border-[#27272a] shadow-lg"
       style={{ width, userSelect: isResizing ? 'none' : undefined, background: '#0d0d0f' }}
     >
       {/* Resize strip (invisible but draggable) */}
@@ -537,7 +573,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <div className="flex-1 overflow-y-auto px-4 min-h-0">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-4 pb-16">
-                <div className="w-12 h-12 rounded-2xl bg-white/4 flex items-center justify-center text-2xl select-none">🐙</div>
+                <div className="w-20 h-20 rounded-2xl bg-white/4 flex items-center justify-center select-none overflow-hidden">
+                  <img src={octomlLogo} alt="OctoML Logo" className="w-18 h-18 object-contain opacity-90" />
+                </div>
                 <div className="text-center space-y-1">
                   <p className="text-white/40 text-sm">Ask OctoML anything</p>
                   <p className="text-white/20 text-xs">{MODE_HINTS[mode]}</p>
@@ -548,8 +586,22 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 if (msg.role === 'user') {
                   return (
                     <div key={msg.id} className="py-2.5 flex justify-end">
-                      <div className="max-w-[88%] text-sm text-white/75 leading-relaxed bg-white/5 rounded-2xl rounded-tr-sm px-3.5 py-2.5 whitespace-pre-wrap break-words">
-                        {msg.content}
+                      <div className="max-w-[88%] flex flex-col items-end gap-1.5">
+                        {msg.content && (
+                          <div className="text-sm text-white/75 leading-relaxed bg-white/5 rounded-2xl rounded-tr-sm px-3.5 py-2.5 whitespace-pre-wrap break-words">
+                            {msg.content}
+                          </div>
+                        )}
+                        {msg.attachments && msg.attachments.length > 0 && (
+                          <div className="flex flex-wrap justify-end gap-1.5 mt-0.5">
+                            {msg.attachments.map((f, i) => (
+                              <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-white/6 border border-white/8 text-white/50">
+                                <span>{f.name.endsWith('.py') ? '🐍' : f.name.endsWith('.csv') ? '📊' : f.name.endsWith('.json') ? '{}' : '📄'}</span>
+                                <span className="max-w-[110px] truncate">{f.name}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -676,7 +728,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             {/* Textarea container */}
             <div
               className={`rounded-2xl transition-all ${
-                isDragOver ? 'ring-1 ring-blue-400/30 bg-blue-400/4' : 'bg-white/4 hover:bg-white/5'
+                isDragOver ? 'ring-1 ring-blue-400/30 bg-blue-400/4' : 'bg-white/5 hover:bg-white/7'
               }`}
               onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
               onDragLeave={() => setIsDragOver(false)}
@@ -688,6 +740,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 </div>
               )}
               <textarea
+                autoFocus
+                ref={(el) => {
+                  if (el && isOpen) {
+                    setTimeout(() => {
+                      if (document.activeElement !== el) el.focus();
+                    }, 50);
+                  }
+                }}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -707,7 +767,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   >
                     <Paperclip size={13} />
                   </button>
-                  <div className="flex-1 min-w-0 overflow-hidden">
+                  <div className="flex-1 min-w-0">
                     <ModelSelector
                       currentModel={currentModel}
                       onSelect={selectModel}

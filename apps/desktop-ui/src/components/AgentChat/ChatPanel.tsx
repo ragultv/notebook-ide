@@ -106,6 +106,14 @@ export function ChatPanel({
       {/* Input area */}
       <div className="border-t border-gray-200 dark:border-gray-700 p-2 flex gap-2">
         <textarea
+          ref={(el) => {
+            if (el) {
+              setTimeout(() => {
+                if (document.activeElement !== el) el.focus();
+              }, 50);
+            }
+          }}
+          autoFocus
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}

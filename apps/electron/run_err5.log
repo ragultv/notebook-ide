@@ -1,0 +1,6 @@
+[26268:0622/183028.034:WARNING:electron_api_native_image.cc(194)] Argument must be a file path or a NativeImage
+[Server Error] (node:26488) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Ragul/Aiml-Pipeline/notebook-ide/apps/electron/dist-electron/win-unpacked/resources/app/apps/controller-node/dist/index.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to D:\Ragul\Aiml-Pipeline\notebook-ide\apps\electron\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[26268:0622/183030.016:INFO:CONSOLE(724)] "Uncaught ReferenceError: require is not defined", source: file:///D:/Ragul/Aiml-Pipeline/notebook-ide/apps/electron/dist-electron/win-unpacked/resources/app/apps/desktop-ui/assets/index-BQvtza2I.js (724)

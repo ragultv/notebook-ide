@@ -1,5 +1,5 @@
-import { CellExecutionUpdateType } from './CellExecutionUpdateType';
-import { IOutputDto, IOutputItemDto, NullablePartialNotebookCellInternalMetadata } from '../../notebook/NotebookCommon';
+import { CellExecutionUpdateType } from './CellExecutionUpdateType.js';
+import { IOutputDto, IOutputItemDto, NullablePartialNotebookCellInternalMetadata } from '../../notebook/NotebookCommon.js';
 
 export interface ICellExecutionOutputUpdate {
     editType: CellExecutionUpdateType.Output;
@@ -19,4 +19,7 @@ export interface ICellExecutionInternalMetadataUpdate {
     internalMetadata: NullablePartialNotebookCellInternalMetadata;
 }
 
-export type ICellExecutionUpdate = ICellExecutionOutputUpdate | ICellExecutionOutputItemsUpdate | ICellExecutionInternalMetadataUpdate;
+export type ICellExecutionUpdate =
+    | ICellExecutionOutputUpdate
+    | ICellExecutionOutputItemsUpdate
+    | ICellExecutionInternalMetadataUpdate;

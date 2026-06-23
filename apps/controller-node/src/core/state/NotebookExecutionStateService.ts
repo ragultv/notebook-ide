@@ -1,12 +1,21 @@
-import { NotebookExecution } from '../execution/NotebookExecution';
-import { CellExecution } from '../execution/CellExecution';
-import { NotebookService } from '../notebook/NotebookService';
+import { NotebookExecution } from '../execution/NotebookExecution.js';
+import { CellExecution } from '../execution/CellExecution.js';
+import { notebookService } from '../notebook/NotebookService.js';
 
 export class NotebookExecutionStateService {
+    private static instance: NotebookExecutionStateService;
+
     private notebookExecutions = new Map<string, NotebookExecution>();
     private cellExecutions = new Map<string, CellExecution>();
 
-    constructor(private readonly notebookService: NotebookService) {}
+    private constructor() {}
+
+    public static getInstance(): NotebookExecutionStateService {
+        if (!NotebookExecutionStateService.instance) {
+            NotebookExecutionStateService.instance = new NotebookExecutionStateService();
+        }
+        return NotebookExecutionStateService.instance;
+    }
 
     public createExecution(notebookUri: string): NotebookExecution {
         let execution = this.notebookExecutions.get(notebookUri);
@@ -21,31 +30,32 @@ export class NotebookExecutionStateService {
         return this.notebookExecutions.get(notebookUri);
     }
 
-    public createCellExecution(notebookUri: string, cellHandle: number): CellExecution {
+    /**
+     * Create (or replace) a CellExecution for the given cell handle.
+     * Pass executionId from the queue item so the frontend ID matches throughout.
+     */
+    public createCellExecution(notebookUri: string, cellHandle: number, executionId?: string): CellExecution {
         const key = `${notebookUri}#${cellHandle}`;
-        let execution = this.cellExecutions.get(key);
-        if (!execution) {
-            const model = this.notebookService.getNotebookTextModel(notebookUri);
-            if (!model) {
-                throw new Error(`Notebook model not found for URI: ${notebookUri}`);
-            }
-            execution = new CellExecution(cellHandle, notebookUri, model);
-            this.cellExecutions.set(key, execution);
+        const model = notebookService.getNotebookTextModel(notebookUri);
+        if (!model) {
+            throw new Error(`NotebookTextModel not found for URI: ${notebookUri}`);
         }
+        const execution = new CellExecution(cellHandle, notebookUri, model, executionId);
+        this.cellExecutions.set(key, execution);
         return execution;
     }
 
     public getCellExecution(notebookUri: string, cellHandle: number): CellExecution | undefined {
-        const key = `${notebookUri}#${cellHandle}`;
-        return this.cellExecutions.get(key);
+        return this.cellExecutions.get(`${notebookUri}#${cellHandle}`);
     }
 
     public removeCellExecution(notebookUri: string, cellHandle: number): void {
-        const key = `${notebookUri}#${cellHandle}`;
-        this.cellExecutions.delete(key);
+        this.cellExecutions.delete(`${notebookUri}#${cellHandle}`);
     }
 
     public removeExecution(notebookUri: string): void {
         this.notebookExecutions.delete(notebookUri);
     }
 }
+
+export const notebookExecutionStateService = NotebookExecutionStateService.getInstance();

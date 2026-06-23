@@ -51,8 +51,8 @@ async function buildTree(
     const nodes: FileTreeNode[] = [];
 
     for (const entry of entries) {
-        // Always hide dotfiles at root level; specifically hide .octoml everywhere
-        if (entry.name.startsWith('.')) continue;
+        // Hide dotfiles except .octoml
+        if (entry.name.startsWith('.') && entry.name !== '.octoml') continue;
 
         const osPath = path.join(dirPath, entry.name);
         const vPath  = vfs.toVirtual(osPath);

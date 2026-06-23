@@ -1,0 +1,16 @@
+
+[Electron] Spawning server: node D:\Ragul\Aiml-Pipeline\notebook-ide\apps\electron\dist-electron\win-unpacked\resources\app\apps\controller-node\dist\index.js
+[Renderer] Uncaught ReferenceError: require is not defined
+[Server] [SessionManager] Initialized.
+[Server] [OutputStore] Initialized at D:\Ragul\Aiml-Pipeline\notebook-ide\apps\electron\dist-electron\win-unpacked\resources\app\apps\controller-node\data\octopod.db
+[Server] [PersistenceManager] Initialized. Autosave every 30s + on completion.
+[Server] {"level":30,"time":1782133071637,"pid":29200,"hostname":"LAPTOP-RMA50HO5","msg":"[Octopod] Runtime managers initialized."}
+[Server] [KernelPool] Initializing with size: 2
+[Server] {"level":30,"time":1782133071800,"pid":29200,"hostname":"LAPTOP-RMA50HO5","msg":"Server listening at http://127.0.0.1:3001"}
+{"level":30,"time":1782133071800,"pid":29200,"hostname":"LAPTOP-RMA50HO5","msg":"Server listening at http://192.168.1.36:3001"}
+{"level":30,"time":1782133071801,"pid":29200,"hostname":"LAPTOP-RMA50HO5","msg":"Server listening at http://0.0.0.0:3001"}
+{"level":30,"time":1782133071801,"pid":29200,"hostname":"LAPTOP-RMA50HO5","msg":"Environment: production"}
+[Server] {"level":30,"time":1782133072120,"pid":29200,"hostname":"LAPTOP-RMA50HO5","reqId":"req-1","req":{"method":"GET","url":"/health","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":63248},"msg":"incoming request"}
+[Electron] Server is ready on port 3001
+[Server] {"level":30,"time":1782133072137,"pid":29200,"hostname":"LAPTOP-RMA50HO5","reqId":"req-1","res":{"statusCode":200},"responseTime":15.010300002992153,"msg":"request completed"}
+[Server] [KernelPool] Added kernel to pool, size: 1

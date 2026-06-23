@@ -59,7 +59,7 @@ interface ExecutionState {
   setQueued: (cellId: string, executionId: string, queuePosition?: number) => void;
 
   /** cell_started: kernel dequeued the cell and is now running it */
-  setRunning: (cellId: string, executionId: string) => void;
+  setRunning: (cellId: string, executionId: string, startTimer?: boolean) => void;
 
   /** Optimistic stopping state — interrupt was sent */
   setStopping: (cellId: string) => void;
@@ -113,21 +113,28 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       },
     })),
 
-  setRunning: (cellId, executionId) =>
-    set(s => ({
-      cells: {
-        ...s.cells,
-        [cellId]: {
-          state: 'running',
-          executionId,
-          executionCount: s.cells[cellId]?.executionCount ?? null,
-          duration: null,
-          error: null,
-          queuePosition: null,
-          runStartTime: Date.now(),
+  setRunning: (cellId, executionId, startTimer = false) =>
+    set(s => {
+      const prev = s.cells[cellId];
+      return {
+        cells: {
+          ...s.cells,
+          [cellId]: {
+            state: 'running',
+            executionId,
+            executionCount: prev?.executionCount ?? null,
+            duration: null,
+            error: null,
+            queuePosition: null,
+            // Only stamp runStartTime when the kernel has actually dequeued the cell
+            // (startTimer=true, sent with cell_started). When called from
+            // execution_started we stay in running state but keep runStartTime null
+            // so the elapsed counter doesn't tick during the queue-wait period.
+            runStartTime: startTimer ? Date.now() : (prev?.runStartTime ?? null),
+          },
         },
-      },
-    })),
+      };
+    }),
 
   setStopping: (cellId) =>
     set(s => {

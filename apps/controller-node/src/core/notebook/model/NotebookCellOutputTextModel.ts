@@ -1,4 +1,4 @@
-import { NotebookCellOutputItemTextModel } from './NotebookCellOutputItemTextModel';
+import { NotebookCellOutputItemTextModel } from './NotebookCellOutputItemTextModel.js';
 
 export class NotebookCellOutputTextModel {
     constructor(

@@ -7,8 +7,6 @@ import { kernelRoutes } from './routes/kernels.js';
 import { executionRoutes } from './routes/execution.js';
 import { providersRoutes } from './routes/providers.js';
 import { filesRoutes } from './routes/files.js';
-import { aiRoutes } from './routes/ai.js';
-import { modelsRoutes } from './routes/models.js';
 import { memoryRoutes } from './routes/memory.js';
 import { websocketRoutes } from './routes/websocket.js';
 import { notebookRoutes } from './routes/notebook.js';
@@ -19,15 +17,14 @@ import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { KernelManager } from './core/KernelManager.js';
 import { BridgeProcess } from './core/BridgeProcess.js';
-import { KeyStore } from './core/KeyStore.js';
-import { aiService } from './core/ai/AIService.js';
+import { KeyStore as _KeyStore } from './core/KeyStore.js';
 import { TerminalManager } from './core/TerminalManager.js';
-import { closeMemoryStore } from './core/ai/MemoryStore.js';
 // Octopod runtime managers
 import { persistenceManager } from './core/persistence/PersistenceManager.js';
 import { sessionManager } from './core/session/SessionManager.js';
 import { notebookManager } from './core/notebook/NotebookManager.js';
-import { executionEngine as _executionEngine } from './core/notebook/ExecutionEngine.js'; // side-effect: registers queue executor
+import { notebookExecutionService as _notebookExecutionService } from './core/execution/NotebookExecutionService.js'; // side-effect: registers kernel:restarted handler
+import './core/kernel/KernelBootstrap.js'; // side-effect: wires KernelManager events to VS Code kernel system
 
 const server: FastifyInstance = fastify({
     logger: {
@@ -65,7 +62,6 @@ const gracefulShutdown = async () => {
     // Flush autosave and close DB
     persistenceManager.shutdown();
 
-    closeMemoryStore();
     await server.close();
     process.exit(0);
 };
@@ -84,15 +80,7 @@ const start = async () => {
         persistenceManager.initialize(notebookManager);
         server.log.info('[Octopod] Runtime managers initialized.');
 
-        // P1-3: Restore API keys persisted by KeyStore on the previous session.
-        // This prevents users from having to re-enter keys after a server restart.
-        for (const provider of KeyStore.listProviders()) {
-            const key = KeyStore.getKey(provider);
-            if (key) {
-                aiService.setApiKey(provider, key);
-                server.log.info(`[KeyStore] Restored API key for provider: ${provider}`);
-            }
-        }
+        // API keys are now managed by the new agent system via model-router.ts
 
         // Register error handler
         server.setErrorHandler(errorHandler);
@@ -143,8 +131,6 @@ const start = async () => {
         await server.register(kernelRoutes,      { prefix: '/kernels' });
         await server.register(executionRoutes,   { prefix: '/execution' });
         await server.register(filesRoutes,       { prefix: '/files' });
-        await server.register(aiRoutes,          { prefix: '/ai' });
-        await server.register(modelsRoutes,      { prefix: '/ai/models' });
         await server.register(memoryRoutes,      { prefix: '/api/memory' });
         await server.register(websocketRoutes);
         await server.register(notebookRoutes,    { prefix: '/notebooks' });

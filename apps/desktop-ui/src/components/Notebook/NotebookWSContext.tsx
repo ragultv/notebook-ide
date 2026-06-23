@@ -57,11 +57,10 @@ export function NotebookWSProvider({
 
         const cleanups: (() => void)[] = [];
 
-        // execution_started: server confirmed the cell was accepted into its queue.
-        // If the kernel is idle (no other cells running/queued), skip the Queued
-        // visual state entirely and go directly to Running — the cell will get
-        // cell_started almost immediately anyway. Only show Queued when the cell
-        // truly has to wait behind another active execution.
+        // execution_started: server confirmed the cell was accepted.
+        // If another cell is already active show Queued so the user sees the wait.
+        // Otherwise go straight to Running (no "Queue" flash) — but don't start the
+        // elapsed timer yet; the timer only starts when cell_started arrives.
         cleanups.push(ws.on('execution_started', (msg: any) => {
             const { cells } = useExecutionStore.getState();
             const hasOtherActiveCells = Object.entries(cells).some(
@@ -72,13 +71,13 @@ export function NotebookWSProvider({
             if (hasOtherActiveCells) {
                 setQueued(msg.cell_id, msg.execution_id, msg.queue_position);
             } else {
-                setRunning(msg.cell_id, msg.execution_id);
+                setRunning(msg.cell_id, msg.execution_id, false); // running, timer not yet started
             }
         }));
 
-        // cell_started: kernel dequeued this cell and is actively running it
+        // cell_started: kernel dequeued this cell — NOW start the elapsed timer.
         cleanups.push(ws.on('cell_started', (msg: any) => {
-            setRunning(msg.cell_id, msg.execution_id);
+            setRunning(msg.cell_id, msg.execution_id, true); // starts runStartTime
         }));
 
         // execution_complete: cell finished successfully (legacy + new event)

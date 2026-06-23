@@ -103,9 +103,7 @@ export const Cell: React.FC<CellProps> = React.memo(({
     onFixError, allCells,
 }) => {
     const [isHovered, setIsHovered] = useState(false);
-    const [isFixing, setIsFixing] = useState(false);
     const [isDragOver, setIsDragOver] = useState(false);
-    const [showFixPopover, setShowFixPopover] = useState(false);
 
     // Live elapsed timer (only reads runStartTime from store, not from props)
     const [elapsedMs, setElapsedMs] = useState(0);
@@ -290,31 +288,9 @@ export const Cell: React.FC<CellProps> = React.memo(({
     }, [sendStdin]);
 
     // ── Fix Error ─────────────────────────────────────────────────────────────
-    const handleFixError = async (mode: 'chat' | 'auto') => {
+    const handleFixError = () => {
         if (!onFixError || !cell.error) return;
-        if (mode === 'chat') {
-            setShowFixPopover(false);
-            onFixError(index + 1, cell.error, cell.content, cell.id);
-        } else {
-            setIsFixing(true);
-            setShowFixPopover(false);
-            try {
-                const response = await controllerClient.fixError({
-                    cellIndex: index + 1,
-                    error: cell.error,
-                    cellContent: cell.content,
-                    context: { notebookName },
-                });
-                let fixedCode = response.text;
-                const match = fixedCode.match(/```(?:python)?\s*([\s\S]*?)\s*```/);
-                if (match?.[1]) fixedCode = match[1].trim();
-                onUpdate(cell.id, fixedCode);
-            } catch (err) {
-                onFixError(index + 1, cell.error + `\n\n(Auto-fix failed: ${err})`, cell.content, cell.id);
-            } finally {
-                setIsFixing(false);
-            }
-        }
+        onFixError(index + 1, cell.error, cell.content, cell.id);
     };
 
     // ── Drag ──────────────────────────────────────────────────────────────────
@@ -421,8 +397,8 @@ export const Cell: React.FC<CellProps> = React.memo(({
                             </button>
                         )}
 
-                        {/* Elapsed timer */}
-                        {(isRunning || isStopping) && (
+                        {/* Elapsed timer — only shown once the kernel has actually started */}
+                        {(isRunning || isStopping) && execInfo?.runStartTime != null && (
                             <div className="flex flex-col items-center mt-1">
                                 <span className={`text-[10px] font-mono tabular-nums ${isStopping ? 'text-sim-redHover' : 'text-green-400'}`}>
                                     {isStopping ? 'Stopping' : (elapsedMs < 1 ? '0ms' : formatDuration(elapsedMs))}
@@ -502,32 +478,13 @@ export const Cell: React.FC<CellProps> = React.memo(({
                 {/* Fix error button (shown when state is error) */}
                 {isCode && isError && cell.error && onFixError && (
                     <div className="flex items-center gap-2 mt-1">
-                        <div className="relative">
-                            <button
-                                onClick={() => setShowFixPopover(v => !v)}
-                                disabled={isFixing}
-                                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-950/30 border border-red-500/20 text-red-400 text-xs hover:bg-red-950/50 transition-colors disabled:opacity-50"
-                            >
-                                <Wrench className="w-3 h-3" />
-                                {isFixing ? 'Fixing...' : 'Fix Error'}
-                            </button>
-                            {showFixPopover && (
-                                <div className="absolute left-0 top-[calc(100%+4px)] z-50 w-40 bg-[#18181b] border border-white/10 rounded-xl shadow-xl overflow-hidden">
-                                    <button
-                                        onClick={() => handleFixError('auto')}
-                                        className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-white/5 transition-colors"
-                                    >
-                                        ⚡ Auto Fix
-                                    </button>
-                                    <button
-                                        onClick={() => handleFixError('chat')}
-                                        className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-white/5 transition-colors"
-                                    >
-                                        💬 Fix in Chat
-                                    </button>
-                                </div>
-                            )}
-                        </div>
+                        <button
+                            onClick={handleFixError}
+                            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-950/30 border border-red-500/20 text-red-400 text-xs hover:bg-red-950/50 transition-colors"
+                        >
+                            <Wrench className="w-3 h-3" />
+                            💬 Fix in Chat
+                        </button>
                     </div>
                 )}
             </div>
