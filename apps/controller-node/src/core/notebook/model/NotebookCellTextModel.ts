@@ -1,10 +1,11 @@
-import { NotebookCellOutputTextModel } from './NotebookCellOutputTextModel';
-import { NotebookCellInternalMetadata, CellKind } from '../NotebookCommon';
+import { NotebookCellOutputTextModel } from './NotebookCellOutputTextModel.js';
+import { NotebookCellInternalMetadata, CellKind } from '../NotebookCommon.js';
 
 export class NotebookCellTextModel {
     constructor(
         public readonly uri: string,
         public readonly handle: number,
+        public readonly cellId: string,         // original ipynb cell ID
         public readonly cellKind: CellKind,
         public source: string,
         public language: string,

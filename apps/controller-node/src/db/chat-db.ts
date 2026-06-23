@@ -30,6 +30,7 @@ export interface ChatMessage {
   role:       'user' | 'assistant';
   content:    string;
   tool_calls: ToolCallRecord[];
+  attachments: { name: string; content: string }[];
   created_at: number;
 }
 
@@ -59,6 +60,7 @@ function getDb(): Database.Database {
       role       TEXT NOT NULL,
       content    TEXT NOT NULL,
       tool_calls TEXT NOT NULL DEFAULT '[]',
+      attachments TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL
     );
 
@@ -66,9 +68,12 @@ function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_messages_session ON chat_messages(session_id, created_at ASC);
   `);
 
-  // Migrate: add tool_calls column if it doesn't exist yet
+  // Migrate: add tool_calls and attachments columns if they don't exist yet
   try {
     db.exec(`ALTER TABLE chat_messages ADD COLUMN tool_calls TEXT NOT NULL DEFAULT '[]'`);
+  } catch { /* column already exists — safe to ignore */ }
+  try {
+    db.exec(`ALTER TABLE chat_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`);
   } catch { /* column already exists — safe to ignore */ }
 
   _db = db;
@@ -134,17 +139,17 @@ export function deleteSession(id: string): void {
 
 export function addMessages(
   sessionId: string,
-  messages: Array<{ role: 'user' | 'assistant'; content: string; tool_calls?: ToolCallRecord[] }>,
+  messages: Array<{ role: 'user' | 'assistant'; content: string; tool_calls?: ToolCallRecord[]; attachments?: { name: string; content: string }[] }>,
 ): void {
   const db   = getDb();
   const stmt = db.prepare(`
-    INSERT INTO chat_messages (id, session_id, role, content, tool_calls, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO chat_messages (id, session_id, role, content, tool_calls, attachments, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const insertAll = db.transaction((msgs: typeof messages) => {
     const now = Date.now();
     for (const m of msgs) {
-      stmt.run(crypto.randomUUID(), sessionId, m.role, m.content, JSON.stringify(m.tool_calls ?? []), now);
+      stmt.run(crypto.randomUUID(), sessionId, m.role, m.content, JSON.stringify(m.tool_calls ?? []), JSON.stringify(m.attachments ?? []), now);
     }
   });
   insertAll(messages);
@@ -154,9 +159,10 @@ export function addMessages(
 export function getMessages(sessionId: string): ChatMessage[] {
   const rows = getDb().prepare(`
     SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC
-  `).all(sessionId) as Array<Omit<ChatMessage, 'tool_calls'> & { tool_calls: string }>;
+  `).all(sessionId) as Array<Omit<ChatMessage, 'tool_calls' | 'attachments'> & { tool_calls: string; attachments: string }>;
   return rows.map(r => ({
     ...r,
     tool_calls: (() => { try { return JSON.parse(r.tool_calls ?? '[]'); } catch { return []; } })(),
+    attachments: (() => { try { return JSON.parse(r.attachments ?? '[]'); } catch { return []; } })(),
   }));
 }

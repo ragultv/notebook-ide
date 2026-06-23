@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BridgeProcess, BridgeMessage } from './BridgeProcess.js';
 import { claimFromPool, initPool, drainPool } from './KernelPool.js';
 import { projectStore } from './ProjectStore.js';
-import { executionQueue } from './notebook/ExecutionQueue.js';
+import { cellExecutionQueue } from './execution/CellExecutionQueue.js';
 
 export interface KernelInfo {
     id: string;
@@ -490,7 +490,7 @@ export class KernelManager extends EventEmitter {
 
     public async restartKernel(notebookId: string): Promise<void> {
         // 1. Drain the queue — cancel all pending cells immediately
-        executionQueue.drain(notebookId);
+        cellExecutionQueue.drain(notebookId);
 
         // 2. Interrupt the active execution — resolves callbacks so queue unblocks
         await this.interruptKernel(notebookId);

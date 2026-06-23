@@ -1,4 +1,4 @@
-import { IKernel } from './BaseKernel';
+import { IKernel } from './BaseKernel.js';
 
 export class NotebookKernelController {
     public readonly id: string;
@@ -15,7 +15,7 @@ export class NotebookKernelController {
         await this.kernel.executeCells(uri, cellHandles);
     }
 
-    public async cancelNotebookCellExecution(uri: string, cellHandles: number[]): Promise<void> {
+    public async cancelNotebookCellExecution(_uri: string, _cellHandles: number[]): Promise<void> {
         await this.kernel.interrupt();
     }
 }

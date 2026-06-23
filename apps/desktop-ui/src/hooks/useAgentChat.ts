@@ -14,6 +14,7 @@ export interface ChatMsg {
   content:    string;
   timestamp:  string;
   tool_calls?: PersistedToolCall[];
+  attachments?: { name: string; content: string }[];
 }
 
 export interface ToolCallState {
@@ -235,7 +236,7 @@ export function useAgentChat(opts: UseAgentChatOptions) {
   const loadSession = useCallback(async (id: string) => {
     const { session, messages: msgs } = await apiFetch<{
       session: ChatSession;
-      messages: Array<{ id: string; role: 'user' | 'assistant'; content: string; tool_calls?: PersistedToolCall[]; created_at: number }>;
+      messages: Array<{ id: string; role: 'user' | 'assistant'; content: string; tool_calls?: PersistedToolCall[]; attachments?: { name: string; content: string }[]; created_at: number }>;
     }>(`/api/chat/sessions/${id}`);
 
     setSessionId(id);
@@ -246,6 +247,7 @@ export function useAgentChat(opts: UseAgentChatOptions) {
       content:    m.content,
       timestamp:  new Date(m.created_at).toISOString(),
       tool_calls: m.tool_calls ?? [],
+      attachments: m.attachments ?? [],
     })));
     setToolCalls([]);
     setKernelLines([]);
@@ -267,13 +269,14 @@ export function useAgentChat(opts: UseAgentChatOptions) {
     currentMode: Mode,
     title?: string,
     toolCallsForTurn?: Array<{ tool: string; input: unknown; result: unknown }>,
+    userAttachments?: Array<{ name: string; content: string }>,
   ) => {
     if (!sid) return;
     await apiFetch(`/api/chat/sessions/${sid}/messages`, {
       method: 'POST',
       body:   JSON.stringify({
         messages: [
-          { role: 'user',      content: userContent,      tool_calls: [] },
+          { role: 'user',      content: userContent,      tool_calls: [], attachments: userAttachments ?? [] },
           { role: 'assistant', content: assistantContent, tool_calls: toolCallsForTurn ?? [] },
         ],
         mode:  currentMode,
@@ -304,7 +307,7 @@ export function useAgentChat(opts: UseAgentChatOptions) {
       fullContent = content + attachText;
     }
 
-    const userMsg: ChatMsg = { id: `u-${Date.now()}`, role: 'user', content: fullContent, timestamp: new Date().toISOString() };
+    const userMsg: ChatMsg = { id: `u-${Date.now()}`, role: 'user', content: content, attachments: attachedFiles, timestamp: new Date().toISOString() };
     const assistantMsg: ChatMsg = { id: `a-${Date.now()}`, role: 'assistant', content: '', timestamp: new Date().toISOString() };
 
     currentAssistantId.current = assistantMsg.id;
@@ -316,7 +319,13 @@ export function useAgentChat(opts: UseAgentChatOptions) {
     activeToolsRef.current.clear();
 
     const allMsgs = [
-      ...messages.map(m => ({ role: m.role, content: m.content, timestamp: m.timestamp })),
+      ...messages.map(m => {
+        let text = m.content;
+        if (m.attachments && m.attachments.length > 0) {
+          text += m.attachments.map(f => `\n\n[Attached: ${f.name}]\n\`\`\`\n${f.content.slice(0, 4000)}\n\`\`\``).join('');
+        }
+        return { role: m.role, content: text, timestamp: m.timestamp };
+      }),
       { role: 'user' as const, content: fullContent, timestamp: userMsg.timestamp },
     ];
 
@@ -452,8 +461,8 @@ export function useAgentChat(opts: UseAgentChatOptions) {
       }
 
       // Persist to SQLite — include tool calls for this turn
-      if (fullContent || finalText) {
-        persistMessages(sid, fullContent, finalText, effectiveMode, fullContent.slice(0, 60), turnToolCalls);
+      if (content || fullContent || finalText) {
+        persistMessages(sid, content, finalText, effectiveMode, content.slice(0, 60), turnToolCalls, attachedFiles);
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {

@@ -140,6 +140,13 @@ export function CellOutputTerminal({ cellId, notebookId, executionId }: Props) {
                 <div style={{ display: 'flex', gap: 8, padding: 8, background: '#1a1a2e' }}>
                     <span style={{ color: '#9cdcfe', fontFamily: 'monospace' }}>{inputPrompt}</span>
                     <input
+                        ref={(el) => {
+                            if (el) {
+                                setTimeout(() => {
+                                    if (document.activeElement !== el) el.focus();
+                                }, 50);
+                            }
+                        }}
                         autoFocus
                         value={inputValue}
                         onChange={e => setInputValue(e.target.value)}

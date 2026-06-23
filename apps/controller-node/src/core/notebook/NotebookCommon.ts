@@ -1,4 +1,3 @@
-import { EventEmitter } from 'events';
 
 export enum CellKind {
 	Markup = 1,
@@ -41,6 +40,7 @@ export interface IOutputDto {
 
 export interface ICellDto {
 	readonly handle: number;
+	readonly cellId: string;       // original ipynb cell ID (string UUID)
 	readonly cellKind: CellKind;
 	readonly source: string;
 	readonly language: string;

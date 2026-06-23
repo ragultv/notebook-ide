@@ -113,7 +113,6 @@ export class AgentRuntime {
         messages,
         // Double-cast: our dynamic tools can't satisfy Tool<never,never> structurally
         tools:    buildVercelTools(permittedTools, toolCtx) as unknown as Record<string, Tool<never, never>>,
-        maxSteps: 10,
         stopWhen: stepCountIs(10),
       });
 
@@ -135,7 +134,14 @@ export class AgentRuntime {
           // Surface API errors (rate limits, provider failures) rather than silently dropping them
           anyOutput = true;
           const err = (chunk as unknown as { error: unknown }).error;
-          const msg = err instanceof Error ? err.message : String(err);
+          let msg = '';
+          if (err instanceof Error) {
+            msg = err.message;
+          } else if (typeof err === 'object' && err !== null) {
+            msg = (err as any).message || JSON.stringify(err);
+          } else {
+            msg = String(err);
+          }
           yield { type: 'text_delta', delta: `[Model error: ${msg}]` };
         }
       }

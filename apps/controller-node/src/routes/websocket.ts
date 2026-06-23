@@ -40,8 +40,8 @@ import { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import { KernelManager } from '../core/KernelManager.js';
 import { TerminalManager } from '../core/TerminalManager.js';
-import { executionEngine } from '../core/notebook/ExecutionEngine.js';
-import { executionQueue } from '../core/notebook/ExecutionQueue.js';
+import { notebookExecutionService } from '../core/execution/NotebookExecutionService.js';
+import { cellExecutionQueue } from '../core/execution/CellExecutionQueue.js';
 import { notebookManager } from '../core/notebook/NotebookManager.js';
 import { eventBus } from '../core/events/EventBus.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -422,7 +422,7 @@ export async function websocketRoutes(fastify: FastifyInstance) {
                         notebookManager.updateCellSource(notebookId, cell.cellId, cell.code);
                     }
 
-                    executionEngine.runCellsExplicit(notebookId, cells).catch(err => {
+                    notebookExecutionService.runCellsExplicit(notebookId, cells).catch(err => {
                         console.error('[WebSocket] run_all error:', err);
                     });
 
@@ -441,7 +441,7 @@ export async function websocketRoutes(fastify: FastifyInstance) {
                     const targetIdx = cells.findIndex((c) => c.cellId === targetId);
                     const above = targetIdx > 0 ? cells.slice(0, targetIdx) : [];
 
-                    executionEngine.runCellsExplicit(notebookId, above).catch(err => {
+                    notebookExecutionService.runCellsExplicit(notebookId, above).catch(err => {
                         console.error('[WebSocket] run_above error:', err);
                     });
 
@@ -461,7 +461,7 @@ export async function websocketRoutes(fastify: FastifyInstance) {
                         ? cells.slice(targetIdx + 1)
                         : [];
 
-                    executionEngine.runCellsExplicit(notebookId, below).catch(err => {
+                    notebookExecutionService.runCellsExplicit(notebookId, below).catch(err => {
                         console.error('[WebSocket] run_below error:', err);
                     });
 
@@ -479,19 +479,19 @@ export async function websocketRoutes(fastify: FastifyInstance) {
                     // Preserve notebook order, filter by selection
                     const selected = cells.filter((c) => selectedIds.has(c.cellId));
 
-                    executionEngine.runCellsExplicit(notebookId, selected).catch(err => {
+                    notebookExecutionService.runCellsExplicit(notebookId, selected).catch(err => {
                         console.error('[WebSocket] run_selection error:', err);
                     });
 
                 // ── Stop execution (drain queue + interrupt) ──────────────────
 
                 } else if (msg.type === 'stop_execution') {
-                    await executionEngine.stopExecution(notebookId);
+                    await notebookExecutionService.stopExecution(notebookId);
 
                 // ── Queue snapshot ────────────────────────────────────────────
 
                 } else if (msg.type === 'queue_snapshot') {
-                    const snap = executionQueue.getQueueSnapshot(notebookId);
+                    const snap = cellExecutionQueue.getQueueSnapshot(notebookId);
                     socket.send(JSON.stringify({
                         type:        'queue_updated',
                         notebook_id: notebookId,

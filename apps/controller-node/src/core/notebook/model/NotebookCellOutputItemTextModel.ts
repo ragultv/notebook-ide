@@ -1,4 +1,3 @@
-import { IOutputItemDto } from '../NotebookCommon';
 
 export class NotebookCellOutputItemTextModel {
     constructor(

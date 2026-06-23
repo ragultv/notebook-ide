@@ -62,41 +62,6 @@ export interface AllKernelMetrics {
   running_count: number;
 }
 
-export type AIMode = 'ask' | 'agent' | 'plan';
-
-export interface AIRequest {
-  prompt: string;
-  sessionId?: string | null;
-  mode?: AIMode;
-  context?: {
-    notebookName?: string;
-    cells?: Array<{ type: string; content: string }>;
-  };
-}
-
-export interface AIResponse {
-  text: string;
-  operations?: Array<{
-    type: string;
-    params: Record<string, any>;
-  }>;
-  tokenInfo?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
-  sessionId?: string;
-}
-
-export interface ErrorFixRequest {
-  cellIndex: number;
-  error: string;
-  cellContent: string;
-  context?: {
-    notebookName?: string;
-    cells?: Array<{ type: string; content: string }>;
-  };
-}
 
 // HTTP helper
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -179,102 +144,6 @@ export const controllerClient = {
     });
   },
 
-  // AI Assistant
-  async askAI(req: AIRequest): Promise<AIResponse> {
-    return request('/ai/assist', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    });
-  },
-
-  /**
-   * Streaming AI Assistant (SSE). Callbacks are invoked as events arrive.
-   * onPlanReady: for plan mode, operations are ready but not executed; user confirms first.
-   * Pass signal for cancellation.
-   */
-  async askAIStream(
-    req: AIRequest,
-    callbacks: {
-      onChunk: (delta: string) => void;
-      onOperations?: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
-      onPlanReady?: (operations: Array<{ type: string; params: Record<string, any> }>) => void;
-      onDone: (payload: { sessionId?: string; tokenInfo?: AIResponse['tokenInfo'] }) => void;
-      onError: (message: string) => void;
-    },
-    signal?: AbortSignal
-  ): Promise<void> {
-    const res = await fetch(`${BASE_URL}/ai/assist/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req),
-      signal,
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      callbacks.onError(err || `HTTP ${res.status}`);
-      return;
-    }
-    const reader = res.body?.getReader();
-    if (!reader) {
-      callbacks.onError('No response body');
-      return;
-    }
-    const decoder = new TextDecoder();
-    let buf = '';
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const events = buf.split('\n\n');
-        buf = events.pop() ?? '';
-        for (const raw of events) {
-          let event = '';
-          let data = '';
-          for (const line of raw.split('\n')) {
-            if (line.startsWith('event: ')) event = line.slice(7).trim();
-            else if (line.startsWith('data: ')) data = line.slice(6);
-          }
-          if (!data) continue;
-          try {
-            const payload = JSON.parse(data);
-            if (event === 'chunk' && payload.delta != null) callbacks.onChunk(payload.delta);
-            else if (event === 'operations' && Array.isArray(payload.operations) && callbacks.onOperations) callbacks.onOperations(payload.operations);
-            else if (event === 'plan_ready' && Array.isArray(payload.operations) && callbacks.onPlanReady) callbacks.onPlanReady(payload.operations);
-            else if (event === 'done') callbacks.onDone(payload);
-            else if (event === 'error' && payload.message) callbacks.onError(payload.message);
-          } catch (_) { }
-        }
-      }
-      if (buf.trim()) {
-        let event = '';
-        let data = '';
-        for (const line of buf.split('\n')) {
-          if (line.startsWith('event: ')) event = line.slice(7).trim();
-          else if (line.startsWith('data: ')) data = line.slice(6);
-        }
-        if (data) {
-          try {
-            const payload = JSON.parse(data);
-            if (event === 'plan_ready' && Array.isArray(payload.operations) && callbacks.onPlanReady) callbacks.onPlanReady(payload.operations);
-            else if (event === 'done') callbacks.onDone(payload);
-            else if (event === 'error' && payload.message) callbacks.onError(payload.message);
-          } catch (_) { }
-        }
-      }
-    } catch (e: any) {
-      if (e?.name === 'AbortError') callbacks.onError('Cancelled');
-      else callbacks.onError(e?.message ?? 'Stream failed');
-    }
-  },
-
-  // Error Fixing - Analyze and fix cell execution errors
-  async fixError(req: ErrorFixRequest): Promise<AIResponse> {
-    return request('/ai/fix_error', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    });
-  },
 
 
   // Read file content
@@ -628,46 +497,6 @@ export const controllerClient = {
     });
   },
 
-  // ===== AI Model Management API =====
-
-  // Get all available AI providers and models (includes both cloud and local)
-  async getProviders(): Promise<{ providers: Record<string, ProviderInfo>; current: ModelSelection; selectedModels: SelectedModel[] }> {
-    return request('/ai/models/providers');
-  },
-
-  // Select a model
-  async selectModel(provider: string, model: string): Promise<{ success: boolean; current: ModelSelection }> {
-    return request('/ai/models/select', {
-      method: 'POST',
-      body: JSON.stringify({ provider, model }),
-    });
-  },
-
-  // Get current model
-  async getCurrentModel(): Promise<ModelSelection> {
-    return request('/ai/models/current');
-  },
-
-  // Set provider API key
-  async setProviderApiKey(provider: string, apiKey: string): Promise<{ success: boolean }> {
-    return request('/ai/models/api-key', {
-      method: 'POST',
-      body: JSON.stringify({ provider, apiKey }),
-    });
-  },
-
-  // Toggle model selection for chat dropdown
-  async toggleModelSelection(provider: string, modelId: string, selected: boolean): Promise<{ success: boolean; selectedModels: SelectedModel[] }> {
-    return request('/ai/models/toggle-selection', {
-      method: 'POST',
-      body: JSON.stringify({ provider, modelId, selected }),
-    });
-  },
-
-  // Get selected models for chat dropdown
-  async getSelectedModels(): Promise<{ selectedModels: SelectedModel[] }> {
-    return request('/ai/models/selected');
-  },
 
   // Preview CSV file
   async previewCSV(path: string, limit: number = 100): Promise<TablePreviewData> {
@@ -681,14 +510,6 @@ export const controllerClient = {
     return request(url);
   },
 
-  // Chat history
-  async getChatSessions(): Promise<{ sessions: Array<{ id: string; notebook_name: string | null; created_at: number; last_activity_at: number; messageCount: number }> }> {
-    return request('/ai/chat/sessions');
-  },
-
-  async getChatMessages(sessionId: string): Promise<{ messages: Array<{ id: number; session_id: string; role: 'user' | 'assistant' | 'system'; content: string; token_estimate: number | null; created_at: number }> }> {
-    return request(`/ai/chat/sessions/${encodeURIComponent(sessionId)}/messages`);
-  },
 };
 
 // Additional types for file system

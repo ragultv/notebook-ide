@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from '../events/EventBus.js';
 import { outputManager } from '../output/OutputManager.js';
 import { outputStore } from '../output/OutputStore.js';
+import { notebookService } from './NotebookService.js';
 
 // ── .ipynb types (nbformat 4) ──────────────────────────────────────────────────
 
@@ -138,6 +139,9 @@ export class NotebookManager {
         this.notebooks.set(notebookId, openNotebook);
         outputStore.upsertNotebook(notebookId, resolvedPath, name);
 
+        // Register VS Code-like text model for kernel execution tracking
+        notebookService.createFromIpynb(notebookId, notebook);
+
         eventBus.emit('notebook:opened', {
             notebookId,
             path: resolvedPath,
@@ -154,6 +158,7 @@ export class NotebookManager {
         if (!nb) return;
 
         this.notebooks.delete(notebookId);
+        notebookService.removeNotebookTextModel(notebookId);
 
         eventBus.emit('notebook:closed', {
             notebookId,
@@ -248,6 +253,9 @@ export class NotebookManager {
                 cell.id = uuidv4().replace(/-/g, '');
             }
         }
+
+        // Refresh VS Code-like text model to reflect new cell structure
+        notebookService.createFromIpynb(notebookId, nb.notebook);
     }
 
     /**
@@ -263,6 +271,9 @@ export class NotebookManager {
                 i < arr.length - 1 ? line + '\n' : line
             );
         }
+
+        // Keep the VS Code TextModel in sync so PythonProcessKernel reads the latest source.
+        notebookService.updateCellSource(notebookId, cellId, source);
     }
 
     /**

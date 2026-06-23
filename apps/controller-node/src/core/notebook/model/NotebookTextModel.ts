@@ -1,13 +1,13 @@
-import { NotebookCellTextModel } from './NotebookCellTextModel';
-import { NotebookCellOutputTextModel } from './NotebookCellOutputTextModel';
-import { NotebookCellOutputItemTextModel } from './NotebookCellOutputItemTextModel';
-import { 
-    ICellDto, 
-    ICellEditOperation, 
-    CellEditType, 
+import { NotebookCellTextModel } from './NotebookCellTextModel.js';
+import { NotebookCellOutputTextModel } from './NotebookCellOutputTextModel.js';
+import { NotebookCellOutputItemTextModel } from './NotebookCellOutputItemTextModel.js';
+import {
+    ICellDto,
+    ICellEditOperation,
+    CellEditType,
     NotebookDocumentMetadata,
-    IOutputDto 
-} from '../NotebookCommon';
+    IOutputDto,
+} from '../NotebookCommon.js';
 
 export class NotebookTextModel {
     private _cells: NotebookCellTextModel[] = [];
@@ -38,6 +38,7 @@ export class NotebookTextModel {
         return new NotebookCellTextModel(
             this.uri,
             dto.handle,
+            dto.cellId,
             dto.cellKind,
             dto.source,
             dto.language,

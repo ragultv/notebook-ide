@@ -27,12 +27,3 @@ export interface ModelSelection {
   };
 }
 
-export interface AIOperation {
-  type: string;
-  params: Record<string, unknown>;
-}
-
-export interface AIResponse {
-  response: string;
-  operations?: AIOperation[];
-}
