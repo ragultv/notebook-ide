@@ -14,7 +14,7 @@ import { FastifyInstance } from 'fastify';
 import { notebookManager } from '../core/notebook/NotebookManager.js';
 import { outputManager } from '../core/output/OutputManager.js';
 import { persistenceManager } from '../core/persistence/PersistenceManager.js';
-import { executionQueue } from '../core/notebook/ExecutionQueue.js';
+import { cellExecutionQueue } from '../core/execution/CellExecutionQueue.js';
 import { sessionManager } from '../core/session/SessionManager.js';
 import { projectStore } from '../core/ProjectStore.js';
 import { createVFS } from '../core/VirtualFS.js';
@@ -110,7 +110,7 @@ export async function notebookRoutes(fastify: FastifyInstance) {
             name: nb.name,
             cellCount: nb.notebook.cells.length,
             isDirty: persistenceManager.isDirty(nb.notebookId),
-            queueStatus: executionQueue.getQueueSnapshot(nb.notebookId).status,
+            queueStatus: cellExecutionQueue.getQueueSnapshot(nb.notebookId).status,
             session: sessionManager.getSession(nb.notebookId),
             openedAt: nb.openedAt,
             lastSavedAt: nb.lastSavedAt,
@@ -136,7 +136,7 @@ export async function notebookRoutes(fastify: FastifyInstance) {
             name: nb.name,
             notebook: nb.notebook,
             isDirty: persistenceManager.isDirty(nb.notebookId),
-            queueStatus: executionQueue.getQueueSnapshot(nb.notebookId).status,
+            queueStatus: cellExecutionQueue.getQueueSnapshot(nb.notebookId).status,
             session: sessionManager.getSession(nb.notebookId),
         };
     });

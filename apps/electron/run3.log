@@ -1,0 +1,18 @@
+
+[Electron] Spawning server: node D:\Ragul\Aiml-Pipeline\notebook-ide\apps\electron\dist-electron\win-unpacked\resources\app\apps\controller-node\dist\index.js
+[Renderer] Polyfill require called for: @jupyter-widgets/schema
+[Renderer] Polyfill require called for: @jupyter-widgets/schema
+[Renderer] Uncaught Error: schema must be object or boolean
+[Server] [SessionManager] Initialized.
+[Server] [OutputStore] Initialized at D:\Ragul\Aiml-Pipeline\notebook-ide\apps\electron\dist-electron\win-unpacked\resources\app\apps\controller-node\data\octopod.db
+[Server] [PersistenceManager] Initialized. Autosave every 30s + on completion.
+[Server] {"level":30,"time":1782132915913,"pid":30552,"hostname":"LAPTOP-RMA50HO5","msg":"[Octopod] Runtime managers initialized."}
+[Server] [KernelPool] Initializing with size: 2
+[Server] {"level":30,"time":1782132916028,"pid":30552,"hostname":"LAPTOP-RMA50HO5","msg":"Server listening at http://127.0.0.1:3001"}
+{"level":30,"time":1782132916028,"pid":30552,"hostname":"LAPTOP-RMA50HO5","msg":"Server listening at http://192.168.1.36:3001"}
+{"level":30,"time":1782132916028,"pid":30552,"hostname":"LAPTOP-RMA50HO5","msg":"Server listening at http://0.0.0.0:3001"}
+{"level":30,"time":1782132916028,"pid":30552,"hostname":"LAPTOP-RMA50HO5","msg":"Environment: production"}
+[Server] {"level":30,"time":1782132916463,"pid":30552,"hostname":"LAPTOP-RMA50HO5","reqId":"req-1","req":{"method":"GET","url":"/health","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":50490},"msg":"incoming request"}
+[Electron] Server is ready on port 3001
+[Server] {"level":30,"time":1782132916476,"pid":30552,"hostname":"LAPTOP-RMA50HO5","reqId":"req-1","res":{"statusCode":200},"responseTime":11.234600000083447,"msg":"request completed"}
+[Server] [KernelPool] Added kernel to pool, size: 1

@@ -15,6 +15,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import * as http from 'http';
+import { pathToFileURL } from 'url';
 
 // Disable default menu bar (File, Edit, View, Window, Help)
 Menu.setApplicationMenu(null);
@@ -27,7 +28,7 @@ const SERVER_PORT  = parseInt(process.env.SERVER_PORT || '3001', 10);
 const SERVER_URL   = `http://127.0.0.1:${SERVER_PORT}`;
 const RENDERER_URL = isDev
   ? `http://localhost:${VITE_PORT}`
-  : `file://${path.join(process.resourcesPath, 'app/apps/desktop-ui/dist/index.html')}`;
+  : pathToFileURL(path.join(process.resourcesPath, 'app/apps/desktop-ui/index.html')).href;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -147,6 +148,10 @@ function createWindow(): void {
       webSecurity:       true,
     },
     icon: getAppIcon(),
+  });
+
+  mainWindow.webContents.on('console-message', (e, level, message) => {
+    console.log(`[Renderer] ${message}`);
   });
 
   mainWindow.once('ready-to-show', () => {

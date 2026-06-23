@@ -24,4 +24,4 @@ root.render(
       <App />
     </ProjectProvider>
   )
-);
+);

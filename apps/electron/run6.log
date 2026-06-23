@@ -1,0 +1,24 @@
+
+[Electron] Spawning server: node D:\Ragul\Aiml-Pipeline\notebook-ide\apps\electron\dist-electron\win-unpacked\resources\app\apps\controller-node\dist\index.js
+[Renderer] strict mode: use allowUnionTypes to allow union type keyword at "#/properties/state/additionalProperties/properties/buffers/items/properties/path/items" (strictTypes)
+[Renderer] [Vite Polyfill] require called for: ../package.json
+[Server] [SessionManager] Initialized.
+[Server] [OutputStore] Initialized at D:\Ragul\Aiml-Pipeline\notebook-ide\apps\electron\dist-electron\win-unpacked\resources\app\apps\controller-node\data\octopod.db
+[PersistenceManager] Initialized. Autosave every 30s + on completion.
+[Server] {"level":30,"time":1782133380091,"pid":24916,"hostname":"LAPTOP-RMA50HO5","msg":"[Octopod] Runtime managers initialized."}
+[Server] [KernelPool] Initializing with size: 2
+[Server] {"level":30,"time":1782133380278,"pid":24916,"hostname":"LAPTOP-RMA50HO5","msg":"Server listening at http://127.0.0.1:3001"}
+{"level":30,"time":1782133380278,"pid":24916,"hostname":"LAPTOP-RMA50HO5","msg":"Server listening at http://192.168.1.36:3001"}
+{"level":30,"time":1782133380279,"pid":24916,"hostname":"LAPTOP-RMA50HO5","msg":"Server listening at http://0.0.0.0:3001"}
+{"level":30,"time":1782133380279,"pid":24916,"hostname":"LAPTOP-RMA50HO5","msg":"Environment: production"}
+[Server] {"level":30,"time":1782133380303,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-1","req":{"method":"GET","url":"/kernels/metrics/default","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":64050},"msg":"incoming request"}
+[Server] {"level":30,"time":1782133380321,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-1","res":{"statusCode":200},"responseTime":15.421900004148483,"msg":"request completed"}
+[Server] {"level":30,"time":1782133380323,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-2","req":{"method":"GET","url":"/files/project","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":64051},"msg":"incoming request"}
+{"level":30,"time":1782133380326,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-2","res":{"statusCode":200},"responseTime":3.0657999962568283,"msg":"request completed"}
+[Server] {"level":30,"time":1782133380343,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-3","req":{"method":"GET","url":"/files/recent","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":64051},"msg":"incoming request"}
+[Server] {"level":30,"time":1782133380345,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-3","res":{"statusCode":200},"responseTime":1.6494000032544136,"msg":"request completed"}
+[Server] {"level":30,"time":1782133380673,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-4","req":{"method":"GET","url":"/health","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":64056},"msg":"incoming request"}
+[Server] {"level":30,"time":1782133380675,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-4","res":{"statusCode":200},"responseTime":1.3827999979257584,"msg":"request completed"}
+[Electron] Server is ready on port 3001
+[Server] {"level":30,"time":1782133381785,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-5","req":{"method":"GET","url":"/kernels/metrics/default","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":64051},"msg":"incoming request"}
+[Server] {"level":30,"time":1782133381786,"pid":24916,"hostname":"LAPTOP-RMA50HO5","reqId":"req-5","res":{"statusCode":200},"responseTime":1.1143999993801117,"msg":"request completed"}

@@ -7,8 +7,8 @@ import {
 import { useUIStore } from '../../store/ui.store';
 import { controllerClient } from '../../services/controller.client';
 import { useCenterDialog } from '../shared/CenterDialog';
-import octomlLogo from '../../../public/icon.png';
 import { useProject } from '../../context/ProjectContext';
+import octomlLogo from '../../icon.png';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

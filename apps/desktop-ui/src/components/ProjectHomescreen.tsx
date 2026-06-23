@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { FolderOpen, FolderPlus, Clock, ChevronRight, Loader2, AlertCircle, X } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { controllerClient } from '../services/controller.client';
+import octomlLogo from '../icon.png';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -147,8 +148,8 @@ export const ProjectHomescreen: React.FC = () => {
         {/* ── Branding ─────────────────────────────────────────────────── */}
         <div className="text-center">
           <div className="inline-flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-sim-red/20 border border-sim-red/40 flex items-center justify-center">
-              <span className="text-2xl">🐙</span>
+            <div className="w-20 h-20 rounded-xl flex items-center justify-center overflow-hidden">
+              <img src={octomlLogo} alt="OctoML Logo" className="w-16 h-16 object-contain" />
             </div>
             <h1 className="text-3xl font-bold text-white tracking-tight">OctoML</h1>
           </div>
@@ -202,8 +203,8 @@ export const ProjectHomescreen: React.FC = () => {
                   disabled={loading}
                   className="group flex items-center gap-3 px-4 py-3 bg-sim-surface hover:bg-sim-surface/80 border border-sim-border hover:border-white/20 rounded-xl text-left transition-all"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
-                    <span className="text-base">🐙</span>
+                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 overflow-hidden">
+                    <img src={octomlLogo} alt="OctoML Logo" className="w-4 h-4 object-contain opacity-80" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-white text-sm truncate">{proj.name}</div>
