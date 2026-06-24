@@ -57,6 +57,8 @@ export interface ActivePlan {
   goal: string;
   tasks: Array<{ id: string; description: string; status: string }>;
   plan_path: string;
+  msgId?: string;
+  proceeded?: boolean;
 }
 
 export interface ChatSession {
@@ -322,7 +324,7 @@ export function useAgentChat(opts: UseAgentChatOptions) {
   }, [loadSessions]);
 
   // ── Send message ──────────────────────────────────────────────────────────
-  const sendMessage = useCallback(async (content: string, modeOverride?: Mode) => {
+  const sendMessage = useCallback(async (content: string, modeOverride?: Mode, attachmentsOverride?: AttachedFile[]) => {
     const effectiveMode = modeOverride ?? mode;
     if (isLoading) return;
 
@@ -334,18 +336,19 @@ export function useAgentChat(opts: UseAgentChatOptions) {
     }
 
     // Build content with attachments
+    const currentAttachments = attachmentsOverride ?? attachedFiles;
     let fullContent = content;
-    if (attachedFiles.length > 0) {
-      const attachText = attachedFiles
+    if (currentAttachments.length > 0) {
+      const attachText = currentAttachments
         .map(f => {
           const pathLine = f.path ? `\nFile path: ${f.path}` : '';
-          return `\n\n[Attached: ${f.name}]${pathLine}\n\`\`\`\n${f.content.slice(0, 4000)}\n\`\`\``;
+          return `\n\n[Attached file: ${f.name}]${pathLine}\n(Please use the readFile tool to read this file if needed)`;
         })
         .join('');
       fullContent = content + attachText;
     }
 
-    const userMsg: ChatMsg = { id: `u-${Date.now()}`, role: 'user', content: content, attachments: attachedFiles, timestamp: new Date().toISOString() };
+    const userMsg: ChatMsg = { id: `u-${Date.now()}`, role: 'user', content: content, attachments: currentAttachments, timestamp: new Date().toISOString() };
     const assistantMsg: ChatMsg = { id: `a-${Date.now()}`, role: 'assistant', content: '', timestamp: new Date().toISOString() };
 
     currentAssistantId.current = assistantMsg.id;
@@ -360,7 +363,7 @@ export function useAgentChat(opts: UseAgentChatOptions) {
       ...messages.map(m => {
         let text = m.content;
         if (m.attachments && m.attachments.length > 0) {
-          text += m.attachments.map(f => `\n\n[Attached: ${f.name}]\n\`\`\`\n${f.content.slice(0, 4000)}\n\`\`\``).join('');
+          text += m.attachments.map(f => `\n\n[Attached file: ${f.name}]\n(Please use the readFile tool to read this file if needed)`).join('');
         }
         return { role: m.role, content: text, timestamp: m.timestamp };
       }),
@@ -523,6 +526,7 @@ export function useAgentChat(opts: UseAgentChatOptions) {
               goal:      evt['goal'] as string,
               tasks:     evt['tasks'] as Array<{ id: string; description: string; status: string }>,
               plan_path: evt['plan_path'] as string,
+              msgId:     currentAssistantId.current,
             });
             break;
 
@@ -584,8 +588,18 @@ export function useAgentChat(opts: UseAgentChatOptions) {
   const proceedWithPlan = useCallback(() => {
     if (!activePlan) return;
     const taskList = activePlan.tasks.map((t, i) => `${i + 1}. ${t.description}`).join('\n');
-    const msg = `Proceed with the implementation plan.\n\n**Plan: ${activePlan.goal}**\n\n${taskList}`;
-    void sendMessage(msg, 'AGENTIC');
+    const msg = `Proceed with the implementation plan.`;
+    
+    const planFile: AttachedFile = {
+      id: `plan-${activePlan.id}`,
+      name: `Plan: ${activePlan.goal.slice(0, 20)}...`,
+      content: `Goal: ${activePlan.goal}\nTasks:\n${taskList}`,
+      path: activePlan.plan_path
+    };
+
+    setMode('AGENT');
+    void sendMessage(msg, 'AGENT', [planFile]);
+    setActivePlan(prev => prev ? { ...prev, proceeded: true } : null);
   }, [activePlan, sendMessage]);
 
   const denyPermission    = useCallback(() => setPendingPerm(null), []);

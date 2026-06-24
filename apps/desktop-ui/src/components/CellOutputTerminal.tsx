@@ -25,6 +25,18 @@ export function CellOutputTerminal({ cellId, notebookId, executionId }: Props) {
     const termRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<Terminal | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (inputPrompt && inputRef.current) {
+            const timeoutId = setTimeout(() => {
+                if (document.activeElement !== inputRef.current) {
+                    inputRef.current?.focus();
+                }
+            }, 50);
+            return () => clearTimeout(timeoutId);
+        }
+    }, [inputPrompt]);
     const [richOutputs, setRichOutputs] = useState<any[]>([]);
     const [inputPrompt, setInputPrompt] = useState<string | null>(null);
     const [inputValue, setInputValue] = useState('');
@@ -140,13 +152,7 @@ export function CellOutputTerminal({ cellId, notebookId, executionId }: Props) {
                 <div style={{ display: 'flex', gap: 8, padding: 8, background: '#1a1a2e' }}>
                     <span style={{ color: '#9cdcfe', fontFamily: 'monospace' }}>{inputPrompt}</span>
                     <input
-                        ref={(el) => {
-                            if (el) {
-                                setTimeout(() => {
-                                    if (document.activeElement !== el) el.focus();
-                                }, 50);
-                            }
-                        }}
+                        ref={inputRef}
                         autoFocus
                         value={inputValue}
                         onChange={e => setInputValue(e.target.value)}

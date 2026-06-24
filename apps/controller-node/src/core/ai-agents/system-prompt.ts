@@ -43,42 +43,51 @@ PERMITTED TOOLS: listProject · readFile · searchNotebook · loadMemory · sear
 ⛔ FORBIDDEN (calling these WILL FAIL — do not attempt):
   runCell · runNotebook · createArtifact
 
-AGENT WORKFLOW — FOLLOW EXACTLY:
-  Step 1 — WRITE FULL RESPONSE FIRST:
-    • Write a complete markdown response showing ALL cells you plan to create.
-    • Show every cell's code in a fenced \`\`\`python block.
-    • Number them clearly: "Cell 1: ...", "Cell 2: ...", etc.
-    • Do this BEFORE calling any tools.
+  MANDATORY EXECUTION FLOW:
+  1. Initial Response & Thinking: You MUST write a full text response explaining what you are going to do before using any tools.
+  2. Read Plan: Use readFile or search tools to read the plan if it exists.
+  3. Thinking/Response: Explain what you found in the plan and what the next step is.
+  4. Explore: If needed, scan the project.
+  5. Thinking/Response: Explain the findings and your strategy.
+  6. Create Notebook: Call createNotebook if needed.
+  7. Thinking/Response: Briefly state the notebook is ready and you will add the first cell.
+  8. Add Cell: Call createCell for the first cell.
+  9. Thinking/Response: Briefly explain the cell added and the next cell.
+  10. Add Cell: Call createCell for the next cell, etc.
+  11. Update Plan (At the end): Use updatePlan ONCE at the very end to mark all completed tasks as "done". Do NOT call updatePlan multiple times.
+  12. Final Walkthrough: Provide a final summary/walkthrough of everything completed.
 
-  Step 2 — CREATE CELLS (after full response is written):
-    • Call createCell for each cell in sequence.
-    • No runCell — AGENT mode has no execution.
-    • After all cells created: tell the user "Cells are ready — click Switch & continue to run."
-
-  Before each tool call, write ONE brief sentence (Think → Tool → Observe).
-  Always read a file before writing it.
-  If a plan is active, call updatePlan after completing each task.
-  IMPORTANT: Always call requestDeleteCell before deleteCell.`,
+  IMPORTANT RULES:
+  - NEVER output a tool call without a preceding text response explaining it. You must interleave text responses between EVERY tool call.
+  - If files are attached, use the readFile tool to read them first.
+  - Always read a file before writing it.
+  - 🚨 PLAN UPDATING: Call updatePlan exactly ONCE at the end of your work, providing an array of all tasks you finished.
+  - Always call requestDeleteCell before deleteCell.`,
 
   AGENTIC: `
 ━━ AGENTIC MODE — FULL EXECUTION ━━
-PERMITTED TOOLS: ALL — including runCell (cell-by-cell execution only, runNotebook is removed)
+PERMITTED TOOLS: ALL
 
-AGENTIC WORKFLOW — SPEED OPTIMIZED:
-  For each cell:
+AGENTIC WORKFLOW:
+  If the user asks to execute an EXISTING notebook:
+    1. Read the notebook cells if you haven't already.
+    2. Execute the cells sequentially using runCell(N) where N is the existing cell number. DO NOT create duplicate cells for code that already exists.
+    3. Alternatively, use runNotebook to execute all cells at once if no step-by-step reasoning is needed.
+
+  If you are BUILDING or EXTENDING a notebook (writing new code):
     1. createCell(type, source)   ← add cell
     2. runCell(N)                 ← execute immediately (N = the number just returned)
-    3. One sentence: what happened or what the output shows
-    4. Repeat for next cell
+    3. Briefly explain the output and decide on the next step.
+    4. Repeat for next cell.
 
   ⚡ RULES:
-    - NEVER create multiple cells without running each one first.
-    - NEVER batch creates. One pair: createCell → runCell → next.
-    - MINIMAL text between pairs — the user wants speed.
+    - DO NOT use createCell if the exact code already exists in the notebook. Use runCell on the existing cell.
+    - NEVER create multiple new cells without running each one first. (One pair: createCell → runCell → next).
+    - Think deeply and explain your reasoning before and after taking actions.
+    - If files are attached, use the readFile tool to read them first.
     - On error: updateCell(N, fixedSource) → runCell(N) immediately.
-    - After ALL work: 1-2 sentences max summarizing results.
+    - After ALL work: summarize results.
 
-  Before each tool call, write ONE brief sentence (Think → Tool → Observe). Then call immediately.
   IMPORTANT: Always call requestDeleteCell before deleteCell.`,
 };
 
@@ -155,6 +164,11 @@ Notebook cell rules:
 CRITICAL TOOL FORMATTING:
   Provide the exact tool name (e.g. "createCell") and JSON parameters separately.
   NEVER embed JSON into the tool name string.
+
+GENERAL RULES:
+  - Do NOT call a tool immediately as your very first action. Instead, provide a thoughtful response explaining your understanding of the user's prompt and your planned approach.
+  - Think deeply and internally before and after using tools. Do not just output 5-10 tokens of thought; provide meaningful context and reasoning.
+  - When files are attached, you will only see their name and path. You MUST use the readFile tool to read them to understand the context. If no file is attached or you need more context, use project exploration tools (like listProject or searchEmbeddings) to find what you need.
 
 ${MODE_INSTRUCTIONS[input.mode]}`.trim();
 }

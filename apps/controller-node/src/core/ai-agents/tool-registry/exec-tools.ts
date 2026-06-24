@@ -44,6 +44,14 @@ export const runCellEntry: ToolEntry = {
       }
     } else {
       sourceToRun = target;
+      // If the agent passed raw source code, try to find the corresponding cell ID in the notebook
+      // so we can broadcast the execution state to the UI.
+      const matchedCell = ctx.current_notebook.cells.find(
+        c => c.source.trim() === target.trim()
+      );
+      if (matchedCell) {
+        cellId = matchedCell.id;
+      }
     }
 
     const bridge = _bridge;
@@ -54,7 +62,7 @@ export const runCellEntry: ToolEntry = {
 
     const result = await bridge.executeCell(sourceToRun, evt => {
       ctx.emit({ type: 'kernel_output', stream: evt.stream, text: evt.text });
-    });
+    }, cellId ?? undefined);
 
     // Signal the frontend that execution finished
     if (cellId) ctx.emit({ type: 'cell_run_complete', cell_id: cellId, success: result.success });
@@ -96,7 +104,7 @@ export const runNotebookEntry: ToolEntry = {
       if (cell.type !== 'code') continue;
       const res = await bridge.executeCell(cell.source, evt => {
         ctx.emit({ type: 'kernel_output', stream: evt.stream, text: evt.text });
-      });
+      }, cell.id);
       results.push({ cell_id: cell.id, success: res.success });
       if (!res.success) break;
     }
