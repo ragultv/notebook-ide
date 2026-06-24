@@ -5,6 +5,7 @@ import { KernelBridge } from '../core/ai-agents/kernel-bridge.js';
 import { OctomlStore } from '../core/ai-agents/store/octoml-store.js';
 import type { AgentEvent } from '../core/ai-agents/types/index.js';
 import { setKernelBridge } from '../core/ai-agents/tool-registry/index.js';
+import { broadcastToNotebook } from './notebookBroadcast.js';
 
 const ModeSchema = z.enum(['ASK', 'PLAN', 'AGENT', 'AGENTIC']);
 
@@ -71,8 +72,15 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 
     // Wire bridge singleton and connect to the session's kernel
     setKernelBridge(bridge);
+    // Determine the notebook ID the browser is connected to via WebSocket.
+    // The browser opens a WS at /ws/<notebookId> where notebookId is the notebook path.
+    // We use current_notebook.path when available; fall back to session_id.
+    const notebookBroadcastId = request.current_notebook.path ?? request.session_id;
     try {
       await bridge.connect(request.session_id);
+      // Wire the broadcast function so agent cell runs update the UI identically
+      // to a manual cell run (running spinner, live output, success/error state).
+      bridge.setBroadcast(notebookBroadcastId, broadcastToNotebook);
     } catch {
       // Non-fatal — AGENTIC tools will surface the error when invoked
     }

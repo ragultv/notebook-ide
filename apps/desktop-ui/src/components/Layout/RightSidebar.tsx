@@ -28,6 +28,7 @@ interface RightSidebarProps {
   notebookCells: CellData[];
   notebookName: string;
   notebookPath?: string;
+  notebookId?: string;  // The notebook UUID used for the WebSocket connection
   projectFiles: ProjectFile[];
   activeCellId?: string | null;
   onOpenManageModels: () => void;
@@ -165,7 +166,7 @@ function MarkdownBlock({ text }: { text: string }) {
   );
 }
 
-function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segments, activePlan, onOpenPlan, onProceedWithPlan, isLast }: {
+function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segments, activePlan, onOpenPlan, onProceedWithPlan, isLast, msgId }: {
   content: string;
   isStreaming: boolean;
   activities: string[];
@@ -175,6 +176,7 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
   onOpenPlan?: (path: string) => void;
   onProceedWithPlan?: () => void;
   isLast: boolean;
+  msgId: string;
 }) {
   const showThinking = isStreaming && !content && activities.length === 0 && msgToolCalls.length === 0;
   const useSegments  = !isStreaming && segments && segments.length > 0;
@@ -208,7 +210,7 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
       {isStreaming && content && (
         <span className="inline-block w-0.5 h-3 bg-white/30 ml-0.5 animate-pulse rounded-sm align-middle" />
       )}
-      {isLast && activePlan && onProceedWithPlan && (
+      {!isStreaming && activePlan && activePlan.msgId === msgId && !activePlan.proceeded && onProceedWithPlan && (
         <PlanShortcut plan={activePlan} onOpen={onOpenPlan} onProceed={onProceedWithPlan} />
       )}
     </div>
@@ -342,22 +344,25 @@ function PlanShortcut({ plan, onOpen, onProceed }: {
 }) {
   const label = plan.goal.length > 36 ? plan.goal.slice(0, 35) + '…' : plan.goal;
   return (
-    <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+    <div className="mt-3 flex items-center gap-2 flex-wrap">
       <button
         onClick={() => onOpen?.(plan.plan_path)}
         title="Open plan in editor"
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 text-[11px] text-purple-300/70 hover:text-purple-200 hover:bg-purple-500/18 transition-colors"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#2d1b4e] border border-[#4c2d82] text-xs text-[#d1b3ff] hover:bg-[#3b2366] transition-colors font-medium shadow-sm"
       >
         <span>📋</span>
-        <span className="font-medium">{label}</span>
-        <span className="text-purple-400/40 ml-0.5">↗</span>
+        <span className="max-w-[200px] truncate">{label}</span>
+        <span className="opacity-50 ml-1">↗</span>
       </button>
-      <button
-        onClick={onProceed}
-        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-500/12 border border-orange-500/20 text-[11px] text-orange-300/80 hover:bg-orange-500/22 transition-colors font-medium"
-      >
-        ▶ Proceed in Agent
-      </button>
+      {!plan.proceeded && (
+        <button
+          onClick={onProceed}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#4a2615] border border-[#7a3d21] text-xs text-[#ffb088] hover:bg-[#5c2f1a] transition-colors font-medium shadow-sm"
+        >
+          <span>▶</span>
+          <span>Proceed in Agent</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -434,14 +439,17 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   activeCellId,
   modelsRefreshTrigger,
   width, isResizing, onStartResizing,
-  onOpenFile, onCellRunStart, onCellRunComplete,
+  onOpenFile, onCellRunStart, onCellRunComplete, notebookId: notebookFileId,
 }) => {
   const { project } = useProject();
 
-  // Derive notebook path for the agent request (so it can write cells to the file directly)
-  const notebookPath = notebookPathProp ?? (notebookName
-    ? `notebooks/${notebookName.endsWith('.ipynb') ? notebookName : notebookName + '.ipynb'}`
-    : undefined);
+    // The notebook path sent to the agent. Prefer the real file ID (matches WebSocket /ws/<id>),
+    // then the explicit path prop, then derive from name.
+    const notebookPath = notebookFileId
+      ?? notebookPathProp
+      ?? (notebookName
+        ? `notebooks/${notebookName.endsWith('.ipynb') ? notebookName : notebookName + '.ipynb'}`
+        : undefined);
 
   const agentCells = useMemo(() =>
     notebookCells.map(c => ({ id: c.id, type: c.type as 'code' | 'markdown', source: c.content })),
@@ -480,6 +488,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   const bottomRef    = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef     = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      const timeoutId = setTimeout(() => {
+        if (document.activeElement !== inputRef.current) {
+          inputRef.current?.focus();
+        }
+      }, 50);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isOpen]);
 
   // Reload models whenever the settings page changes model selection
   useEffect(() => {
@@ -696,7 +716,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                     msgToolCalls={msgToolCalls}
                     segments={msg.segments}
                     isLast={isLast}
-                    activePlan={isLast ? activePlan : null}
+                    msgId={msg.id}
+                    activePlan={activePlan?.msgId === msg.id ? activePlan : null}
                     onOpenPlan={onOpenFile}
                     onProceedWithPlan={isLast ? proceedWithPlan : undefined}
                   />
@@ -817,13 +838,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               )}
               <textarea
                 autoFocus
-                ref={(el) => {
-                  if (el && isOpen) {
-                    setTimeout(() => {
-                      if (document.activeElement !== el) el.focus();
-                    }, 50);
-                  }
-                }}
+                ref={inputRef}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}

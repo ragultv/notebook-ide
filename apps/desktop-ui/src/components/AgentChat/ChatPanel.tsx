@@ -104,7 +104,19 @@ export function ChatPanel({
   onCellRunStart, onCellRunComplete,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
-  const messagesEndRef    = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      const timeoutId = setTimeout(() => {
+        if (document.activeElement !== inputRef.current) {
+          inputRef.current?.focus();
+        }
+      }, 50);
+      return () => clearTimeout(timeoutId);
+    }
+  }, []);
 
   const {
     messages, toolCalls, kernelLines, escalation, isLoading, mode, activePlan,
@@ -223,13 +235,7 @@ export function ChatPanel({
       {/* Input area */}
       <div className="border-t border-gray-200 dark:border-gray-700 p-2 flex gap-2">
         <textarea
-          ref={(el) => {
-            if (el) {
-              setTimeout(() => {
-                if (document.activeElement !== el) el.focus();
-              }, 50);
-            }
-          }}
+          ref={inputRef}
           autoFocus
           value={input}
           onChange={e => setInput(e.target.value)}

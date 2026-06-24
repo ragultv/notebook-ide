@@ -62,8 +62,10 @@ export const updatePlanEntry: ToolEntry = {
     description: 'Update a task status within the active plan.',
     inputSchema: z.object({
       plan_id: z.string(),
-      task_id: z.string(),
-      status: z.string().describe('Must be exactly "pending", "in_progress", "done", or "failed"'),
+      updates: z.array(z.object({
+        task_id: z.string(),
+        status: z.string().describe('Must be exactly "pending", "in_progress", "done", or "failed"')
+      })).describe('Array of updates. You can update all completed tasks in a single tool call.')
     }),
     permittedModes: ['PLAN', 'AGENT', 'AGENTIC'],
   },
@@ -72,10 +74,17 @@ export const updatePlanEntry: ToolEntry = {
     const plan = await store.getPlan(input['plan_id'] as string);
     if (!plan) return { success: false, error: `Plan not found: ${input['plan_id']}` };
 
-    const task = plan.tasks.find(t => t.id === (input['task_id'] as string));
-    if (!task) return { success: false, error: `Task not found: ${input['task_id']}` };
+    const updates = input['updates'] as Array<{ task_id: string; status: 'pending' | 'in_progress' | 'done' | 'failed' }>;
+    
+    const results = [];
+    for (const update of updates) {
+      const task = plan.tasks.find(t => t.id === update.task_id);
+      if (task) {
+        task.status = update.status;
+        results.push({ task_id: task.id, status: task.status });
+      }
+    }
 
-    task.status = input['status'] as 'pending' | 'in_progress' | 'done' | 'failed';
     plan.updated_at = new Date().toISOString();
     await store.savePlan(plan);
 
@@ -86,6 +95,6 @@ export const updatePlanEntry: ToolEntry = {
       plan.tasks.map((t, i) => `- [${statusIcon[t.status] ?? ' '}] **${i + 1}. ${t.description}** _(${t.status})_`).join('\n') + '\n';
     await fs.writeFile(planMdPath, md, 'utf-8').catch(() => undefined);
 
-    return { success: true, data: { plan_id: plan.id, task_id: task.id, status: task.status } };
+    return { success: true, data: { plan_id: plan.id, updates: results } };
   },
 };

@@ -45,6 +45,7 @@ import { cellExecutionQueue } from '../core/execution/CellExecutionQueue.js';
 import { notebookManager } from '../core/notebook/NotebookManager.js';
 import { eventBus } from '../core/events/EventBus.js';
 import { v4 as uuidv4 } from 'uuid';
+import { registerNotebookSocket, unregisterNotebookSocket } from './notebookBroadcast.js';
 
 const kernelManager   = KernelManager.getInstance();
 const terminalManager = TerminalManager.getInstance();
@@ -69,6 +70,8 @@ export async function websocketRoutes(fastify: FastifyInstance) {
 
         console.log(`[WebSocket] Client connected for notebook: ${notebookId}`);
         connections.set(notebookId, socket);
+        // Register into shared broadcast registry for agent cell execution
+        registerNotebookSocket(notebookId, socket);
 
         // ── Kernel startup ────────────────────────────────────────────────────
         try {
@@ -556,6 +559,8 @@ export async function websocketRoutes(fastify: FastifyInstance) {
         socket.on('close', () => {
             console.log(`[WebSocket] Client disconnected for notebook: ${notebookId}`);
             connections.delete(notebookId);
+            // Unregister from shared broadcast registry
+            unregisterNotebookSocket(notebookId);
 
             // Remove kernel listeners
             kernelManager.off('kernel:status_change', onKernelStatus);

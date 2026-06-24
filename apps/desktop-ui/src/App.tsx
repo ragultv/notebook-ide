@@ -241,9 +241,32 @@ const App: React.FC = () => {
             const name = path.split('/').pop() || path;
             notebook.handleOpenNotebook(path, name);
           }}
+          onOpenFile={(path) => {
+            const name = path.split('/').pop() || path;
+            const existingTab = tabs.tabs.find(t => t.path === path);
+            if (existingTab) {
+              tabs.handleActivateTab(existingTab.id);
+            } else {
+              const ext = name.split('.').pop()?.toLowerCase() || '';
+              let type: 'image' | 'data' | 'other' = 'other';
+              if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) type = 'image';
+              else if (['csv', 'tsv', 'json', 'yaml', 'yml'].includes(ext)) type = 'data';
+              
+              const newTabId = crypto.randomUUID();
+              tabs.setTabs(prev => [...prev, {
+                id: newTabId,
+                title: name,
+                type,
+                path
+              }]);
+              notebook.setActiveFileId(null);
+              tabs.setActiveTabId(newTabId);
+            }
+          }}
           onDeleteNotebook={() => { }}
           notebookCells={notebook.activeCells}
           notebookName={notebook.activeFile?.name || 'Untitled'}
+          notebookId={notebook.activeFile?.id}
           projectFiles={notebook.files}
           activeCellId={cells.activeCellId}
           updateNotebookCellsById={notebook.updateNotebookCellsById}
