@@ -29,6 +29,7 @@ export const runCellEntry: ToolEntry = {
     const isNumber = /^\d+$/.test(target.trim());
     let sourceToRun = '';
     let cellId: string | null = null;
+    let cellType: string | null = null;
 
     if (isNumber) {
       const n = parseInt(target.trim(), 10);
@@ -36,11 +37,13 @@ export const runCellEntry: ToolEntry = {
       if (n <= existing.length) {
         sourceToRun = existing[n - 1]!.source;
         cellId      = existing[n - 1]!.id;
+        cellType    = existing[n - 1]!.type;
       } else {
         const runtime = ctx.mutableCtx.runtimeCells.get(n);
         if (!runtime) return { success: false, error: `Cell ${n} not found` };
         sourceToRun = runtime.source;
         cellId      = runtime.id;
+        cellType    = runtime.type;
       }
     } else {
       sourceToRun = target;
@@ -51,7 +54,12 @@ export const runCellEntry: ToolEntry = {
       );
       if (matchedCell) {
         cellId = matchedCell.id;
+        cellType = matchedCell.type;
       }
+    }
+
+    if (cellType === 'markdown') {
+      return { success: true, data: { message: 'Skipped execution: Markdown cells cannot be executed.' } };
     }
 
     const bridge = _bridge;

@@ -13,6 +13,7 @@ export interface Task {
 export interface Plan {
   id: string;
   goal: string;
+  notebook_path?: string;
   tasks: Task[];
   created_at: string;
   updated_at: string;

@@ -40,4 +40,4 @@ export function getPermittedTools(mode: Mode): ToolEntry[] {
   return ALL_TOOLS.filter(t => t.definition.permittedModes.includes(mode));
 }
 
-export { setKernelBridge } from './exec-tools.js';
+export { setKernelBridge, getKernelBridge } from './exec-tools.js';
