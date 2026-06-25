@@ -24,6 +24,7 @@ const SaveMessagesSchema = z.object({
       name:    z.string(),
       content: z.string(),
     })).optional(),
+    segments: z.array(z.unknown()).optional(),
   })).min(1),
   mode:  z.enum(['ASK', 'PLAN', 'AGENT', 'AGENTIC']).optional(),
   title: z.string().optional(),

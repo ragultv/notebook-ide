@@ -18,49 +18,62 @@ export function getKernelBridge(): KernelBridge | null {
 export const runCellEntry: ToolEntry = {
   definition: {
     name: 'runCell',
-    description: [
-      'Execute a notebook cell in the Jupyter kernel.',
-      'Use cell_number — the integer returned by createCell, or the 1-based position for pre-existing cells.',
-      'Example: createCell returns cell_number:3 → runCell(cell_number:3).',
-      'Fallback: if you only have the source code, pass source instead.',
-    ].join(' '),
+    description: 'Execute a single notebook cell by its number or raw source. You must provide EITHER cell_number (as string) OR source code.',
     inputSchema: z.object({
-      cell_number: z.number().int().min(1).optional().describe('PREFERRED: integer from createCell result (1, 2, 3…). Also accepts 1-based position for pre-existing cells.'),
-      source:      z.string().optional().describe('Fallback: exact Python source to execute directly.'),
-    }).refine(d => d.cell_number !== undefined || d.source, {
-      message: 'Provide cell_number or source',
+      target: z.string().describe('The cell number to run (e.g. "1") or the raw Python source code to execute directly.'),
     }),
     permittedModes: ['AGENTIC'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
-    let source: string;
+    const target = input['target'] as string;
+    const isNumber = /^\d+$/.test(target.trim());
+    let sourceToRun = '';
+    let cellId: string | null = null;
+    let cellType: string | null = null;
 
-    if (input['cell_number'] !== undefined) {
-      const n        = input['cell_number'] as number;
+    if (isNumber) {
+      const n = parseInt(target.trim(), 10);
       const existing = ctx.current_notebook.cells;
-
       if (n <= existing.length) {
-        source = existing[n - 1]!.source;
+        sourceToRun = existing[n - 1]!.source;
+        cellId      = existing[n - 1]!.id;
+        cellType    = existing[n - 1]!.type;
       } else {
         const runtime = ctx.mutableCtx.runtimeCells.get(n);
-        if (!runtime) {
-          return {
-            success: false,
-            error: `Cell ${n} not found. Notebook has ${existing.length} pre-existing cells and ${ctx.mutableCtx.runtimeCells.size} cells created this turn.`,
-          };
-        }
-        source = runtime.source;
+        if (!runtime) return { success: false, error: `Cell ${n} not found` };
+        sourceToRun = runtime.source;
+        cellId      = runtime.id;
+        cellType    = runtime.type;
       }
     } else {
-      source = input['source'] as string;
+      sourceToRun = target;
+      // If the agent passed raw source code, try to find the corresponding cell ID in the notebook
+      // so we can broadcast the execution state to the UI.
+      const matchedCell = ctx.current_notebook.cells.find(
+        c => c.source.trim() === target.trim()
+      );
+      if (matchedCell) {
+        cellId = matchedCell.id;
+        cellType = matchedCell.type;
+      }
+    }
+
+    if (cellType === 'markdown') {
+      return { success: true, data: { message: 'Skipped execution: Markdown cells cannot be executed.' } };
     }
 
     const bridge = _bridge;
     if (!bridge) return { success: false, error: 'Kernel bridge not connected' };
 
-    const result = await bridge.executeCell(source, evt => {
+    // Signal the frontend that this cell is now running
+    if (cellId) ctx.emit({ type: 'cell_run_start', cell_id: cellId });
+
+    const result = await bridge.executeCell(sourceToRun, evt => {
       ctx.emit({ type: 'kernel_output', stream: evt.stream, text: evt.text });
-    });
+    }, cellId ?? undefined);
+
+    // Signal the frontend that execution finished
+    if (cellId) ctx.emit({ type: 'cell_run_complete', cell_id: cellId, success: result.success });
 
     const store = new OctomlStore(ctx.project_path);
     const state = await store.getState();
@@ -79,8 +92,8 @@ export const runCellEntry: ToolEntry = {
 export const runNotebookEntry: ToolEntry = {
   definition: {
     name: 'runNotebook',
-    description: 'Run all code cells from a starting cell (or from top if from_cell_id is omitted).',
-    inputSchema: z.object({ from_cell_id: z.string().optional() }),
+    description: 'Run all code cells from a starting cell (or from top if from_cell_id is empty).',
+    inputSchema: z.object({ from_cell_id: z.string().describe("Starting cell ID or empty string to run all.") }),
     permittedModes: ['AGENTIC'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
@@ -88,7 +101,7 @@ export const runNotebookEntry: ToolEntry = {
     if (!bridge) return { success: false, error: 'Kernel bridge not connected' };
 
     const { cells } = ctx.current_notebook;
-    const fromId    = input['from_cell_id'] as string | undefined;
+    const fromId    = (input['from_cell_id'] as string || '').trim();
     const startIdx  = fromId ? cells.findIndex(c => c.id === fromId) : 0;
 
     if (startIdx === -1) return { success: false, error: `Cell not found: ${fromId}` };
@@ -99,7 +112,7 @@ export const runNotebookEntry: ToolEntry = {
       if (cell.type !== 'code') continue;
       const res = await bridge.executeCell(cell.source, evt => {
         ctx.emit({ type: 'kernel_output', stream: evt.stream, text: evt.text });
-      });
+      }, cell.id);
       results.push({ cell_id: cell.id, success: res.success });
       if (!res.success) break;
     }

@@ -54,6 +54,69 @@ async function readDataFile(filePath: string, ext: string): Promise<{ content: s
   };
 }
 
+const INDEX_IGNORE = new Set([
+  'node_modules', '.git', '.octoml', '__pycache__', '.venv', 'venv', 'dist', 'build', '.next', '.cache',
+]);
+
+async function buildProjectIndex(
+  projectPath: string,
+  dir: string,
+  prefix = '',
+  depth = 0,
+): Promise<Array<{ path: string; type: 'file' | 'dir'; size?: number }>> {
+  if (depth > 6) return [];
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const result: Array<{ path: string; type: 'file' | 'dir'; size?: number }> = [];
+
+  for (const ent of entries) {
+    if (ent.name.startsWith('.') || INDEX_IGNORE.has(ent.name)) continue;
+    const rel = prefix ? `${prefix}/${ent.name}` : ent.name;
+
+    if (ent.isDirectory()) {
+      result.push({ path: rel, type: 'dir' });
+      const children = await buildProjectIndex(projectPath, path.join(dir, ent.name), rel, depth + 1);
+      result.push(...children);
+    } else {
+      try {
+        const stat = await fs.stat(path.join(dir, ent.name));
+        result.push({ path: rel, type: 'file', size: stat.size });
+      } catch {
+        result.push({ path: rel, type: 'file' });
+      }
+    }
+  }
+  return result;
+}
+
+export const listProjectEntry: ToolEntry = {
+  definition: {
+    name: 'listProject',
+    description: [
+      'Read the project file index (octoml.json at project root).',
+      'Always call this FIRST before reading individual files — never scan directories blindly.',
+      'Returns all files and folders. Incremental reads: pick only the specific files you need from the result.',
+    ].join(' '),
+    inputSchema: z.object({}),
+    permittedModes: ['ASK', 'PLAN', 'AGENT', 'AGENTIC'],
+  },
+  execute: async (_input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
+    const indexPath = path.join(ctx.project_path, 'octoml.json');
+    try {
+      // Return cached index if fresh (< 60 s)
+      const raw  = await fs.readFile(indexPath, 'utf-8');
+      const data = JSON.parse(raw) as { generated_at: string; files: unknown[] };
+      const age  = Date.now() - new Date(data.generated_at).getTime();
+      if (age < 60_000) return { success: true, data };
+    } catch { /* not cached yet */ }
+
+    // Generate fresh index
+    const files = await buildProjectIndex(ctx.project_path, ctx.project_path);
+    const index = { generated_at: new Date().toISOString(), file_count: files.length, files };
+    await fs.writeFile(indexPath, JSON.stringify(index, null, 2), 'utf-8').catch(() => undefined);
+    return { success: true, data: index };
+  },
+};
+
 export const readFileEntry: ToolEntry = {
   definition: {
     name: 'readFile',
@@ -110,17 +173,16 @@ export const searchEmbeddingsEntry: ToolEntry = {
     description: 'Vector search over embedded project files. Returns relevant text chunks.',
     inputSchema: z.object({
       query: z.string(),
-      topK: z.number().int().min(1).max(20).default(5),
+      topK: z.number().int().describe('Number of chunks to return (e.g. 5)'),
     }),
     permittedModes: ['ASK', 'PLAN', 'AGENT', 'AGENTIC'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
     try {
       const store = new EmbeddingStore(ctx.project_path);
-      const chunks = await store.search(
-        input['query'] as string,
-        (input['topK'] as number) ?? 5,
-      );
+      let topK = input['topK'] as number;
+      if (!topK || topK < 1) topK = 5;
+      const chunks = await store.search(input['query'] as string, topK);
       return { success: true, data: { chunks } };
     } catch {
       return { success: true, data: { chunks: [] } };
@@ -131,23 +193,47 @@ export const searchEmbeddingsEntry: ToolEntry = {
 export const readCellEntry: ToolEntry = {
   definition: {
     name: 'readCell',
-    description: 'Read a notebook cell by cell_number (1-based integer). Pre-existing cells: 1 = first cell. Cells created this turn: use the cell_number returned by createCell.',
+    description: 'DO NOT use this tool if the cell content is already attached in your prompt. Use this ONLY to fetch a cell by its ID or number if you do NOT have its content.',
     inputSchema: z.object({
-      cell_number: z.number().int().min(1).describe('1-based cell number. Use the integer from createCell result or position for pre-existing cells.'),
+      target: z.string().describe('The cell number (e.g. "1") or cell ID string.'),
     }),
     permittedModes: ['ASK', 'PLAN', 'AGENT', 'AGENTIC'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
-    const n        = input['cell_number'] as number;
+    let target = input['target'] as string;
+    target = target.trim();
+
     const existing = ctx.current_notebook.cells;
+    const isNumber = /^\d+$/.test(target);
 
-    if (n <= existing.length) {
-      const cell = existing[n - 1]!;
-      return { success: true, data: { cell_number: n, type: cell.type, source: cell.source } };
+    if (!isNumber) {
+      // It's a cell ID (potentially with filename cruft)
+      let cid = target.replace(/\.(py|md)$/i, '');
+      const parts = cid.split('.');
+      cid = parts[parts.length - 1];
+
+      const cell = existing.find(c => c.id === cid);
+      if (cell) {
+        const idx = existing.indexOf(cell) + 1;
+        return { success: true, data: { cell_number: idx, cell_id: cid, type: cell.type, source: cell.source } };
+      }
+      for (const [key, runtimeCell] of ctx.mutableCtx.runtimeCells.entries()) {
+        if (runtimeCell.id === cid) {
+          return { success: true, data: { cell_number: key, cell_id: cid, type: runtimeCell.type, source: runtimeCell.source } };
+        }
+      }
+      return { success: false, error: `Cell with id ${cid} not found` };
+    } else {
+      // It's a cell number
+      const n = parseInt(target, 10);
+      if (n <= existing.length) {
+        const cell = existing[n - 1]!;
+        return { success: true, data: { cell_number: n, cell_id: cell.id, type: cell.type, source: cell.source } };
+      }
+
+      const runtime = ctx.mutableCtx.runtimeCells.get(n);
+      if (!runtime) return { success: false, error: `Cell ${n} not found` };
+      return { success: true, data: { cell_number: n, cell_id: runtime.id, type: runtime.type, source: runtime.source } };
     }
-
-    const runtime = ctx.mutableCtx.runtimeCells.get(n);
-    if (!runtime) return { success: false, error: `Cell ${n} not found` };
-    return { success: true, data: { cell_number: n, type: runtime.type, source: runtime.source } };
   },
 };

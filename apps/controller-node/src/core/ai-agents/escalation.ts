@@ -8,7 +8,7 @@ export interface EscalationResult {
 const ASK_EXEC_WORDS  = ['run', 'execute', 'install', 'train', 'fit'];
 const ASK_WRITE_WORDS = ['write', 'create', 'modify', 'update', 'change', 'generate code'];
 const PLAN_WRITE_WORDS = ['write', 'create file', 'update cell', 'modify'];
-const AGENT_EXEC_WORDS = ['run this', 'execute', "let's run", 'to run'];
+const AGENT_EXEC_WORDS = ['switch & continue', 'switch to agentic', 'agentic mode to run', 'cells are ready', 'ready to execute', "let's run", 'to run in agentic'];
 
 function hits(text: string, words: string[]): boolean {
   const lower = text.toLowerCase();

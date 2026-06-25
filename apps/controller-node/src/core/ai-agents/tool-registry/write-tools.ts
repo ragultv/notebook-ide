@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import type { ToolEntry, ToolExecutionContext, ToolResult } from '../types/index.js';
 import { OctomlStore } from '../store/octoml-store.js';
+import { getKernelBridge } from './exec-tools.js';
 
 function safeWrite(projectPath: string, userPath: string): string {
   const root     = path.resolve(projectPath);
@@ -42,7 +43,7 @@ export const createCellEntry: ToolEntry = {
       'Immediately after this call, call runCell(cell_number: N) with the returned integer.',
     ].join(' '),
     inputSchema: z.object({
-      cell_type: z.enum(['code', 'markdown']),
+      cell_type: z.string().describe('Must be exactly "code" or "markdown"'),
       source:    z.string(),
     }),
     permittedModes: ['AGENT', 'AGENTIC'],
@@ -56,30 +57,31 @@ export const createCellEntry: ToolEntry = {
     // Register this cell so runCell / updateCell can find it by number
     ctx.mutableCtx.runtimeCells.set(cellNum, { id: newCellId, source, type: cellType });
 
-    // Write cell to notebook file immediately so the UI stays in sync
+    // Fire-and-forget disk sync — the UI updates immediately via the cell_create SSE event
     if (ctx.mutableCtx.notebookPath) {
-      try {
-        const nbPath = path.join(ctx.project_path, ctx.mutableCtx.notebookPath);
-        const raw    = await fs.readFile(nbPath, 'utf-8');
-        const nb     = JSON.parse(raw) as {
-          cells: Array<Record<string, unknown>>;
-          [k: string]: unknown;
-        };
-        const lines = source.endsWith('\n') ? source : source + '\n';
-        nb.cells.push({
-          cell_type:       cellType,
-          id:              newCellId,
-          metadata:        {},
-          source:          lines.split('\n').reduce<string[]>((acc, l, i, arr) => {
-            if (i < arr.length - 1) acc.push(l + '\n');
-            else if (l)             acc.push(l);
-            return acc;
-          }, []),
-          outputs:         [],
-          ...(cellType === 'code' ? { execution_count: null } : {}),
-        });
-        await fs.writeFile(nbPath, JSON.stringify(nb, null, 2));
-      } catch { /* ignore — event will still update the UI */ }
+      const nbPath     = path.join(ctx.project_path, ctx.mutableCtx.notebookPath);
+      const cellSource = source;
+      const cellId     = newCellId;
+      void (async () => {
+        try {
+          const raw = await fs.readFile(nbPath, 'utf-8');
+          const nb  = JSON.parse(raw) as { cells: Array<Record<string, unknown>>; [k: string]: unknown };
+          const lines = cellSource.endsWith('\n') ? cellSource : cellSource + '\n';
+          nb.cells.push({
+            cell_type:       cellType,
+            id:              cellId,
+            metadata:        {},
+            source:          lines.split('\n').reduce<string[]>((acc, l, i, arr) => {
+              if (i < arr.length - 1) acc.push(l + '\n');
+              else if (l)             acc.push(l);
+              return acc;
+            }, []),
+            outputs:         [],
+            ...(cellType === 'code' ? { execution_count: null } : {}),
+          });
+          await fs.writeFile(nbPath, JSON.stringify(nb, null, 2));
+        } catch { /* ignore — UI is already updated via SSE */ }
+      })();
     }
 
     ctx.emit({
@@ -105,7 +107,7 @@ export const updateCellEntry: ToolEntry = {
     name: 'updateCell',
     description: 'Update a notebook cell\'s source. Use cell_number — the integer returned by createCell or the 1-based position for pre-existing cells. When user says "edit cell 5", use cell_number: 5.',
     inputSchema: z.object({
-      cell_number: z.number().int().min(1).describe('Integer cell number (from createCell result, or 1-based position for existing cells)'),
+      cell_number: z.number().int().describe('Integer cell number (from createCell result, or 1-based position for existing cells)'),
       source:      z.string(),
     }),
     permittedModes: ['AGENT', 'AGENTIC'],
@@ -176,30 +178,14 @@ export const deleteCellEntry: ToolEntry = {
   },
 };
 
-const NOTEBOOK_TEMPLATE = (title: string) => ({
+const NOTEBOOK_TEMPLATE = () => ({
   nbformat: 4,
   nbformat_minor: 5,
   metadata: {
     kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
     language_info: { name: 'python', version: '3.10.0' },
   },
-  cells: [
-    {
-      cell_type: 'markdown',
-      id: crypto.randomUUID(),
-      metadata: {},
-      source: [`# ${title}`],
-      outputs: [],
-    },
-    {
-      cell_type: 'code',
-      id: crypto.randomUUID(),
-      metadata: {},
-      source: [],
-      outputs: [],
-      execution_count: null,
-    },
-  ],
+  cells: [],
 });
 
 export const createNotebookEntry: ToolEntry = {
@@ -208,7 +194,7 @@ export const createNotebookEntry: ToolEntry = {
     description: 'Create a new Jupyter notebook in the project\'s notebooks/ folder. Always stored under notebooks/.',
     inputSchema: z.object({
       path:  z.string().describe('Filename only, e.g. "linear_regression.ipynb". Always saved in notebooks/.'),
-      title: z.string().optional().describe('Human-readable title for the first markdown cell'),
+      // title: z.string().describe('Human-readable title for the first markdown cell. Provide empty string if no title is needed.'),
     }),
     permittedModes: ['AGENT', 'AGENTIC'],
   },
@@ -218,8 +204,7 @@ export const createNotebookEntry: ToolEntry = {
       const basename = path.basename(input['path'] as string);
       const relPath  = `notebooks/${basename.endsWith('.ipynb') ? basename : basename + '.ipynb'}`;
       const notebookPath = safeWrite(ctx.project_path, relPath);
-      const title = (input['title'] as string | undefined) ?? path.basename(relPath, '.ipynb');
-      const nb = NOTEBOOK_TEMPLATE(title);
+      const nb = NOTEBOOK_TEMPLATE();
       await fs.mkdir(path.dirname(notebookPath), { recursive: true });
       await fs.writeFile(notebookPath, JSON.stringify(nb, null, 2));
 
@@ -227,6 +212,12 @@ export const createNotebookEntry: ToolEntry = {
       ctx.mutableCtx.notebookPath = relPath;
       ctx.mutableCtx.cellCounter  = nb.cells.length;
       ctx.mutableCtx.runtimeCells.clear();
+
+      // Ensure subsequent cell executions in this agent run broadcast to the newly created notebook
+      const bridge = getKernelBridge();
+      if (bridge) {
+        bridge.updateBroadcastId(notebookPath);
+      }
 
       ctx.emit({ type: 'notebook_create', path: relPath });
       return { success: true, data: { path: relPath, cells: nb.cells.length } };
@@ -250,7 +241,7 @@ export const createFileEntry: ToolEntry = {
     description: 'Create a new file at the given path relative to project root. Supports .py, .csv, .json, .md, .txt. For .xlsx, writes an empty workbook placeholder.',
     inputSchema: z.object({
       path:    z.string().describe('Relative path including extension, e.g. "data/output.csv"'),
-      content: z.string().optional().describe('Initial file content. If omitted, a default template is used.'),
+      content: z.string().describe('Initial file content. Provide empty string to use a default template.'),
     }),
     permittedModes: ['AGENT', 'AGENTIC'],
   },
@@ -275,13 +266,14 @@ export const saveMemoryEntry: ToolEntry = {
   definition: {
     name: 'saveMemory',
     description: 'Merge facts into project memory. Always merges — never replaces the full file.',
-    inputSchema: z.object({ patch: z.record(z.string(), z.unknown()) }),
+    inputSchema: z.object({ patch_json: z.string().describe('JSON string representing the object to merge into memory.') }),
     permittedModes: ['AGENT', 'AGENTIC'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
     const store   = new OctomlStore(ctx.project_path);
     const current = await store.getMemory();
-    await store.saveMemory({ ...current, ...(input['patch'] as Record<string, unknown>) });
-    return { success: true, data: { saved_keys: Object.keys(input['patch'] as Record<string, unknown>) } };
+    const patch   = JSON.parse(input['patch_json'] as string);
+    await store.saveMemory({ ...current, ...patch });
+    return { success: true, data: { saved_keys: Object.keys(patch) } };
   },
 };

@@ -3,6 +3,7 @@ import { X, Send, Square, Paperclip, ChevronRight, ChevronDown, Plus, Clock, Tra
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAgentChat, TOOL_ACTIVITIES } from '../../hooks/useAgentChat';
+import type { ActivePlan, MsgSegment } from '../../hooks/useAgentChat';
 import { controllerClient } from '../../services/controller.client';
 import { useProject } from '../../context/ProjectContext';
 import type { CellData, ProjectFile } from '../../types';
@@ -20,10 +21,14 @@ interface RightSidebarProps {
   onCreateNotebook: (nameOrCells?: string | CellData[], initialCells?: CellData[], path?: string) => string | null;
   onNotebookCreatedByAgent?: (path: string) => void;
   updateNotebookCellsById?: (notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
+  onOpenFile?: (path: string) => void;
+  onCellRunStart?: (cellId: string) => void;
+  onCellRunComplete?: (cellId: string, success: boolean) => void;
   onDeleteNotebook: (name?: string) => void;
   notebookCells: CellData[];
   notebookName: string;
   notebookPath?: string;
+  notebookId?: string;  // The notebook UUID used for the WebSocket connection
   projectFiles: ProjectFile[];
   activeCellId?: string | null;
   onOpenManageModels: () => void;
@@ -76,7 +81,6 @@ const ACTIVITY_ICONS: Record<string, string> = {
   'Deleting cell':         '🗑️',
   'Indexing':              '🔢',
   'Executing cell':        '▶️',
-  'Running notebook':      '⚡',
   'Analyzing':             '📊',
 };
 
@@ -140,42 +144,107 @@ function ToolBlock({ tool, input, result, done }: {
   );
 }
 
-function AssistantMessage({ content, isStreaming, activities, msgToolCalls }: {
+const MD_PROSE = `
+  prose prose-invert max-w-none
+  prose-p:leading-relaxed prose-p:my-1.5 prose-p:text-white/85
+  prose-pre:bg-[#1e1e20] prose-pre:border prose-pre:border-white/10 prose-pre:rounded-xl prose-pre:p-3 prose-pre:shadow-lg prose-pre:text-[11.5px]
+  prose-code:bg-white/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[11px] prose-code:font-mono
+  prose-code:text-[#5eaefd] prose-code:before:content-none prose-code:after:content-none
+  prose-headings:text-white/90 prose-headings:font-semibold prose-headings:tracking-tight prose-headings:mb-1.5 prose-headings:mt-3
+  prose-h1:text-lg prose-h2:text-base prose-h3:text-[13px]
+  prose-a:text-[#5eaefd] hover:prose-a:text-[#8bc7ff] prose-a:transition-colors
+  prose-blockquote:border-l-2 prose-blockquote:border-[#5eaefd]/40 prose-blockquote:bg-[#5eaefd]/5 prose-blockquote:py-0.5 prose-blockquote:px-3 prose-blockquote:rounded-r prose-blockquote:text-white/70
+  prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
+  prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
+  prose-li:my-0.5 prose-li:text-white/80 prose-li:marker:text-white/40
+  prose-strong:text-white prose-strong:font-semibold
+  prose-em:text-white/70
+  prose-table:text-[11.5px] prose-table:w-full prose-table:border-collapse
+  prose-th:border-b prose-th:border-white/20 prose-th:p-1.5 prose-th:text-left prose-th:text-white/90
+  prose-td:border-b prose-td:border-white/10 prose-td:p-1.5 prose-td:text-white/70
+`.trim();
+
+function MarkdownBlock({ text }: { text: string }) {
+  return (
+    <div style={{ fontSize: '12px', lineHeight: '1.6' }} className={MD_PROSE}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+function ThinkingAccordion({ text, defaultOpen = false }: { text: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (!text.trim()) return null;
+  return (
+    <div className="my-2 border border-white/10 rounded-lg overflow-hidden">
+      <button 
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 bg-[#1a1a1c] hover:bg-[#222225] transition-colors text-left"
+      >
+        <ChevronRight size={12} className={`text-white/40 transition-transform ${open ? 'rotate-90' : ''}`} />
+        <span className="text-[10px] font-medium text-white/50 uppercase tracking-wider">Agent Thinking</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-2 pt-1 bg-[#1a1a1c]">
+          <MarkdownBlock text={text} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segments, activePlan, onOpenPlan, onProceedWithPlan, isLast, msgId }: {
   content: string;
   isStreaming: boolean;
   activities: string[];
   msgToolCalls: Array<{ id: string; tool: string; input: unknown; result?: unknown; done: boolean }>;
+  segments?: MsgSegment[];
+  activePlan?: ActivePlan | null;
+  onOpenPlan?: (path: string) => void;
+  onProceedWithPlan?: () => void;
+  isLast: boolean;
+  msgId: string;
 }) {
   const showThinking = isStreaming && !content && activities.length === 0 && msgToolCalls.length === 0;
+  const useSegments  = segments && segments.length > 0;
+
   return (
-    <div className="py-3">
+    <div className="py-2.5">
       {(showThinking || activities.length > 0) && (
         <div className="flex flex-wrap gap-3 mb-2">
           {showThinking && <ActivityTag label="Thinking" />}
           {activities.map((a, i) => <ActivityTag key={`act-${i}-${a}`} label={a} />)}
         </div>
       )}
-      {msgToolCalls.map(tc => (
-        <ToolBlock key={tc.id} tool={tc.tool} input={tc.input} result={tc.result} done={tc.done} />
-      ))}
-      {content && (
-        <div className="
-          prose prose-invert prose-sm max-w-none
-          prose-p:my-1.5 prose-p:leading-relaxed prose-p:text-white/75
-          prose-pre:bg-white/4 prose-pre:border-0 prose-pre:rounded-lg prose-pre:text-xs
-          prose-code:bg-white/6 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-          prose-code:text-[#4ea7fc] prose-code:before:content-none prose-code:after:content-none
-          prose-headings:text-white/85 prose-headings:font-semibold prose-headings:mb-1 prose-headings:mt-3
-          prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
-          prose-blockquote:border-l-2 prose-blockquote:border-white/15 prose-blockquote:text-white/50
-          prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-li:text-white/75
-          prose-strong:text-white/85 prose-em:text-white/65
-        ">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-        </div>
+
+      {useSegments ? (
+        // Render segments in insertion order — text and tool calls interleaved correctly
+        segments!.map((seg, i) => {
+          if (seg.kind === 'text') {
+            const isFirst = i === 0;
+            const isLast = i === segments!.length - 1;
+            if (!isLast && !isFirst) {
+              return <ThinkingAccordion key={i} text={seg.text} />;
+            }
+            return <MarkdownBlock key={i} text={seg.text} />;
+          }
+          return <ToolBlock key={seg.id} tool={seg.tool} input={seg.input} result={seg.result} done={seg.done} />;
+        })
+      ) : (
+        // Fallback: tools first then text (live streaming or old messages without segments)
+        <>
+          {msgToolCalls.map(tc => (
+            <ToolBlock key={tc.id} tool={tc.tool} input={tc.input} result={tc.result} done={tc.done} />
+          ))}
+          {content && <MarkdownBlock text={content} />}
+        </>
       )}
+
       {isStreaming && content && (
-        <span className="inline-block w-0.5 h-3.5 bg-white/30 ml-0.5 animate-pulse rounded-sm align-middle" />
+        <span className="inline-block w-0.5 h-3 bg-white/30 ml-0.5 animate-pulse rounded-sm align-middle" />
+      )}
+      {!isStreaming && activePlan && activePlan.msgId === msgId && !activePlan.proceeded && onProceedWithPlan && (
+        <PlanShortcut plan={activePlan} onOpen={onOpenPlan} onProceed={onProceedWithPlan} />
       )}
     </div>
   );
@@ -300,6 +369,37 @@ function ModelSelector({
   );
 }
 
+// ── Plan Shortcut ─────────────────────────────────────────────────────────────
+function PlanShortcut({ plan, onOpen, onProceed }: {
+  plan: ActivePlan;
+  onOpen?: (path: string) => void;
+  onProceed: () => void;
+}) {
+  const label = plan.goal.length > 36 ? plan.goal.slice(0, 35) + '…' : plan.goal;
+  return (
+    <div className="mt-3 flex items-center gap-2 flex-wrap">
+      <button
+        onClick={() => onOpen?.(plan.plan_path)}
+        title="Open plan in editor"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#2d1b4e] border border-[#4c2d82] text-xs text-[#d1b3ff] hover:bg-[#3b2366] transition-colors font-medium shadow-sm"
+      >
+        <span>📋</span>
+        <span className="max-w-[200px] truncate">{label}</span>
+        <span className="opacity-50 ml-1">↗</span>
+      </button>
+      {!plan.proceeded && (
+        <button
+          onClick={onProceed}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#4a2615] border border-[#7a3d21] text-xs text-[#ffb088] hover:bg-[#5c2f1a] transition-colors font-medium shadow-sm"
+        >
+          <span>▶</span>
+          <span>Proceed in Agent</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Chat History Panel ────────────────────────────────────────────────────────
 function HistoryPanel({
   sessions, onLoad, onDelete, onBack,
@@ -372,13 +472,17 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   activeCellId,
   modelsRefreshTrigger,
   width, isResizing, onStartResizing,
+  onOpenFile, onCellRunStart, onCellRunComplete, notebookId: notebookFileId,
 }) => {
   const { project } = useProject();
 
-  // Derive notebook path for the agent request (so it can write cells to the file directly)
-  const notebookPath = notebookPathProp ?? (notebookName
-    ? `notebooks/${notebookName.endsWith('.ipynb') ? notebookName : notebookName + '.ipynb'}`
-    : undefined);
+    // The notebook path sent to the agent. Prefer the real file ID (matches WebSocket /ws/<id>),
+    // then the explicit path prop, then derive from name.
+    const notebookPath = notebookFileId
+      ?? notebookPathProp
+      ?? (notebookName
+        ? `notebooks/${notebookName.endsWith('.ipynb') ? notebookName : notebookName + '.ipynb'}`
+        : undefined);
 
   const agentCells = useMemo(() =>
     notebookCells.map(c => ({ id: c.id, type: c.type as 'code' | 'markdown', source: c.content })),
@@ -389,21 +493,25 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     messages, toolCalls, kernelLines, escalation, pendingPerm,
     isLoading, mode, activeActivities, attachedFiles,
     sessions, currentModel, modelProviders,
+    activePlan,
     sendMessage, setMode, dismissEscalation,
     confirmPermission, denyPermission, stopGeneration,
     addFile, removeFile, selectModel, loadModels,
     startNewChat, loadSession, deleteSession,
+    proceedWithPlan,
   } = useAgentChat({
-    projectPath:       project?.path ?? '',
-    notebookCells:     agentCells,
+    projectPath:        project?.path ?? '',
+    notebookCells:      agentCells,
     notebookPath,
-    onCellCreate:      (_afterId, cellType, source, newCellId) => onAddCell(source, cellType, newCellId),
-    onCellUpdate:      (cellId, source) => {
+    onCellCreate:       (_afterId, cellType, source, newCellId) => onAddCell(source, cellType, newCellId),
+    onCellUpdate:       (cellId, source) => {
       const idx = notebookCells.findIndex(c => c.id === cellId);
       if (idx >= 0) onEditCell(idx, source);
     },
-    onCellDelete:      () => {},
-    onNotebookCreate:  onNotebookCreatedByAgent,
+    onCellDelete:       () => {},
+    onNotebookCreate:   onNotebookCreatedByAgent,
+    onCellRunStart,
+    onCellRunComplete,
   });
 
   const [input,       setInput]       = useState('');
@@ -413,6 +521,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   const bottomRef    = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef     = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      const timeoutId = setTimeout(() => {
+        if (document.activeElement !== inputRef.current) {
+          inputRef.current?.focus();
+        }
+      }, 50);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isOpen]);
 
   // Reload models whenever the settings page changes model selection
   useEffect(() => {
@@ -431,8 +551,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   const includeCellChip = useCallback(() => {
     if (!activeCell) return;
-    addFile(new File([activeCell.content], `cell.${activeCell.type === 'code' ? 'py' : 'md'}`, { type: 'text/plain' }));
-  }, [activeCell, addFile]);
+    const nbName = notebookName ? notebookName.replace('.ipynb', '') : 'notebook';
+    addFile(new File([activeCell.content], `${nbName}.${activeCell.id}.${activeCell.type === 'code' ? 'py' : 'md'}`, { type: 'text/plain' }));
+  }, [activeCell, addFile, notebookName]);
 
   const handleSend = useCallback(() => {
     const t = input.trim();
@@ -462,7 +583,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         const data = JSON.parse(cellDataStr);
         if (data.type === 'cell-drag' && data.content) {
           const ext = data.cellType === 'code' ? 'py' : 'md';
-          const file = new File([data.content], `cell.${ext}`, { type: 'text/plain' });
+          const fileName = data.notebookId && data.cellId ? `${data.notebookId}.${data.cellId}.${ext}` : `cell.${ext}`;
+          const file = new File([data.content], fileName, { type: 'text/plain' });
           addFile(file);
           return;
         }
@@ -585,10 +707,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               messages.map(msg => {
                 if (msg.role === 'user') {
                   return (
-                    <div key={msg.id} className="py-2.5 flex justify-end">
+                    <div key={msg.id} className="py-2 flex justify-end">
                       <div className="max-w-[88%] flex flex-col items-end gap-1.5">
                         {msg.content && (
-                          <div className="text-sm text-white/75 leading-relaxed bg-white/5 rounded-2xl rounded-tr-sm px-3.5 py-2.5 whitespace-pre-wrap break-words">
+                          <div className="text-[11.5px] text-white/72 leading-relaxed bg-white/5 rounded-2xl rounded-tr-sm px-3 py-2 whitespace-pre-wrap break-words">
                             {msg.content}
                           </div>
                         )}
@@ -606,9 +728,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                     </div>
                   );
                 }
-                const isLast = msg.id === lastAid;
-                // Live streaming: use in-memory toolCalls state.
-                // Historical: convert persisted tool_calls to the same shape.
+                const isLast        = msg.id === lastAid;
+                const isCurrentlyStreaming = isLast && isLoading;
+                // During live streaming: use in-memory toolCalls (shown above text as they arrive).
+                // After streaming or on reload: use historicCalls only as fallback when segments absent.
                 const historicCalls = (msg.tool_calls ?? []).map((tc, i) => ({
                   id:     `hist-${msg.id}-${i}`,
                   tool:   tc.tool,
@@ -616,13 +739,20 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   result: tc.result,
                   done:   true,
                 }));
+                const msgToolCalls = isCurrentlyStreaming ? toolCalls : historicCalls;
                 return (
                   <AssistantMessage
                     key={msg.id}
                     content={msg.content}
-                    isStreaming={isLast && isLoading}
+                    isStreaming={isCurrentlyStreaming}
                     activities={isLast ? activeActivities : []}
-                    msgToolCalls={isLast ? toolCalls : historicCalls}
+                    msgToolCalls={msgToolCalls}
+                    segments={msg.segments}
+                    isLast={isLast}
+                    msgId={msg.id}
+                    activePlan={activePlan?.msgId === msg.id ? activePlan : null}
+                    onOpenPlan={onOpenFile}
+                    onProceedWithPlan={isLast ? proceedWithPlan : undefined}
                   />
                 );
               })
@@ -699,15 +829,15 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             {(attachedFiles.length > 0 || activeCell) && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {/* Active cell chip */}
-                {activeCell && !attachedFiles.some(f => f.name.startsWith('cell.')) && (
+                {activeCell && !attachedFiles.some(f => f.name.includes(`.${activeCell.id}.`)) && (
                   <button
                     onClick={includeCellChip}
                     title="Include active cell in message"
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-white/5 border border-white/8 text-white/40 hover:text-white/70 hover:bg-white/8 transition-colors"
                   >
                     <span>📋</span>
-                    <span className="max-w-[100px] truncate font-mono">
-                      {activeCell.type === 'code' ? 'cell.py' : 'cell.md'}
+                    <span className="max-w-[150px] truncate font-mono">
+                      {notebookName ? notebookName.replace('.ipynb', '') : 'notebook'}.{activeCell.id}.{activeCell.type === 'code' ? 'py' : 'md'}
                     </span>
                     <span className="text-white/20">+ include</span>
                   </button>
@@ -741,13 +871,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               )}
               <textarea
                 autoFocus
-                ref={(el) => {
-                  if (el && isOpen) {
-                    setTimeout(() => {
-                      if (document.activeElement !== el) el.focus();
-                    }, 50);
-                  }
-                }}
+                ref={inputRef}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
