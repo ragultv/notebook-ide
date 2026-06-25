@@ -42,6 +42,39 @@ export async function buildContext(request: AgentRequest): Promise<BuiltContext>
     ? await store.getPlan(state.active_plan_id)
     : null;
 
+  let nbPathStr = activePlan?.notebook_path;
+  if (!nbPathStr && activePlan) {
+    const planText = JSON.stringify(activePlan);
+    const match = planText.match(/(?:notebooks[\/\\])?[\w-]+\.ipynb/i);
+    if (match) {
+      nbPathStr = match[0];
+      if (!nbPathStr.startsWith('notebooks/') && !nbPathStr.startsWith('notebooks\\')) {
+        nbPathStr = 'notebooks/' + nbPathStr;
+      }
+    }
+  }
+
+  // Auto-hydrate notebook context if it's missing but we know the path from the plan
+  if (request.current_notebook.cells.length === 0 && nbPathStr) {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const nbPath = path.join(request.project_path, nbPathStr);
+      const raw = await fs.readFile(nbPath, 'utf-8');
+      const nb = JSON.parse(raw);
+      if (Array.isArray(nb.cells)) {
+        request.current_notebook.cells = nb.cells.map((c: any) => ({
+          id: c.id ?? 'unknown',
+          type: c.cell_type,
+          source: Array.isArray(c.source) ? c.source.join('') : c.source,
+        }));
+        request.current_notebook.path = nbPathStr;
+      }
+    } catch {
+      // Ignore — notebook might not exist physically yet or is malformed
+    }
+  }
+
   // Fixed cost: memory + plan + last run + notebook cells
   const fixedText = [
     JSON.stringify(memory),

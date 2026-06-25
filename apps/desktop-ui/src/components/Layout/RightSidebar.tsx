@@ -145,23 +145,50 @@ function ToolBlock({ tool, input, result, done }: {
 }
 
 const MD_PROSE = `
-  prose prose-invert prose-sm max-w-none
-  prose-p:my-1 prose-p:leading-relaxed prose-p:text-white/72
-  prose-pre:bg-white/4 prose-pre:border-0 prose-pre:rounded-lg prose-pre:text-[11px]
-  prose-code:bg-white/6 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[10.5px]
-  prose-code:text-[#4ea7fc] prose-code:before:content-none prose-code:after:content-none
-  prose-headings:text-white/85 prose-headings:font-semibold prose-headings:mb-1 prose-headings:mt-2.5
-  prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
-  prose-blockquote:border-l-2 prose-blockquote:border-white/15 prose-blockquote:text-white/50
-  prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-li:text-white/72
-  prose-strong:text-white/85 prose-em:text-white/65
-  prose-table:text-[11px]
+  prose prose-invert max-w-none
+  prose-p:leading-relaxed prose-p:my-1.5 prose-p:text-white/85
+  prose-pre:bg-[#1e1e20] prose-pre:border prose-pre:border-white/10 prose-pre:rounded-xl prose-pre:p-3 prose-pre:shadow-lg prose-pre:text-[11.5px]
+  prose-code:bg-white/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[11px] prose-code:font-mono
+  prose-code:text-[#5eaefd] prose-code:before:content-none prose-code:after:content-none
+  prose-headings:text-white/90 prose-headings:font-semibold prose-headings:tracking-tight prose-headings:mb-1.5 prose-headings:mt-3
+  prose-h1:text-lg prose-h2:text-base prose-h3:text-[13px]
+  prose-a:text-[#5eaefd] hover:prose-a:text-[#8bc7ff] prose-a:transition-colors
+  prose-blockquote:border-l-2 prose-blockquote:border-[#5eaefd]/40 prose-blockquote:bg-[#5eaefd]/5 prose-blockquote:py-0.5 prose-blockquote:px-3 prose-blockquote:rounded-r prose-blockquote:text-white/70
+  prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
+  prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
+  prose-li:my-0.5 prose-li:text-white/80 prose-li:marker:text-white/40
+  prose-strong:text-white prose-strong:font-semibold
+  prose-em:text-white/70
+  prose-table:text-[11.5px] prose-table:w-full prose-table:border-collapse
+  prose-th:border-b prose-th:border-white/20 prose-th:p-1.5 prose-th:text-left prose-th:text-white/90
+  prose-td:border-b prose-td:border-white/10 prose-td:p-1.5 prose-td:text-white/70
 `.trim();
 
 function MarkdownBlock({ text }: { text: string }) {
   return (
-    <div style={{ fontSize: '11.5px', lineHeight: '1.55' }} className={MD_PROSE}>
+    <div style={{ fontSize: '12px', lineHeight: '1.6' }} className={MD_PROSE}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+function ThinkingAccordion({ text, defaultOpen = false }: { text: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (!text.trim()) return null;
+  return (
+    <div className="my-2 border border-white/10 rounded-lg overflow-hidden">
+      <button 
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 bg-[#1a1a1c] hover:bg-[#222225] transition-colors text-left"
+      >
+        <ChevronRight size={12} className={`text-white/40 transition-transform ${open ? 'rotate-90' : ''}`} />
+        <span className="text-[10px] font-medium text-white/50 uppercase tracking-wider">Agent Thinking</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-2 pt-1 bg-[#1a1a1c]">
+          <MarkdownBlock text={text} />
+        </div>
+      )}
     </div>
   );
 }
@@ -179,7 +206,7 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
   msgId: string;
 }) {
   const showThinking = isStreaming && !content && activities.length === 0 && msgToolCalls.length === 0;
-  const useSegments  = !isStreaming && segments && segments.length > 0;
+  const useSegments  = segments && segments.length > 0;
 
   return (
     <div className="py-2.5">
@@ -192,11 +219,17 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
 
       {useSegments ? (
         // Render segments in insertion order — text and tool calls interleaved correctly
-        segments!.map((seg, i) =>
-          seg.kind === 'text'
-            ? <MarkdownBlock key={i} text={seg.text} />
-            : <ToolBlock key={seg.id} tool={seg.tool} input={seg.input} result={seg.result} done={seg.done} />
-        )
+        segments!.map((seg, i) => {
+          if (seg.kind === 'text') {
+            const isFirst = i === 0;
+            const isLast = i === segments!.length - 1;
+            if (!isLast && !isFirst) {
+              return <ThinkingAccordion key={i} text={seg.text} />;
+            }
+            return <MarkdownBlock key={i} text={seg.text} />;
+          }
+          return <ToolBlock key={seg.id} tool={seg.tool} input={seg.input} result={seg.result} done={seg.done} />;
+        })
       ) : (
         // Fallback: tools first then text (live streaming or old messages without segments)
         <>

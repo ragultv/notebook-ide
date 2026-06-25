@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import type { ToolEntry, ToolExecutionContext, ToolResult } from '../types/index.js';
 import { OctomlStore } from '../store/octoml-store.js';
+import { getKernelBridge } from './exec-tools.js';
 
 function safeWrite(projectPath: string, userPath: string): string {
   const root     = path.resolve(projectPath);
@@ -211,6 +212,12 @@ export const createNotebookEntry: ToolEntry = {
       ctx.mutableCtx.notebookPath = relPath;
       ctx.mutableCtx.cellCounter  = nb.cells.length;
       ctx.mutableCtx.runtimeCells.clear();
+
+      // Ensure subsequent cell executions in this agent run broadcast to the newly created notebook
+      const bridge = getKernelBridge();
+      if (bridge) {
+        bridge.updateBroadcastId(notebookPath);
+      }
 
       ctx.emit({ type: 'notebook_create', path: relPath });
       return { success: true, data: { path: relPath, cells: nb.cells.length } };

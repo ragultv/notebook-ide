@@ -338,6 +338,34 @@ export function useAgentChat(opts: UseAgentChatOptions) {
     // Build content with attachments
     const currentAttachments = attachmentsOverride ?? attachedFiles;
     let fullContent = content;
+    
+    // Detect continue/proceed/resume
+    const lowerContent = content.trim().toLowerCase();
+    if (['continue', 'proceed', 'resume'].includes(lowerContent) && activePlan) {
+      const done = activePlan.tasks.filter(t => t.status === 'done').map(t => t.id);
+      const pending = activePlan.tasks.filter(t => t.status !== 'done').map(t => t.id);
+      
+      let nbPathStr = activePlan.notebook_path;
+      if (!nbPathStr) {
+        const planText = JSON.stringify(activePlan);
+        const match = planText.match(/(?:notebooks[\/\\])?[\w-]+\.ipynb/i);
+        if (match) {
+          nbPathStr = match[0];
+          if (!nbPathStr.startsWith('notebooks/') && !nbPathStr.startsWith('notebooks\\')) {
+            nbPathStr = 'notebooks/' + nbPathStr;
+          }
+        }
+      }
+
+      const nbPath = nbPathStr ? `\nNotebook path: ${nbPathStr}` : '';
+      const reminder = `[SYSTEM REMINDER: The user wants to resume.
+Completed tasks: ${done.join(', ') || 'none'}.
+Pending tasks: ${pending.join(', ') || 'none'}.${nbPath}
+DO NOT restart. DO NOT re-create anything already done.
+Resume from the first pending task and complete ALL remaining tasks.]\n\n`;
+      fullContent = reminder + fullContent;
+    }
+
     if (currentAttachments.length > 0) {
       const attachText = currentAttachments
         .map(f => {
@@ -345,7 +373,7 @@ export function useAgentChat(opts: UseAgentChatOptions) {
           return `\n\n[Attached file: ${f.name}]${pathLine}\n(Please use the readFile tool to read this file if needed)`;
         })
         .join('');
-      fullContent = content + attachText;
+      fullContent = fullContent + attachText;
     }
 
     const userMsg: ChatMsg = { id: `u-${Date.now()}`, role: 'user', content: content, attachments: currentAttachments, timestamp: new Date().toISOString() };
@@ -441,8 +469,9 @@ export function useAgentChat(opts: UseAgentChatOptions) {
             const delta = evt['delta'] as string;
             finalText += delta;
             segmentEvents.push({ kind: 'text', text: delta });
+            const currentSegs = buildSegments(segmentEvents);
             setMessages(prev => prev.map(m =>
-              m.id === aid ? { ...m, content: m.content + delta } : m,
+              m.id === aid ? { ...m, content: m.content + delta, segments: currentSegs } : m,
             ));
             break;
           }
@@ -457,6 +486,9 @@ export function useAgentChat(opts: UseAgentChatOptions) {
             setToolCalls(prev => [...prev, { id: tcId, tool: toolName, input: evt['input'], done: false }]);
             turnToolCalls.push({ tool: toolName, input: evt['input'], result: null });
             segmentEvents.push({ kind: 'tool_start', id: tcId, tool: toolName, input: evt['input'] });
+            
+            const currentSegs = buildSegments(segmentEvents);
+            setMessages(prev => prev.map(m => m.id === aid ? { ...m, segments: currentSegs } : m));
             break;
           }
 
@@ -484,6 +516,9 @@ export function useAgentChat(opts: UseAgentChatOptions) {
               }
             }
             segmentEvents.push({ kind: 'tool_result', tool: toolName, result: evt['result'] });
+
+            const currentSegs = buildSegments(segmentEvents);
+            setMessages(prev => prev.map(m => m.id === aid ? { ...m, segments: currentSegs } : m));
             break;
           }
 

@@ -8,7 +8,7 @@ import { buildContext } from './context-builder.js';
 import { buildSystemPrompt } from './system-prompt.js';
 import { checkEscalation } from './escalation.js';
 import { resolveModel } from './model-router.js';
-import { getPermittedTools } from './tool-registry/index.js';
+import { getPermittedTools, getKernelBridge } from './tool-registry/index.js';
 import { OctomlStore } from './store/octoml-store.js';
 
 function lastOf<T>(arr: T[], pred: (v: T) => boolean): T | undefined {
@@ -91,6 +91,11 @@ export class AgentRuntime {
       cellCounter:  request.current_notebook.cells.length,
       runtimeCells: new Map<number, RuntimeCell>(),
     };
+
+    if (mutableCtx.notebookPath) {
+      const bridge = getKernelBridge();
+      if (bridge) bridge.updateBroadcastId(mutableCtx.notebookPath);
+    }
 
     const toolCtx: ToolExecutionContext = {
       project_path:     request.project_path,

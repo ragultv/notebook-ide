@@ -5,7 +5,9 @@ import type { ToolEntry, ToolExecutionContext, ToolResult, Plan } from '../types
 import { OctomlStore } from '../store/octoml-store.js';
 
 function planToMarkdown(plan: Plan): string {
-  const header = `# Plan: ${plan.goal}\n\nCreated: ${plan.created_at}\n\n## Tasks\n\n`;
+  const header = `# Plan: ${plan.goal}\n\nCreated: ${plan.created_at}\n` +
+    (plan.notebook_path ? `Notebook: ${plan.notebook_path}\n` : '') +
+    `\n## Tasks\n\n`;
   const tasks = plan.tasks.map((t, i) => `- [ ] **${i + 1}. ${t.description}**`).join('\n');
   return header + tasks + '\n';
 }
@@ -16,6 +18,7 @@ export const createPlanEntry: ToolEntry = {
     description: 'Create a structured plan with a goal and tasks. Saves to .octoml/plan.md and becomes the active plan.',
     inputSchema: z.object({
       goal: z.string(),
+      notebook_path: z.string().optional().describe('The path to the notebook associated with this plan, if known.'),
       tasks: z.array(z.string()).describe('List of task descriptions to create the plan'),
     }),
     permittedModes: ['PLAN', 'AGENT', 'AGENTIC'],
@@ -27,6 +30,7 @@ export const createPlanEntry: ToolEntry = {
     const plan: Plan = {
       id: `plan-${Date.now()}`,
       goal: input['goal'] as string,
+      notebook_path: input['notebook_path'] as string | undefined,
       tasks: tasks.map((desc, i) => ({
         id: `t${i + 1}`,
         description: desc,
@@ -62,6 +66,7 @@ export const updatePlanEntry: ToolEntry = {
     description: 'Update a task status within the active plan.',
     inputSchema: z.object({
       plan_id: z.string(),
+      notebook_path: z.string().optional().describe('Set this when you create or determine the notebook for this plan.'),
       updates: z.array(z.object({
         task_id: z.string(),
         status: z.string().describe('Must be exactly "pending", "in_progress", "done", or "failed"')
@@ -85,13 +90,19 @@ export const updatePlanEntry: ToolEntry = {
       }
     }
 
+    if (input['notebook_path']) {
+      plan.notebook_path = input['notebook_path'] as string;
+    }
+
     plan.updated_at = new Date().toISOString();
     await store.savePlan(plan);
 
     // Keep plan.md in sync with task status
     const planMdPath = path.join(ctx.project_path, '.octoml', 'plan.md');
     const statusIcon: Record<string, string> = { done: 'x', in_progress: '~', failed: '!', pending: ' ' };
-    const md = `# Plan: ${plan.goal}\n\nUpdated: ${plan.updated_at}\n\n## Tasks\n\n` +
+    const md = `# Plan: ${plan.goal}\n\nUpdated: ${plan.updated_at}\n` +
+      (plan.notebook_path ? `Notebook: ${plan.notebook_path}\n` : '') +
+      `\n## Tasks\n\n` +
       plan.tasks.map((t, i) => `- [${statusIcon[t.status] ?? ' '}] **${i + 1}. ${t.description}** _(${t.status})_`).join('\n') + '\n';
     await fs.writeFile(planMdPath, md, 'utf-8').catch(() => undefined);
 
