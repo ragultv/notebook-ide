@@ -9,11 +9,11 @@
     "dev": "concurrently \"npm run dev:electron\" \"npm run dev:vite\"",
     "dev:electron": "tsc -p tsconfig.json && electron .",
     "dev:vite": "cd ../desktop-ui && npm run dev",
-    "build": "tsc -p tsconfig.json && electron-builder",
+    "build": "tsc -p tsconfig.json && electron-builder --publish never",
     "build:electron": "tsc -p tsconfig.json",
     "start": "electron .",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dist": "tsc -p tsconfig.json && electron-builder --publish always"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
