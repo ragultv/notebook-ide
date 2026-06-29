@@ -347,7 +347,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
   return (
     <div className="flex-1 flex flex-col bg-[#1e1e1e] overflow-hidden">
       {/* Header bar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-[#2d2d30] bg-[#252526] flex-shrink-0">
+      {/* <div className="flex items-center gap-2 px-4 py-2 border-b border-[#2d2d30] bg-[#252526] flex-shrink-0">
         {getIcon()}
         <span className="text-sm text-[#ccc] font-medium truncate flex-1">{fileName}</span>
         <a
@@ -361,7 +361,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
         <button onClick={onClose} className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors" title="Close">
           <X className="w-4 h-4" />
         </button>
-      </div>
+      </div> */}
 
       {/* Content */}
       {loading ? (

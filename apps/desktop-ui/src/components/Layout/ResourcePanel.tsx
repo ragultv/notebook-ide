@@ -240,17 +240,19 @@ export const ResourcePanel: React.FC<ResourcePanelProps> = ({ width, isResizing 
     const memMax = isGpu ? 8192 : 16384; // 8 GB VRAM or 16 GB RAM reasonable defaults
     const memMaxLabel = isGpu ? '8 GB' : '16 GB';
 
+    if (!resourcePanelOpen) return null;
+
     return (
         <div
             className={`shrink-0 overflow-hidden ${isResizing ? '' : 'transition-all duration-300 ease-in-out'}`}
-            style={{ width: resourcePanelOpen ? `${width}px` : '0px' }}
+            style={{ width: `${width}px` }}
         >
             <div
                 className={`bg-sim-bg flex flex-col z-20 h-full rounded-2xl border border-sim-border overflow-hidden shadow-lg
           ${isResizing ? '' : 'transition-transform duration-300 ease-in-out'}`}
                 style={{
                     width: `${width}px`,
-                    transform: resourcePanelOpen ? 'translateX(0)' : 'translateX(100%)',
+                    transform: 'translateX(0)',
                 }}
             >
                 {/* Header */}

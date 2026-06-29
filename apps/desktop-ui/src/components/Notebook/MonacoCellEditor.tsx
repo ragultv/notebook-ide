@@ -72,6 +72,7 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = React.memo(func
      * and guard against infinite loops by comparing the last set height.
      */
     const lastHeightRef = useRef<number>(0);
+    const lastWidthRef = useRef<number>(0);
     const rafRef = useRef<number | null>(null);
 
     const syncHeight = useCallback(() => {
@@ -88,13 +89,20 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = React.memo(func
             // Guard against unmounted/disposed editors
             if (!mountedRef.current || !editor || editor._isDisposed || !container || !document.body.contains(container)) return;
             try {
+                const currentWidth = container.offsetWidth;
+                if (currentWidth > 0 && currentWidth !== lastWidthRef.current) {
+                    lastWidthRef.current = currentWidth;
+                    // Force width update so word-wrap is calculated correctly before getting height
+                    editor.layout({ width: currentWidth, height: lastHeightRef.current || container.offsetHeight });
+                }
+
                 const contentHeight = Math.max(MIN_HEIGHT, editor.getContentHeight());
                 if (contentHeight !== lastHeightRef.current) {
                     lastHeightRef.current = contentHeight;
                     container.style.height = `${contentHeight}px`;
                     // Force Monaco to re-layout within the new container dimensions
-                    if (container.offsetWidth > 0) {
-                        editor.layout({ width: container.offsetWidth, height: contentHeight });
+                    if (currentWidth > 0) {
+                        editor.layout({ width: currentWidth, height: contentHeight });
                     } else {
                         editor.layout();
                     }

@@ -36,7 +36,7 @@ export const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> =
           <span className="uppercase truncate">{runtimeType} · {kernelStatus}</span>
         </div>
         {/* Resource Panel toggle */}
-        <button
+        {/* <button
           onClick={toggleResourcePanel}
           title="Resource Monitor"
           className={`flex items-center gap-1.5 px-3 h-8 rounded-xl border text-[10px] font-mono transition-all duration-200 shrink-0
@@ -46,7 +46,7 @@ export const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> =
         >
           <Activity className="w-3.5 h-3.5 shrink-0" />
           <span className="hidden xl:inline">Monitor</span>
-        </button>
+        </button> */}
       </div>
     );
   }

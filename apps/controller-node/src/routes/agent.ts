@@ -77,7 +77,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     // We use current_notebook.path when available; fall back to session_id.
     const notebookBroadcastId = request.current_notebook.path ?? request.session_id;
     try {
-      await bridge.connect(request.session_id);
+      await bridge.connect(notebookBroadcastId);
       // Wire the broadcast function so agent cell runs update the UI identically
       // to a manual cell run (running spinner, live output, success/error state).
       bridge.setBroadcast(notebookBroadcastId, broadcastToNotebook);

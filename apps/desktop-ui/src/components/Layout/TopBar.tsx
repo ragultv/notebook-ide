@@ -460,9 +460,9 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         <Divider />
 
-        {onOpenMemoryMap && (
+        {/* {onOpenMemoryMap && (
           <TopBarButton onClick={onOpenMemoryMap} icon={Map} title="Memory Visualization" />
-        )}
+        )} */}
 
         <TopBarButton
           onClick={onToggleChat}

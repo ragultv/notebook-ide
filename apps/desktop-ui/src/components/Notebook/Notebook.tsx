@@ -125,7 +125,7 @@ const NotebookInner: React.FC<NotebookProps & {
                 >
                     <div className="max-w-[900px] mx-auto min-h-full p-4 md:p-8 pb-32">
                         {cells.map((cell, index) => (
-                            <React.Fragment key={`${cell.id}-${index}-${cellMoveVersion}`}>
+                            <React.Fragment key={cell.id}>
                                 <AddCellDivider
                                     visible={activeCellId === cell.id}
                                     onAddCode={() => addCell(index, 'code')}

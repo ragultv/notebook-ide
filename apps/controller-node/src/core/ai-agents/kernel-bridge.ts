@@ -36,8 +36,9 @@ export class KernelBridge {
    * Update the broadcast target notebook ID dynamically without resetting the function.
    * Useful when the agent creates a new notebook during a session.
    */
-  updateBroadcastId(notebookId: string): void {
+  async updateBroadcastId(notebookId: string): Promise<void> {
     this.broadcastNotebookId = notebookId;
+    await this.connect(notebookId);
   }
 
   async disconnect(): Promise<void> {
@@ -106,6 +107,7 @@ export class KernelBridge {
             }
           },
         },
+        executionId
       );
 
       if (result.status === 'error') {

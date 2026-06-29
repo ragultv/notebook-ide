@@ -1,5 +1,5 @@
 import type { Mode, ToolEntry } from '../types/index.js';
-import { listProjectEntry, readFileEntry, searchNotebookEntry, loadMemoryEntry, searchEmbeddingsEntry, readCellEntry } from './read-tools.js';
+import { listProjectEntry, readFileEntry, searchNotebookEntry, loadMemoryEntry, searchEmbeddingsEntry, readCellEntry, countNotebookCellsEntry } from './read-tools.js';
 import { createPlanEntry, updatePlanEntry } from './plan-tools.js';
 import {
   writeFileEntry, createCellEntry, updateCellEntry, writeCellEntry,
@@ -18,6 +18,7 @@ const ALL_TOOLS: ToolEntry[] = [
   loadMemoryEntry,
   searchEmbeddingsEntry,
   readCellEntry,
+  countNotebookCellsEntry,
   // PLAN-level
   createPlanEntry,
   updatePlanEntry,

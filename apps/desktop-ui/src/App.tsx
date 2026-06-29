@@ -168,11 +168,16 @@ const App: React.FC = () => {
             notebook.handleOpenNotebook(virtualPath, name);
           }}
           onOpenFile={(virtualPath, name) => {
+            const ext = name.split('.').pop()?.toLowerCase() || '';
+            if (ext === 'ipynb') {
+              notebook.handleOpenNotebook(virtualPath, name);
+              return;
+            }
+
             const existingTab = tabs.tabs.find(t => t.path === virtualPath);
             if (existingTab) {
               tabs.handleActivateTab(existingTab.id);
             } else {
-              const ext = name.split('.').pop()?.toLowerCase() || '';
               let type: 'image' | 'data' | 'other' = 'other';
               if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) type = 'image';
               else if (['csv', 'tsv', 'json', 'yaml', 'yml'].includes(ext)) type = 'data';
@@ -243,11 +248,17 @@ const App: React.FC = () => {
           }}
           onOpenFile={(path) => {
             const name = path.split('/').pop() || path;
+            const ext = name.split('.').pop()?.toLowerCase() || '';
+            
+            if (ext === 'ipynb') {
+              notebook.handleOpenNotebook(path, name);
+              return;
+            }
+
             const existingTab = tabs.tabs.find(t => t.path === path);
             if (existingTab) {
               tabs.handleActivateTab(existingTab.id);
             } else {
-              const ext = name.split('.').pop()?.toLowerCase() || '';
               let type: 'image' | 'data' | 'other' = 'other';
               if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) type = 'image';
               else if (['csv', 'tsv', 'json', 'yaml', 'yml'].includes(ext)) type = 'data';

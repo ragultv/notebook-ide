@@ -27,6 +27,7 @@ import { notebookExecutionService as _notebookExecutionService } from './core/ex
 import './core/kernel/KernelBootstrap.js'; // side-effect: wires KernelManager events to VS Code kernel system
 
 const server: FastifyInstance = fastify({
+    bodyLimit: 50 * 1024 * 1024, // 50 MB
     logger: {
         level: config.logging.level,
         transport: config.logging.pretty

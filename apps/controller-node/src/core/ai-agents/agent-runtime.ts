@@ -94,7 +94,7 @@ export class AgentRuntime {
 
     if (mutableCtx.notebookPath) {
       const bridge = getKernelBridge();
-      if (bridge) bridge.updateBroadcastId(mutableCtx.notebookPath);
+      if (bridge) await bridge.updateBroadcastId(mutableCtx.notebookPath);
     }
 
     const toolCtx: ToolExecutionContext = {
@@ -118,7 +118,7 @@ export class AgentRuntime {
         messages,
         // Double-cast: our dynamic tools can't satisfy Tool<never,never> structurally
         tools:    buildVercelTools(permittedTools, toolCtx) as unknown as Record<string, Tool<never, never>>,
-        stopWhen: stepCountIs(10),
+        stopWhen: stepCountIs(40),
       });
 
       for await (const chunk of stream.fullStream) {
