@@ -1,9 +1,12 @@
-name: Build Windows EXE
+name: Build and Release Windows EXE
 
 on:
   push:
     branches:
       - main
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -17,8 +20,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
-      - name: Install Monorepo Dependencies
+      - name: Install Dependencies
         run: npm run install:all
 
       - name: Build Controller Node
@@ -27,8 +31,9 @@ jobs:
       - name: Build Desktop UI
         run: npm run ui:build
 
-      - name: Build Electron App & Generate NSIS Installer
-        run: npm run electron:dist
+      - name: Build and Release Electron App
+        working-directory: apps/electron
+        run: npm run dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -38,3 +43,11 @@ jobs:
           name: OctoML-Setup-Windows
           path: apps/electron/dist-electron/*.exe
           retention-days: 7
+
+      - name: Upload Logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            **/*.log
