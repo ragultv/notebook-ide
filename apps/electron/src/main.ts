@@ -11,6 +11,7 @@
 import {
   app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Menu,
 } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
@@ -342,6 +343,15 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error('[Electron] Server startup failed:', err);
     mainWindow?.webContents.send('server:error', 'Server failed to start. Please restart the app.');
+  }
+
+  // 4. Background auto-updates (VS Code style)
+  if (!isDev) {
+    autoUpdater.logger = console;
+    autoUpdater.checkForUpdatesAndNotify().catch(console.error);
+    
+    autoUpdater.on('update-available', () => console.log('[Updater] Update available.'));
+    autoUpdater.on('update-downloaded', () => console.log('[Updater] Update downloaded; will install on quit.'));
   }
 
   app.on('activate', () => {

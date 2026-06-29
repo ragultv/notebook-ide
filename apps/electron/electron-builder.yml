@@ -61,3 +61,8 @@ linux:
       arch: [x64]
   icon: assets/icon.png
   category: Development
+
+publish:
+  provider: github
+  owner: ragultv
+  repo: notebook-ide
