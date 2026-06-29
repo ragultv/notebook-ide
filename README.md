@@ -1,265 +1,58 @@
-# OctoML — AI-Native Desktop Notebook IDE
+<div align="center">
+  <img src="./apps/electron/assets/icon.png" alt="OctoML Logo" width="120" />
+  <h1>OctoML</h1>
+  <p><b>The AI-Native Desktop Notebook IDE for Data Scientists.</b></p>
 
-A project-centric, AI-native desktop notebook for data scientists. Runs locally as an Electron app with a Node.js/TypeScript controller and isolated Python kernels per notebook.
+  <p>
+    <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" />
+    <img alt="Python" src="https://img.shields.io/badge/Python-3.12+-yellow?style=flat-square&logo=python" />
+    <img alt="Electron" src="https://img.shields.io/badge/Electron-31-47848F?style=flat-square&logo=electron" />
+  </p>
+</div>
 
-![OctoML](https://img.shields.io/badge/OctoML-Notebook-red?style=for-the-badge)
-![Python](https://img.shields.io/badge/Python-3.12+-blue?style=flat-square)
-![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square)
-![Fastify](https://img.shields.io/badge/Fastify-5-000000?style=flat-square)
-![Electron](https://img.shields.io/badge/Electron-31-47848F?style=flat-square)
+<br/>
 
----
+OctoML is a **project-centric, deeply AI-integrated desktop notebook IDE** designed entirely from the ground up for modern data scientists. It runs locally as a blazing-fast Electron application, combining the exploratory power of Jupyter notebooks with the speed, AI intelligence, and project management of a modern IDE.
 
-## Architecture Overview
+## ✨ Why OctoML? How is it different?
 
-OctoML is built as three cooperating processes:
+Most data scientists are forced to choose between the browser-based clunkiness of traditional JupyterLab, or the heavy, general-purpose bloat of VS Code. OctoML gives you a third option: **a purpose-built desktop app that treats data science workflows as a first-class citizen.**
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                   Electron 31 Shell                      │
-│  ┌────────────────────┐   ┌──────────────────────────┐  │
-│  │   desktop-ui       │   │   controller-node        │  │
-│  │   (React + Vite)   │◄──►   (Fastify + TypeScript) │  │
-│  │                    │ WS │                          │  │
-│  │  Monaco Editor     │   │  KernelManager           │  │
-│  │  Zustand Store     │   │  ExecutionQueue          │  │
-│  │  MIME Renderers    │   │  ExecutionEngine         │  │
-│  │  ipywidgets        │   │  AIService               │  │
-│  └────────────────────┘   │  NotebookManager         │  │
-│                           │  TerminalManager         │  │
-│                           └──────────┬───────────────┘  │
-│                                      │ stdio JSON        │
-│                           ┌──────────▼───────────────┐  │
-│                           │   kernel-python          │  │
-│                           │   IPython bridge         │  │
-│                           │   One process per        │  │
-│                           │   notebook               │  │
-│                           └──────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-```
+### 🆚 OctoML vs. Traditional Jupyter
+*   **A Real Desktop App:** No more spawning terminal windows, hunting for `localhost:8888`, or dealing with browser tab limitations.
+*   **Project-Centric:** OctoML manages your entire project structure, virtual environments, and data files, rather than just opening isolated `.ipynb` files.
+*   **Built-in AI Assistant:** It understands your active cell, notebook context, and file tree natively—no messy browser extensions required.
 
----
+### 🆚 OctoML vs. VS Code
+*   **Hyper-Focused:** It isn't a text editor for C++ or web development retrofitted for Python. Every UI element and keyboard shortcut is optimized for working with data, plots, and models.
+*   **Native Plotting & Outputs:** True isolated iframe rendering for Plotly, Vega, and Bokeh means your complex WebGL data visualizations won't lag or crash the editor.
 
-## Apps
+## 🚀 Key Features
 
-### `apps/desktop-ui` — React Frontend
+*   🧠 **Deep AI Integration:** A persistent AI side-panel that can read your workspace, debug your traceback errors in one click, and write multi-cell data pipelines directly into your notebook.
+*   ⚡ **Lightning Fast Engine:** Powered by a React frontend and a Node.js Fastify execution controller, allowing seamless queuing and asynchronous cell execution without UI locking.
+*   📊 **Rich MIME Rendering:** Built-in support for advanced streaming outputs, HTML, SVG, interactive DataFrames, `ipywidgets`, and 3D WebGL plots.
+*   📁 **Project File Explorer:** Easily drag-and-drop datasets, navigate your project, and view non-notebook files without leaving the app.
+*   💻 **Integrated Terminal:** A full `xterm.js` terminal right inside your workspace for package installations and shell commands.
 
-| Component | Description |
-|---|---|
-| `MonacoCellEditor` | Monaco Editor with auto-height, IntelliSense completions, Shift+Enter to run |
-| `Cell` | Per-cell gutter — run / stop / queued-cancel buttons, execution timer, AI error fix |
-| `CellOutputView` | Streaming output buffer; appends chunks without re-rendering the full tree |
-| `OutputItem` + `MimeBundleRenderer` | MIME priority router (see MIME section below) |
-| `PlotlyOutputFrame` | Sandboxed `srcdoc` iframe with Plotly 2.27; supports 2D and 3D WebGL |
-| `VegaOutputFrame` | Sandboxed `srcdoc` iframe with Vega 5 / Vega-Lite 5 / vega-embed 6 |
-| `HtmlOutputFrame` | Sandboxed `srcdoc` iframe for HTML, SVG, pandas DataFrames, Bokeh |
-| `AnsiRenderer` | Full ANSI escape parser — 16-color, 256-color, truecolor, bold/italic/underline |
-| `NotebookWSContext` | Translates WebSocket messages into Zustand execution store actions |
-| `WidgetRenderer` | ipywidgets rendering via `@jupyter-widgets/html-manager` |
-| `TerminalOutput` | Integrated terminal via xterm.js connected to node-pty |
+## 📥 Installation
 
-**State management:** Zustand execution store holds per-cell state: `idle → queued → running → stopping → success/error`. Only the affected cell re-renders on state change.
+OctoML auto-updates seamlessly in the background so you're always on the latest version.
+
+1. Head over to our [Releases page](../../releases).
+2. Download the `.exe` (Windows), `.dmg` (macOS), or `.AppImage` (Linux) file.
+3. Install and run—it automatically provisions your local environment!
 
 ---
 
-### `apps/controller-node` — Fastify Backend (TypeScript / Node.js)
+## 📈 Star History
 
-| Module | Description |
-|---|---|
-| `KernelManager` | Owns Python bridge processes; FIFO serial queue per notebook via Promise chaining |
-| `ExecutionQueue` | Named queue per notebook for `run_all` / `run_above` / `run_below` / `run_selection` |
-| `ExecutionEngine` | Orchestrates multi-cell runs; emits `cell:started`, `cell:completed`, `cell:failed` |
-| `BridgeProcess` | Manages the Python bridge subprocess over stdio JSON protocol |
-| `KernelPool` | Pre-warms Python bridge processes for instant cold-start |
-| `NotebookManager` | In-memory notebook model; tracks cell sources and outputs |
-| `NotebookSerializer` | `.ipynb` read/write (Jupyter notebook format compatible) |
-| `AIService` | LLM integration via LangChain — Anthropic / OpenAI / Groq |
-| `RAGService` | Retrieval-augmented generation over project files |
-| `TerminalManager` | node-pty interactive terminal sessions |
-| `EventBus` | Internal pub/sub for decoupled event propagation |
-| `SessionManager` | Per-notebook session lifecycle |
-| `PersistenceManager` | better-sqlite3 storage for sessions and AI memory |
+If you love what we are building, please consider starring the repository to support the project!
 
----
-
-### `apps/kernel-python` — Python IPython Bridge
-
-A lightweight Python process (`kernel_bridge.py`) that:
-
-- Runs an **IPython `InteractiveShell`** instance
-- Accepts JSON messages over **stdin**: `execute`, `interrupt`, `restart`, `stdin_reply`, `get_variables`, `complete`
-- Streams results over **stdout**: `stream`, `result`, `display`, `error`, `status`, `input_request`, `comm_open`, `comm_msg`
-- Handles all IPython magic commands natively (`%matplotlib`, `%%time`, `!pip install`, etc.)
-- Captures rich MIME output: `application/vnd.plotly.v1+json`, `application/vnd.vegalite.v5+json`, `image/png`, `text/html`, and more
-
----
-
-### `apps/electron` — Desktop Shell
-
-Hosts `desktop-ui` in a `BrowserWindow` and spawns `controller-node` as a child process. Packages everything into a single distributable via `electron-builder`.
-
----
-
-## WebSocket Protocol (`/ws/:notebookId`)
-
-| Direction | Message | Purpose |
-|---|---|---|
-| Browser → Server | `execute` | Run a single cell |
-| Browser → Server | `run_all`, `run_above`, `run_below`, `run_selection` | Batch execution |
-| Browser → Server | `interrupt` | Send SIGINT to kernel; unblocks queue for next cell |
-| Browser → Server | `restart` | Drain queue + interrupt + restart Python bridge |
-| Browser → Server | `stop_execution` | Drain queue + interrupt (cancel all pending) |
-| Browser → Server | `stdin_reply` | Respond to `input()` prompt |
-| Browser → Server | `comm_msg` | ipywidgets comm protocol |
-| Server → Browser | `execution_started` | Cell accepted → UI shows yellow Queued |
-| Server → Browser | `cell_started` | Kernel dequeued and running it → UI shows green Running |
-| Server → Browser | `output` | Streaming chunk (stream / result / display / error) |
-| Server → Browser | `execution_complete` | Cell finished successfully |
-| Server → Browser | `execution_error` | Cell finished with error |
-| Server → Browser | `cell_interrupted` | Kernel acknowledged interrupt |
-| Server → Browser | `cell_cancelled` | Cell removed from queue before running |
-| Server → Browser | `input_request` | Kernel called `input()` — show stdin prompt |
-| Server → Browser | `kernel_status` | Kernel idle / busy |
-| Server → Browser | `comm_open`, `comm_msg`, `comm_close` | ipywidgets comm events |
-
----
-
-## Execution State Machine
-
-```
-idle ──► queued ──► running ──► success
-                      │
-                   stopping ──► error
-```
-
-- **Queued** (yellow): server confirmed the cell was accepted into the execution queue
-- **Running** (green): kernel dequeued the cell and is actively executing it
-- **Stopping**: SIGINT sent; kernel raises `KeyboardInterrupt`; the next queued cell starts automatically
-- **Success / Error**: final state; outputs persisted in Zustand store
-
-When **Stop** is clicked on a running cell, only that cell is interrupted. All other queued cells continue in order.
-
----
-
-## MIME Output Priority
-
-Output rendering follows the same priority order as VS Code notebooks:
-
-```
-application/vnd.jupyter.widget-view+json   → ipywidgets
-application/vnd.plotly.v1+json             → Plotly (2D + 3D WebGL)
-application/vnd.vega.v5+json               → Vega
-application/vnd.vegalite.v4+json           → Vega-Lite v4
-application/vnd.vegalite.v5+json           → Vega-Lite v5
-application/vnd.altair.v1+json             → Altair (= Vega-Lite)
-application/json                            → formatted JSON
-application/javascript                      → sandboxed script
-text/html                                   → sandboxed iframe
-image/svg+xml                               → sandboxed iframe
-text/markdown                               → rendered markdown
-text/latex                                  → monospace
-image/png, image/jpeg, image/gif            → <img>
-text/plain                                  → ANSI renderer
-```
-
-All rich outputs (Plotly, Vega, HTML, SVG, JS) render inside sandboxed `srcdoc` iframes with `allow-scripts allow-same-origin allow-popups allow-downloads`. Heights are auto-sized via `postMessage`.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Desktop shell | Electron 31 |
-| Frontend | React 19, Vite 6, TypeScript, Tailwind CSS 3 |
-| Editor | Monaco Editor 0.55 (`@monaco-editor/react`) |
-| State | Zustand 4 |
-| Backend | Fastify 5, TypeScript, Node.js (ESM) |
-| Python kernel | IPython, Python 3.12+ |
-| Terminal | node-pty + xterm.js |
-| AI / LLM | LangChain — `@langchain/anthropic`, `@langchain/openai`, `@langchain/groq` |
-| Widgets | `@jupyter-widgets/html-manager` |
-| Charts | Plotly 2.27 (CDN), Vega 5 / Vega-Lite 5 (CDN) |
-| Database | better-sqlite3 (sessions, AI memory) |
-| Packaging | electron-builder |
-
----
-
-## Development
-
-```bash
-# Install all workspaces
-npm install
-
-# Start controller (port 3001)
-cd apps/controller-node && npm run dev
-
-# Start UI (port 5000)
-cd apps/desktop-ui && npm run dev
-
-# Start Electron shell (opens the desktop app)
-cd apps/electron && npm run dev
-```
-
-Notebooks are stored as standard `.ipynb` files (Jupyter-compatible).
-
----
-
-## Project Structure
-
-```
-notebook-ide/
-├── apps/
-│   ├── controller-node/            # Fastify 5 backend
-│   │   └── src/
-│   │       ├── core/
-│   │       │   ├── KernelManager.ts        # Python bridge lifecycle + serial queue
-│   │       │   ├── BridgeProcess.ts        # stdio IPC to Python
-│   │       │   ├── KernelPool.ts           # Pre-warmed kernel pool
-│   │       │   ├── TerminalManager.ts      # node-pty terminal sessions
-│   │       │   ├── EventBus.ts             # Internal pub/sub
-│   │       │   ├── SessionManager.ts       # Per-notebook session lifecycle
-│   │       │   ├── PersistenceManager.ts   # better-sqlite3 persistence
-│   │       │   ├── notebook/
-│   │       │   │   ├── ExecutionEngine.ts    # run_all / run_above / run_below
-│   │       │   │   ├── ExecutionQueue.ts     # Per-notebook FIFO queue
-│   │       │   │   ├── NotebookManager.ts    # In-memory notebook model
-│   │       │   │   └── NotebookSerializer.ts # .ipynb read/write
-│   │       │   └── ai/
-│   │       │       ├── AIService.ts          # LLM chat + code generation
-│   │       │       └── RAGService.ts         # Project-file retrieval
-│   │       └── routes/
-│   │           └── websocket.ts            # WS message router
-│   │
-│   ├── desktop-ui/                 # React 19 frontend
-│   │   └── src/
-│   │       ├── components/
-│   │       │   └── Notebook/
-│   │       │       ├── Cell.tsx                  # Cell gutter + controls
-│   │       │       ├── MonacoCellEditor.tsx       # Monaco auto-height editor
-│   │       │       ├── NotebookWSContext.tsx      # WS → Zustand bridge
-│   │       │       └── CellOutput/
-│   │       │           ├── CellOutputView.tsx         # Streaming buffer
-│   │       │           ├── OutputItem.tsx             # MIME router
-│   │       │           ├── MimeBundleRenderer.tsx     # Priority resolver
-│   │       │           ├── PlotlyOutputFrame.tsx      # Plotly iframe
-│   │       │           ├── VegaOutputFrame.tsx        # Vega iframe
-│   │       │           ├── HtmlOutputFrame.tsx        # HTML/SVG iframe
-│   │       │           └── AnsiRenderer.tsx           # ANSI escape parser
-│   │       └── store/
-│   │           └── execution.store.ts        # Cell execution state (Zustand)
-│   │
-│   ├── kernel-python/              # Python IPython bridge
-│   │   └── bridge/
-│   │       └── kernel_bridge.py    # IPython shell + stdio JSON protocol
-│   │
-│   └── electron/                   # Electron shell + electron-builder packaging
-│
-└── package.json                    # npm workspaces root
-```
-
----
-
-## License
-
-MIT
+<a href="https://star-history.com/#ragultv/notebook-ide&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ragultv/notebook-ide&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ragultv/notebook-ide&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ragultv/notebook-ide&type=Date" />
+ </picture>
+</a>
