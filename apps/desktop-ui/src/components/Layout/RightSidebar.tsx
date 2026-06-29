@@ -510,6 +510,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     },
     onCellDelete:       () => {},
     onNotebookCreate:   onNotebookCreatedByAgent,
+    onOpenFile,
     onCellRunStart,
     onCellRunComplete,
   });

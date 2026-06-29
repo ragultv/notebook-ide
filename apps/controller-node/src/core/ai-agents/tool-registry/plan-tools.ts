@@ -21,7 +21,7 @@ export const createPlanEntry: ToolEntry = {
       notebook_path: z.string().optional().describe('The path to the notebook associated with this plan, if known.'),
       tasks: z.array(z.string()).describe('List of task descriptions to create the plan'),
     }),
-    permittedModes: ['PLAN', 'AGENT', 'AGENTIC'],
+    permittedModes: ['PLAN'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
     const store = new OctomlStore(ctx.project_path);
@@ -72,7 +72,7 @@ export const updatePlanEntry: ToolEntry = {
         status: z.string().describe('Must be exactly "pending", "in_progress", "done", or "failed"')
       })).describe('Array of updates. You can update all completed tasks in a single tool call.')
     }),
-    permittedModes: ['PLAN', 'AGENT', 'AGENTIC'],
+    permittedModes: ['PLAN'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
     const store = new OctomlStore(ctx.project_path);

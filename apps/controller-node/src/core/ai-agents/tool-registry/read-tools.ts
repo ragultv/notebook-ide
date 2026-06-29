@@ -5,6 +5,7 @@ import path from 'path';
 import type { ToolEntry, ToolExecutionContext, ToolResult } from '../types/index.js';
 import { EmbeddingStore } from '../embeddings/embedding-store.js';
 import { OctomlStore } from '../store/octoml-store.js';
+import { getKernelBridge } from './exec-tools.js';
 
 function safeRead(projectPath: string, userPath: string): string {
   const resolved = path.resolve(projectPath, userPath);
@@ -18,6 +19,27 @@ const DATA_PREVIEW_ROWS = 50;
 const MAX_TEXT_BYTES    = 8_000;
 
 async function readDataFile(filePath: string, ext: string): Promise<{ content: string; meta?: string }> {
+  if (ext === '.ipynb') {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    try {
+      const parsed = JSON.parse(raw);
+      // Strip outputs from cells so agent only sees the source code
+      if (Array.isArray(parsed.cells)) {
+        parsed.cells = parsed.cells.map((cell: any) => ({
+          cell_type: cell.cell_type,
+          source: cell.source,
+        }));
+      }
+      const pretty = JSON.stringify(parsed, null, 2);
+      return {
+        content: pretty.slice(0, MAX_TEXT_BYTES),
+        meta: `Notebook with ${parsed.cells?.length || 0} cells${pretty.length > MAX_TEXT_BYTES ? ` [truncated to ${MAX_TEXT_BYTES} chars]` : ''}`,
+      };
+    } catch {
+      return { content: raw.slice(0, MAX_TEXT_BYTES) };
+    }
+  }
+
   if (ext === '.json') {
     const raw = await fs.readFile(filePath, 'utf-8');
     try {
@@ -130,6 +152,23 @@ export const readFileEntry: ToolEntry = {
       const safePath = safeRead(ctx.project_path, userPath);
       const ext = path.extname(userPath).toLowerCase();
       const { content, meta } = await readDataFile(safePath, ext);
+
+      if (ext === '.ipynb') {
+        ctx.mutableCtx.notebookPath = userPath;
+        const bridge = getKernelBridge();
+        if (bridge) {
+          await bridge.updateBroadcastId(safePath);
+        }
+        return { 
+          success: true, 
+          data: { 
+            content, 
+            meta, 
+            _CRITICAL_INSTRUCTION: 'Notebook opened in IDE successfully. However, your notebook execution context has not updated yet. You MUST end your turn immediately (return a message and stop calling tools) so the UI can update and start a new turn with the new notebook context before you use runCell.'
+          } 
+        };
+      }
+
       return { success: true, data: { path: userPath, content, ...(meta ? { meta } : {}) } };
     } catch (err) {
       return { success: false, error: String(err) };
@@ -235,5 +274,17 @@ export const readCellEntry: ToolEntry = {
       if (!runtime) return { success: false, error: `Cell ${n} not found` };
       return { success: true, data: { cell_number: n, cell_id: runtime.id, type: runtime.type, source: runtime.source } };
     }
+  },
+};
+
+export const countNotebookCellsEntry: ToolEntry = {
+  definition: {
+    name: 'countNotebookCells',
+    description: 'Get the number of cells in the currently opened notebook.',
+    inputSchema: z.object({}),
+    permittedModes: ['ASK', 'PLAN', 'AGENT', 'AGENTIC'],
+  },
+  execute: async (_input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
+    return { success: true, data: { cell_count: ctx.current_notebook.cells.length } };
   },
 };

@@ -201,7 +201,6 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                 onDragLeave={handleDragLeave}
                 onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node); }}
                 onClick={() => {
-                    onSelect(node.virtualPath);
                     if (isDir) onToggle(node.virtualPath);
                     else onOpen(node);
                 }}
@@ -321,10 +320,11 @@ export interface FileExplorerProps {
     onOpenFile?:      (virtualPath: string, name: string) => void;
     uploadDestination?: string;
     onDeleteFile?:     (virtualPath: string) => void;
+    activeFilePath?:   string | null;
 }
 
 export const FileExplorer: React.FC<FileExplorerProps> = ({
-    onOpenNotebook, onOpenFile, onDeleteFile,
+    onOpenNotebook, onOpenFile, onDeleteFile, activeFilePath,
 }) => {
     const tree = useProjectFileTree();
 
@@ -335,6 +335,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     const newItemInputRef = useRef<HTMLInputElement>(null);
     const [error, setError] = useState<string | null>(null);
     const uploadRef = useRef<HTMLInputElement>(null);
+
+    // Sync selected file highlight with editor active tab
+    useEffect(() => {
+        if (activeFilePath !== undefined) {
+            tree.setSelected(activeFilePath);
+        }
+    }, [activeFilePath, tree.setSelected]);
 
     useEffect(() => {
         if (newItemState) {

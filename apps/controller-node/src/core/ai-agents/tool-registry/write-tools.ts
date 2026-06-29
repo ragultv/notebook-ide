@@ -216,7 +216,7 @@ export const createNotebookEntry: ToolEntry = {
       // Ensure subsequent cell executions in this agent run broadcast to the newly created notebook
       const bridge = getKernelBridge();
       if (bridge) {
-        bridge.updateBroadcastId(notebookPath);
+        await bridge.updateBroadcastId(notebookPath);
       }
 
       ctx.emit({ type: 'notebook_create', path: relPath });

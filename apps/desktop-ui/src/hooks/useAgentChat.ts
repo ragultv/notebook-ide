@@ -106,6 +106,7 @@ interface UseAgentChatOptions {
   onCellUpdate?:      (cellId: string, source: string) => void;
   onCellDelete?:      (cellId: string) => void;
   onNotebookCreate?:  (path: string) => void;
+  onOpenFile?:        (path: string) => void;
   onCellRunStart?:    (cellId: string) => void;
   onCellRunComplete?: (cellId: string, success: boolean) => void;
 }
@@ -176,12 +177,14 @@ export function useAgentChat(opts: UseAgentChatOptions) {
   const onCellUpdateRef      = useRef(opts.onCellUpdate);
   const onCellDeleteRef      = useRef(opts.onCellDelete);
   const onNotebookCreateRef  = useRef(opts.onNotebookCreate);
+  const onOpenFileRef        = useRef(opts.onOpenFile);
   const onCellRunStartRef    = useRef(opts.onCellRunStart);
   const onCellRunCompleteRef = useRef(opts.onCellRunComplete);
   onCellCreateRef.current      = opts.onCellCreate;
   onCellUpdateRef.current      = opts.onCellUpdate;
   onCellDeleteRef.current      = opts.onCellDelete;
   onNotebookCreateRef.current  = opts.onNotebookCreate;
+  onOpenFileRef.current        = opts.onOpenFile;
   onCellRunStartRef.current    = opts.onCellRunStart;
   onCellRunCompleteRef.current = opts.onCellRunComplete;
 
@@ -309,18 +312,22 @@ export function useAgentChat(opts: UseAgentChatOptions) {
     segments?: MsgSegment[],
   ) => {
     if (!sid) return;
-    await apiFetch(`/api/chat/sessions/${sid}/messages`, {
-      method: 'POST',
-      body:   JSON.stringify({
-        messages: [
-          { role: 'user',      content: userContent,      tool_calls: [], attachments: userAttachments ?? [] },
-          { role: 'assistant', content: assistantContent, tool_calls: toolCallsForTurn ?? [], segments: segments ?? [] },
-        ],
-        mode:  currentMode,
-        title: title ?? userContent.slice(0, 60),
-      }),
-    });
-    loadSessions();
+    try {
+      await apiFetch(`/api/chat/sessions/${sid}/messages`, {
+        method: 'POST',
+        body:   JSON.stringify({
+          messages: [
+            { role: 'user',      content: userContent,      tool_calls: [], attachments: userAttachments ?? [] },
+            { role: 'assistant', content: assistantContent, tool_calls: toolCallsForTurn ?? [], segments: segments ?? [] },
+          ],
+          mode:  currentMode,
+          title: title ?? userContent.slice(0, 60),
+        }),
+      });
+      loadSessions();
+    } catch (e) {
+      console.error('Failed to persist messages to DB:', e);
+    }
   }, [loadSessions]);
 
   // ── Send message ──────────────────────────────────────────────────────────
@@ -367,13 +374,20 @@ Resume from the first pending task and complete ALL remaining tasks.]\n\n`;
     }
 
     if (currentAttachments.length > 0) {
-      const attachText = currentAttachments
-        .map(f => {
-          const pathLine = f.path ? `\nFile path: ${f.path}` : '';
-          return `\n\n[Attached file: ${f.name}]${pathLine}\n(Please use the readFile tool to read this file if needed)`;
-        })
-        .join('');
-      fullContent = fullContent + attachText;
+      const attachTexts = await Promise.all(currentAttachments.map(async f => {
+        const pathLine = f.path ? `\nFile path: ${f.path}` : '';
+
+        // If it's an in-memory file (no path, e.g. a cell drag), include its content directly
+        if (!f.path) {
+          return `\n\n[Attached in-memory snippet: ${f.name}]\n\`\`\`\n${f.content}\n\`\`\``;
+        }
+
+        const instruction = f.name.toLowerCase().endsWith('.ipynb')
+          ? `(CRITICAL: To execute cells from this notebook, you MUST first open it in the IDE by calling the readFile tool on its path. If you get a 'Path traversal detected' error, it means the file is outside the workspace. If you get an ENOENT (file not found) error, you MUST use the listProject tool to search the workspace for the correct path to this notebook. If you still cannot find it in the workspace, tell the user it was not found.)`
+          : `(Please use the readFile tool to read this file if needed. If it fails with file not found, use listProject to find its correct path.)`;
+        return `\n\n[Attached file: ${f.name}]${pathLine}\n${instruction}`;
+      }));
+      fullContent = fullContent + attachTexts.join('');
     }
 
     const userMsg: ChatMsg = { id: `u-${Date.now()}`, role: 'user', content: content, attachments: currentAttachments, timestamp: new Date().toISOString() };
@@ -478,6 +492,15 @@ Resume from the first pending task and complete ALL remaining tasks.]\n\n`;
 
           case 'tool_call_start': {
             const toolName = evt['tool'] as string;
+            
+            // Auto-open notebook if AI reads it
+            if (toolName === 'readFile' && evt['input']) {
+              const p = (evt['input'] as Record<string, unknown>).path as string;
+              if (p && typeof p === 'string' && p.endsWith('.ipynb')) {
+                onOpenFileRef.current?.(p);
+              }
+            }
+
             const label    = TOOL_ACTIVITIES[toolName] ?? toolName;
             const seq      = ++toolCallSeqRef.current;
             const tcId     = `tc-${seq}-${toolName}`;

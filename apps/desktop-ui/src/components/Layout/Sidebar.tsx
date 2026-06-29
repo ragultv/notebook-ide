@@ -352,6 +352,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Project file tree */}
             <div className="flex-1 overflow-hidden">
               <FileExplorer
+                activeFilePath={files.find(f => f.id === activeFileId)?.path || null}
                 onOpenNotebook={onOpenNotebook}
                 onOpenFile={onOpenFile}
                 onDeleteFile={(virtualPath) => {
