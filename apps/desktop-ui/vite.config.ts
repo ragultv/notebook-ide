@@ -51,6 +51,7 @@ const svgAsStringPlugin = () => ({
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const isProd = mode === 'production';
   return {
     base: './',
     server: {
@@ -67,6 +68,21 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
       }
+    },
+    build: {
+      sourcemap: false,
+      minify: 'esbuild',
+      target: 'esnext',
+      chunkSizeWarningLimit: 4096,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom'],
+            'vendor-monaco': ['monaco-editor'],
+            'vendor-xterm': ['@xterm/xterm', '@xterm/addon-fit'],
+          },
+        },
+      },
     },
     optimizeDeps: {
       // Pre-bundle CJS jupyter-widgets packages into ESM so Vite can import them

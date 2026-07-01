@@ -88,15 +88,19 @@ const start = async () => {
 
         // Register plugins
         await server.register(cors, {
-            // Restrict to known local origins — this is a desktop-local app only.
-            // Using origin: true (reflect-all) is unnecessarily permissive.
-            origin: [
-                'http://localhost:5000',   // Vite dev server
-                'http://localhost:5001',   // Vite dev server
-                'http://localhost:5173',   // Vite default fallback
-                'http://127.0.0.1:5000',
-                'http://127.0.0.1:5173',
-            ],
+            // Allowed origins:
+            //   octoml-app://app  — production renderer (custom Electron protocol, VS Code pattern)
+            //   http://localhost:* — Vite dev server
+            //   http://127.0.0.1:* — Vite dev server (alternate)
+            //   null / no origin  — health-check requests, CLI tools, fallback
+            origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => {
+                if (!origin || origin === 'null') { cb(null, true); return; }
+                if (origin === 'octoml-app://app') { cb(null, true); return; }
+                if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
+                    cb(null, true); return;
+                }
+                cb(new Error('CORS: origin not allowed'), false);
+            },
             credentials: config.cors.credentials,
             methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Accept'],

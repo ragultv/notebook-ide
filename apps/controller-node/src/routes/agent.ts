@@ -34,7 +34,11 @@ const bridge = new KernelBridge();
 // Origins allowed for SSE — must mirror the cors plugin config in index.ts.
 // reply.raw.writeHead() bypasses Fastify's onSend hooks (where @fastify/cors injects
 // its headers), so we must add Access-Control-Allow-Origin manually here.
+// IMPORTANT: always include 'octoml-app://app' — that is the production Electron origin
+// when the renderer is served via the custom protocol (VS Code pattern).
 const SSE_ALLOWED_ORIGINS = new Set([
+  'octoml-app://app',              // production Electron (custom protocol)
+  'null',                          // file:// fallback (older builds)
   'http://localhost:5000',
   'http://localhost:5001',
   'http://localhost:5173',
@@ -56,18 +60,25 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 
     const request = parsed.data;
 
-    // Resolve the request origin for CORS (SSE bypasses Fastify's onSend hooks)
-    const origin = typeof req.headers['origin'] === 'string' ? req.headers['origin'] : '';
-    const acao   = SSE_ALLOWED_ORIGINS.has(origin) ? origin : [...SSE_ALLOWED_ORIGINS][0];
+    // Resolve CORS origin for SSE — reply.raw.writeHead() bypasses @fastify/cors,
+    // so CORS headers must be set manually.
+    // - Allowed origin → reflect it back (required for credentials: true)
+    // - No Origin header → non-browser client (health-check, CLI); omit CORS headers
+    // - Unknown origin → do NOT set ACAO; browser will block, which is intentional
+    const origin = typeof req.headers['origin'] === 'string' ? req.headers['origin'] : undefined;
+    const corsHeaders: Record<string, string> = {};
+    if (origin && SSE_ALLOWED_ORIGINS.has(origin)) {
+      corsHeaders['Access-Control-Allow-Origin']      = origin;
+      corsHeaders['Access-Control-Allow-Credentials'] = 'true';
+    }
 
-    // Set up SSE headers before streaming (CORS headers must be added manually here)
+    // Set up SSE headers before streaming
     reply.raw.writeHead(200, {
-      'Content-Type':                     'text/event-stream',
-      'Cache-Control':                    'no-cache',
-      'Connection':                       'keep-alive',
-      'X-Accel-Buffering':                'no',
-      'Access-Control-Allow-Origin':      acao,
-      'Access-Control-Allow-Credentials': 'true',
+      'Content-Type':      'text/event-stream',
+      'Cache-Control':     'no-cache',
+      'Connection':        'keep-alive',
+      'X-Accel-Buffering': 'no',
+      ...corsHeaders,
     });
 
     // Wire bridge singleton and connect to the session's kernel

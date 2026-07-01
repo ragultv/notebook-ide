@@ -2,31 +2,99 @@ appId: com.octoml.ide
 productName: OctoML
 copyright: Copyright © 2026
 
+# Prevent electron-builder from rebuilding native modules for Electron's ABI.
+# The controller-node backend runs with system Node, not Electron's Node, so
+# native modules (better-sqlite3, node-pty) must keep their original binaries.
+npmRebuild: false
+
 directories:
   buildResources: assets
   output: dist-electron
 
+# ── Electron main process files ────────────────────────────────────────────────
 files:
   - dist/**/*
   - "!**/*.ts"
   - "!**/*.map"
 
+# ── Bundled resources (frontend + backend + python kernel) ─────────────────────
 extraResources:
+  # Built React/Vite frontend
   - from: ../desktop-ui/dist
     to: app/apps/desktop-ui
+
+  # Compiled Node.js backend — production deps only (run npm prune --omit=dev first)
   - from: ../controller-node
     to: app/apps/controller-node
     filter:
+      # package.json MUST be included — Node.js reads it to detect "type":"module"
+      # Without it, Node.js parses the ESM dist files as CommonJS and crashes.
+      - package.json
+      # Include compiled output and production node_modules
       - dist/**/*
+      - "!dist/**/*.map"
       - node_modules/**/*
+
+      # Exclude dev-only tooling (saved ~100 MB)
+      - "!node_modules/typescript/**"
+      - "!node_modules/tsx/**"
+      - "!node_modules/ts-node/**"
+      - "!node_modules/nodemon/**"
+      - "!node_modules/@types/**"
+      - "!node_modules/create-require/**"
+      - "!node_modules/diff/**"
+      - "!node_modules/make-error/**"
+      - "!node_modules/v8-compile-cache-lib/**"
+      - "!node_modules/yn/**"
+
+      # Exclude build cache and runtime tools not needed in production
       - "!node_modules/.cache/**"
+      - "!node_modules/.bin/**"
+
+      # Exclude documentation, changelogs, and license files from every package
       - "!node_modules/**/*.md"
+      - "!node_modules/**/README*"
+      - "!node_modules/**/CHANGELOG*"
+      - "!node_modules/**/CHANGES*"
+      - "!node_modules/**/HISTORY*"
+      - "!node_modules/**/AUTHORS*"
+      - "!node_modules/**/NOTICE*"
+      - "!node_modules/**/LICENSE*"
+      - "!node_modules/**/LICENCE*"
+      - "!node_modules/**/*.map"
+
+      # Exclude test suites and fixtures
+      - "!node_modules/**/test/**"
+      - "!node_modules/**/tests/**"
+      - "!node_modules/**/__tests__/**"
+      - "!node_modules/**/spec/**"
+      - "!node_modules/**/specs/**"
+      - "!node_modules/**/fixtures/**"
+      - "!node_modules/**/coverage/**"
+      - "!node_modules/**/*.test.js"
+      - "!node_modules/**/*.spec.js"
+
+      # Exclude TypeScript source files (compiled output is in dist/)
+      - "!node_modules/**/*.ts"
+      - "!node_modules/**/*.d.ts"
+      - "!node_modules/**/*.d.ts.map"
+
+      # Exclude example and documentation folders
+      - "!node_modules/**/examples/**"
+      - "!node_modules/**/example/**"
+      - "!node_modules/**/docs/**"
+      - "!node_modules/**/doc/**"
+
+  # Python kernel bridge (source only — Python must be installed on user's system)
   - from: ../kernel-python
     to: app/apps/kernel-python
     filter:
       - bridge/**/*
+      - requirements.txt
       - "!**/__pycache__/**"
+      - "!**/*.pyc"
 
+# ── Windows ────────────────────────────────────────────────────────────────────
 win:
   target:
     - target: nsis
@@ -46,6 +114,7 @@ nsis:
   installerHeader: assets/installerHeader.bmp
   installerHeaderIcon: assets/icon.png
 
+# ── macOS ──────────────────────────────────────────────────────────────────────
 mac:
   target:
     - target: dmg
@@ -55,6 +124,7 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
 
+# ── Linux ──────────────────────────────────────────────────────────────────────
 linux:
   target:
     - target: AppImage
@@ -62,6 +132,7 @@ linux:
   icon: assets/icon.png
   category: Development
 
+# ── Auto-update ────────────────────────────────────────────────────────────────
 publish:
   provider: github
   owner: ragultv

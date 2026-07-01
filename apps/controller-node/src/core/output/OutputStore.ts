@@ -1,36 +1,18 @@
 /**
- * OutputStore.ts — SQLite-backed persistence for cell outputs, kernel sessions,
+ * OutputStore.ts — In-memory store for cell outputs, kernel sessions,
  * and notebook metadata.
  *
- * Database: userData/octopod.db  (single file, set via USER_DATA_DIR env var)
- *
- * Schema:
- *   notebooks       — tracks open/saved notebooks
- *   cell_outputs    — per-cell execution outputs (JSON blobs)
- *   kernel_sessions — tracks kernel↔notebook bindings
- *
- * Uses better-sqlite3 (synchronous) — synchronous is intentional for v1.
- * Move to worker_threads when multi-notebook concurrency exceeds ~10k cells.
+ * Replaces the previous SQLite-backed implementation (octopod.db).
+ * All data is transient — outputs are persisted by NotebookManager via .ipynb files.
  */
 
-import Database from 'better-sqlite3';
-import fs from 'fs-extra';
-import path from 'path';
 import type { NotebookOutput } from '../events/EventBus.js';
 
-// ── Database path ──────────────────────────────────────────────────────────────
-
-function resolveDbPath(): string {
-    const userDataDir = process.env.USER_DATA_DIR || process.env.DATA_DIR || './data';
-    fs.mkdirSync(userDataDir, { recursive: true });
-    return path.resolve(userDataDir, 'octopod.db');
-}
-
-// ── Row types ──────────────────────────────────────────────────────────────────
+// ── Row types (kept for API compatibility) ────────────────────────────────────
 
 export interface NotebookRow {
-    id: string;           // notebookId (virtual, usually file path normalized)
-    path: string;         // absolute OS path to .ipynb
+    id: string;
+    path: string;
     name: string;
     last_saved_at: string | null;
     opened_at: string;
@@ -42,7 +24,7 @@ export interface CellOutputRow {
     cell_id: string;
     execution_id: string;
     execution_count: number | null;
-    outputs_json: string;       // JSON.stringify(NotebookOutput[])
+    outputs_json: string;
     status: 'running' | 'completed' | 'failed' | 'interrupted';
     started_at: string;
     completed_at: string | null;
@@ -57,16 +39,28 @@ export interface KernelSessionRow {
     status: 'idle' | 'busy' | 'crashed' | 'stopped';
 }
 
+// ── Internal state ─────────────────────────────────────────────────────────────
+
+interface ActiveExecution {
+    outputs: NotebookOutput[];
+    status: 'running' | 'completed' | 'failed' | 'interrupted';
+    execution_count: number | null;
+    started_at: string;
+    completed_at: string | null;
+    duration_ms: number | null;
+}
+
 // ── OutputStore ────────────────────────────────────────────────────────────────
 
 export class OutputStore {
     private static instance: OutputStore;
-    private db!: Database.Database;
-    private dbPath: string;
 
-    private constructor() {
-        this.dbPath = resolveDbPath();
-    }
+    private notebooks: Map<string, NotebookRow> = new Map();
+    private cellOutputs: Map<string, Map<string, ActiveExecution>> = new Map(); // notebookId → cellId → execution
+    private kernelSessions: Map<string, KernelSessionRow> = new Map();
+    private rowCounter = 0;
+
+    private constructor() {}
 
     public static getInstance(): OutputStore {
         if (!OutputStore.instance) {
@@ -75,220 +69,124 @@ export class OutputStore {
         return OutputStore.instance;
     }
 
-    // ── Lifecycle ──────────────────────────────────────────────────────────────
-
     public initialize(): void {
-        this.db = new Database(this.dbPath);
-
-        // WAL mode: faster writes, better concurrency for reads
-        this.db.pragma('journal_mode = WAL');
-        this.db.pragma('synchronous = NORMAL');
-        this.db.pragma('foreign_keys = ON');
-
-        this.runMigrations();
-        console.log(`[OutputStore] Initialized at ${this.dbPath}`);
+        // no-op: in-memory store needs no initialization
     }
 
     public close(): void {
-        if (this.db?.open) {
-            this.db.close();
-        }
-    }
-
-    private runMigrations(): void {
-        // ── Version table ──
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER NOT NULL DEFAULT 0
-            );
-        `);
-
-        const row = this.db.prepare('SELECT version FROM schema_version').get() as
-            | { version: number }
-            | undefined;
-        const currentVersion = row?.version ?? 0;
-
-        if (currentVersion < 1) {
-            this.db.exec(`
-                -- Notebooks registry
-                CREATE TABLE IF NOT EXISTS notebooks (
-                    id           TEXT PRIMARY KEY,
-                    path         TEXT NOT NULL UNIQUE,
-                    name         TEXT NOT NULL,
-                    last_saved_at TEXT,
-                    opened_at    TEXT NOT NULL DEFAULT (datetime('now'))
-                );
-
-                -- Cell outputs: one row per (notebook_id, cell_id, execution_id)
-                CREATE TABLE IF NOT EXISTS cell_outputs (
-                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                    notebook_id    TEXT NOT NULL,
-                    cell_id        TEXT NOT NULL,
-                    execution_id   TEXT NOT NULL,
-                    execution_count INTEGER,
-                    outputs_json   TEXT NOT NULL DEFAULT '[]',
-                    status         TEXT NOT NULL DEFAULT 'running',
-                    started_at     TEXT NOT NULL DEFAULT (datetime('now')),
-                    completed_at   TEXT,
-                    duration_ms    INTEGER,
-                    UNIQUE(notebook_id, cell_id, execution_id)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_cell_outputs_notebook
-                    ON cell_outputs(notebook_id);
-                CREATE INDEX IF NOT EXISTS idx_cell_outputs_cell
-                    ON cell_outputs(notebook_id, cell_id);
-
-                -- Kernel sessions
-                CREATE TABLE IF NOT EXISTS kernel_sessions (
-                    notebook_id     TEXT PRIMARY KEY,
-                    kernel_id       TEXT NOT NULL,
-                    started_at      TEXT NOT NULL DEFAULT (datetime('now')),
-                    last_active_at  TEXT NOT NULL DEFAULT (datetime('now')),
-                    status          TEXT NOT NULL DEFAULT 'idle'
-                );
-
-                INSERT OR IGNORE INTO schema_version(version) VALUES (0);
-                UPDATE schema_version SET version = 1;
-            `);
-        }
-
-        // Future migrations: if (currentVersion < 2) { ... }
+        // no-op: nothing to close
+        this.notebooks.clear();
+        this.cellOutputs.clear();
+        this.kernelSessions.clear();
     }
 
     // ── Notebook CRUD ──────────────────────────────────────────────────────────
 
     public upsertNotebook(id: string, filePath: string, name: string): void {
-        this.db.prepare(`
-            INSERT OR REPLACE INTO notebooks (id, path, name, opened_at, last_saved_at)
-            VALUES (@id, @path, @name, datetime('now'), (SELECT last_saved_at FROM notebooks WHERE path = @path))
-        `).run({ id, path: filePath, name });
+        const existing = this.notebooks.get(id);
+        this.notebooks.set(id, {
+            id,
+            path: filePath,
+            name,
+            last_saved_at: existing?.last_saved_at ?? null,
+            opened_at: existing?.opened_at ?? new Date().toISOString(),
+        });
     }
 
     public markNotebookSaved(id: string): void {
-        this.db.prepare(`
-            UPDATE notebooks SET last_saved_at = datetime('now') WHERE id = @id
-        `).run({ id });
+        const nb = this.notebooks.get(id);
+        if (nb) nb.last_saved_at = new Date().toISOString();
     }
 
     public removeNotebook(id: string): void {
-        // Cascade: remove outputs associated with this notebook
-        this.db.transaction(() => {
-            this.db.prepare('DELETE FROM cell_outputs WHERE notebook_id = @id').run({ id });
-            this.db.prepare('DELETE FROM kernel_sessions WHERE notebook_id = @id').run({ id });
-            this.db.prepare('DELETE FROM notebooks WHERE id = @id').run({ id });
-        })();
+        this.notebooks.delete(id);
+        this.cellOutputs.delete(id);
+        this.kernelSessions.delete(id);
     }
 
     public getNotebook(id: string): NotebookRow | null {
-        return (this.db.prepare('SELECT * FROM notebooks WHERE id = @id').get({ id }) as
-            NotebookRow | undefined) ?? null;
+        return this.notebooks.get(id) ?? null;
     }
 
     public getAllNotebooks(): NotebookRow[] {
-        return this.db.prepare('SELECT * FROM notebooks ORDER BY opened_at DESC').all() as NotebookRow[];
+        return [...this.notebooks.values()].sort(
+            (a, b) => b.opened_at.localeCompare(a.opened_at),
+        );
     }
 
     // ── Cell outputs CRUD ──────────────────────────────────────────────────────
 
-    /** Called at execution start — creates a 'running' row. */
-    public startCellExecution(
-        notebookId: string,
-        cellId: string,
-        executionId: string,
-    ): void {
-        this.db.prepare(`
-            INSERT OR REPLACE INTO cell_outputs
-                (notebook_id, cell_id, execution_id, outputs_json, status, started_at)
-            VALUES
-                (@notebookId, @cellId, @executionId, '[]', 'running', datetime('now'))
-        `).run({ notebookId, cellId, executionId });
+    public startCellExecution(notebookId: string, cellId: string, _executionId: string): void {
+        let cells = this.cellOutputs.get(notebookId);
+        if (!cells) {
+            cells = new Map();
+            this.cellOutputs.set(notebookId, cells);
+        }
+        cells.set(cellId, {
+            outputs: [],
+            status: 'running',
+            execution_count: null,
+            started_at: new Date().toISOString(),
+            completed_at: null,
+            duration_ms: null,
+        });
     }
 
-    /** Append one output to the JSON array (streaming). */
     public appendOutput(
         notebookId: string,
         cellId: string,
-        executionId: string,
+        _executionId: string,
         output: NotebookOutput,
     ): void {
-        const row = this.db.prepare(`
-            SELECT outputs_json FROM cell_outputs
-            WHERE notebook_id = @notebookId AND cell_id = @cellId AND execution_id = @executionId
-        `).get({ notebookId, cellId, executionId }) as { outputs_json: string } | undefined;
-
-        if (!row) return;
-
-        const outputs: NotebookOutput[] = JSON.parse(row.outputs_json);
-        outputs.push(output);
-
-        this.db.prepare(`
-            UPDATE cell_outputs
-            SET outputs_json = @json
-            WHERE notebook_id = @notebookId AND cell_id = @cellId AND execution_id = @executionId
-        `).run({ json: JSON.stringify(outputs), notebookId, cellId, executionId });
+        this.cellOutputs.get(notebookId)?.get(cellId)?.outputs.push(output);
     }
 
-    /** Called at execution completion — sets final status, count, timing. */
     public completeCellExecution(
         notebookId: string,
         cellId: string,
-        executionId: string,
+        _executionId: string,
         status: 'completed' | 'failed' | 'interrupted',
         executionCount: number | null,
         durationMs: number,
         finalOutputs: NotebookOutput[],
     ): void {
-        this.db.prepare(`
-            UPDATE cell_outputs SET
-                status          = @status,
-                execution_count = @executionCount,
-                completed_at    = datetime('now'),
-                duration_ms     = @durationMs,
-                outputs_json    = @json
-            WHERE notebook_id = @notebookId AND cell_id = @cellId AND execution_id = @executionId
-        `).run({
-            status,
-            executionCount,
-            durationMs,
-            json: JSON.stringify(finalOutputs),
-            notebookId,
-            cellId,
-            executionId,
-        });
+        const exec = this.cellOutputs.get(notebookId)?.get(cellId);
+        if (!exec) return;
+        exec.status = status;
+        exec.execution_count = executionCount;
+        exec.completed_at = new Date().toISOString();
+        exec.duration_ms = durationMs;
+        exec.outputs = finalOutputs;
     }
 
-    /** Get latest outputs for a cell (most recent execution). */
     public getLatestCellOutputs(notebookId: string, cellId: string): NotebookOutput[] {
-        const row = this.db.prepare(`
-            SELECT outputs_json FROM cell_outputs
-            WHERE notebook_id = @notebookId AND cell_id = @cellId
-            ORDER BY id DESC LIMIT 1
-        `).get({ notebookId, cellId }) as { outputs_json: string } | undefined;
-
-        if (!row) return [];
-        try {
-            return JSON.parse(row.outputs_json) as NotebookOutput[];
-        } catch {
-            return [];
-        }
+        return this.cellOutputs.get(notebookId)?.get(cellId)?.outputs ?? [];
     }
 
-    /** Get all cell output rows for a notebook (for restoring state on open). */
     public getNotebookOutputs(notebookId: string): CellOutputRow[] {
-        return this.db.prepare(`
-            SELECT * FROM (
-                SELECT *, ROW_NUMBER() OVER (PARTITION BY cell_id ORDER BY id DESC) as rn
-                FROM cell_outputs
-                WHERE notebook_id = @notebookId AND status != 'running'
-            ) WHERE rn = 1
-            ORDER BY id ASC
-        `).all({ notebookId }) as CellOutputRow[];
+        const cells = this.cellOutputs.get(notebookId);
+        if (!cells) return [];
+        const rows: CellOutputRow[] = [];
+        for (const [cellId, exec] of cells.entries()) {
+            if (exec.status === 'running') continue;
+            rows.push({
+                id: ++this.rowCounter,
+                notebook_id: notebookId,
+                cell_id: cellId,
+                execution_id: '',
+                execution_count: exec.execution_count,
+                outputs_json: JSON.stringify(exec.outputs),
+                status: exec.status,
+                started_at: exec.started_at,
+                completed_at: exec.completed_at,
+                duration_ms: exec.duration_ms,
+            });
+        }
+        return rows;
     }
 
-    /** Clear all persisted outputs for a notebook (e.g., after kernel restart). */
     public clearNotebookOutputs(notebookId: string): void {
-        this.db.prepare('DELETE FROM cell_outputs WHERE notebook_id = @notebookId').run({ notebookId });
+        this.cellOutputs.delete(notebookId);
     }
 
     // ── Kernel sessions ────────────────────────────────────────────────────────
@@ -298,39 +196,30 @@ export class OutputStore {
         kernelId: string,
         status: KernelSessionRow['status'] = 'idle',
     ): void {
-        this.db.prepare(`
-            INSERT INTO kernel_sessions (notebook_id, kernel_id, started_at, last_active_at, status)
-            VALUES (@notebookId, @kernelId, datetime('now'), datetime('now'), @status)
-            ON CONFLICT(notebook_id) DO UPDATE SET
-                kernel_id      = excluded.kernel_id,
-                last_active_at = datetime('now'),
-                status         = excluded.status
-        `).run({ notebookId, kernelId, status });
+        const now = new Date().toISOString();
+        const existing = this.kernelSessions.get(notebookId);
+        this.kernelSessions.set(notebookId, {
+            notebook_id: notebookId,
+            kernel_id: kernelId,
+            started_at: existing?.started_at ?? now,
+            last_active_at: now,
+            status,
+        });
     }
 
-    public updateKernelStatus(
-        notebookId: string,
-        status: KernelSessionRow['status'],
-    ): void {
-        this.db.prepare(`
-            UPDATE kernel_sessions
-            SET status = @status, last_active_at = datetime('now')
-            WHERE notebook_id = @notebookId
-        `).run({ notebookId, status });
+    public updateKernelStatus(notebookId: string, status: KernelSessionRow['status']): void {
+        const session = this.kernelSessions.get(notebookId);
+        if (!session) return;
+        session.status = status;
+        session.last_active_at = new Date().toISOString();
     }
 
     public getKernelSession(notebookId: string): KernelSessionRow | null {
-        return (
-            this.db
-                .prepare('SELECT * FROM kernel_sessions WHERE notebook_id = @notebookId')
-                .get({ notebookId }) as KernelSessionRow | undefined
-        ) ?? null;
+        return this.kernelSessions.get(notebookId) ?? null;
     }
 
     public removeKernelSession(notebookId: string): void {
-        this.db.prepare('DELETE FROM kernel_sessions WHERE notebook_id = @notebookId').run({
-            notebookId,
-        });
+        this.kernelSessions.delete(notebookId);
     }
 }
 

@@ -1,0 +1,91 @@
+name: electron-release.yml
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Job 1: Build the Windows installer ───────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install All Dependencies
+        run: npm run install:all
+
+      - name: Install Native Modules (public registry)
+        # better-sqlite3 and node-pty are native addons not available on Azure Artifacts.
+        # The apps/controller-node/.npmrc forces the public registry for this workspace,
+        # but we run this explicitly to ensure they are present before build.
+        working-directory: apps/controller-node
+        run: npm install --registry https://registry.npmjs.org better-sqlite3 node-pty
+
+      - name: Build Controller Node
+        run: npm run controller:build
+
+      - name: Build Desktop UI
+        run: npm run ui:build
+
+      - name: Prune Dev Dependencies from Controller Node
+        working-directory: apps/controller-node
+        run: npm prune --omit=dev
+
+      - name: Build Electron Main Process
+        run: npm run electron:build
+
+      - name: Package Installer (electron-builder)
+        working-directory: apps/electron
+        run: npx electron-builder --win --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Installer for Release Job
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-build
+          path: apps/electron/dist-electron/*.exe
+          retention-days: 1
+
+  # ── Job 2: Publish GitHub Release ────────────────────────────────────────────
+  release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Installer
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-build
+          path: ./installer
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          name: OctoML v0.1.${{ github.run_number }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: ./installer/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Final Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OctoML-Windows-Installer
+          path: ./installer/*.exe
+          retention-days: 30

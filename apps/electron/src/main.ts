@@ -9,7 +9,7 @@
  */
 
 import {
-  app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Menu,
+  app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Menu, protocol, net,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
@@ -18,8 +18,43 @@ import { spawn, ChildProcess } from 'child_process';
 import * as http from 'http';
 import { pathToFileURL } from 'url';
 
+// ── Custom protocol (VS Code pattern) ─────────────────────────────────────────
+// Register BEFORE app.whenReady(). Using a named scheme instead of file://
+// gives the renderer a real Origin header (octoml-app://app) instead of null,
+// which makes CORS straightforward and removes all ambiguity.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'octoml-app',
+    privileges: {
+      secure: true,           // treated as HTTPS (no mixed-content warnings)
+      standard: true,         // standard URL parsing (allows pathname, hostname, etc.)
+      supportFetchAPI: true,  // fetch() works from pages served by this scheme
+      corsEnabled: true,      // sends real Origin header instead of null
+    },
+  },
+]);
+
 // Disable default menu bar (File, Edit, View, Window, Help)
 Menu.setApplicationMenu(null);
+
+// ── Log file (production only) ────────────────────────────────────────────────
+// Writes backend stdout/stderr to ~/.octoml/logs/main.log so crashes are
+// diagnosable without DevTools.
+function setupLogFile(): fs.WriteStream | null {
+  try {
+    const logDir = path.join(app.getPath('home'), '.octoml', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    return fs.createWriteStream(path.join(logDir, 'main.log'), { flags: 'a' });
+  } catch {
+    return null;
+  }
+}
+const logStream = app.isPackaged ? setupLogFile() : null;
+function log(...args: any[]) {
+  const line = args.join(' ');
+  console.log(line);
+  logStream?.write(`[${new Date().toISOString()}] ${line}\n`);
+}
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -27,9 +62,12 @@ const isDev        = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const VITE_PORT    = parseInt(process.env.VITE_PORT   || '5000', 10);
 const SERVER_PORT  = parseInt(process.env.SERVER_PORT || '3001', 10);
 const SERVER_URL   = `http://127.0.0.1:${SERVER_PORT}`;
+// In production: serve the built frontend via the octoml-app:// custom protocol.
+// This gives the renderer a stable, named origin (octoml-app://app) rather than
+// a null origin from file://, which makes CORS handling simple and robust.
 const RENDERER_URL = isDev
   ? `http://localhost:${VITE_PORT}`
-  : pathToFileURL(path.join(process.resourcesPath, 'app/apps/desktop-ui/index.html')).href;
+  : 'octoml-app://app/index.html';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -84,23 +122,22 @@ function spawnServer(): void {
   });
 
   serverProcess.stdout?.on('data', (chunk: Buffer) => {
-    const log = chunk.toString().trim();
-    console.log('[Server]', log);
-    mainWindow?.webContents.send('server:log', log);
-    // Detect when server is ready
-    if (log.includes('Server listening') || log.includes('listening at')) {
+    const msg = chunk.toString().trim();
+    log('[Server]', msg);
+    mainWindow?.webContents.send('server:log', msg);
+    if (msg.includes('Server listening') || msg.includes('listening at')) {
       serverReady = true;
     }
   });
 
   serverProcess.stderr?.on('data', (chunk: Buffer) => {
-    const error = chunk.toString().trim();
-    console.error('[Server Error]', error);
-    mainWindow?.webContents.send('server:error', error);
+    const msg = chunk.toString().trim();
+    log('[Server Error]', msg);
+    mainWindow?.webContents.send('server:error', msg);
   });
 
   serverProcess.on('exit', (code) => {
-    console.warn('[Server] Exited with code:', code);
+    log('[Server] Exited with code:', code);
     serverReady = false;
   });
 }
@@ -327,6 +364,25 @@ function registerIPCHandlers(): void {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  // 0. Register the octoml-app:// protocol handler (production only).
+  //    Serves the built React/Vite frontend from the bundled resources directory.
+  if (!isDev) {
+    const frontendRoot = path.join(process.resourcesPath, 'app', 'apps', 'desktop-ui');
+    protocol.handle('octoml-app', (request) => {
+      const { pathname } = new URL(request.url);
+      // Strip leading slash; fall back to index.html for SPA client-side routes
+      let filePath = path.join(frontendRoot, pathname.replace(/^\//, ''));
+      try {
+        if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+          filePath = path.join(frontendRoot, 'index.html');
+        }
+      } catch {
+        filePath = path.join(frontendRoot, 'index.html');
+      }
+      return net.fetch(pathToFileURL(filePath).toString());
+    });
+  }
+
   registerIPCHandlers();
 
   // 1. Spawn the backend server
@@ -338,10 +394,10 @@ app.whenReady().then(async () => {
   // 3. Wait for server to be ready, then tell the renderer
   try {
     await waitForServer();
-    console.log('[Electron] Server is ready on port', SERVER_PORT);
+    log('[Electron] Server is ready on port', SERVER_PORT);
     mainWindow?.webContents.send('server:log', `[READY] Server listening on :${SERVER_PORT}`);
   } catch (err) {
-    console.error('[Electron] Server startup failed:', err);
+    log('[Electron] Server startup failed:', err);
     mainWindow?.webContents.send('server:error', 'Server failed to start. Please restart the app.');
   }
 

@@ -72,6 +72,10 @@ export class AgentRuntime {
       lastRun:            ctx.lastRun,
       embeddingChunks:    ctx.embeddingChunks,
       permittedToolNames: permittedTools.map(t => t.definition.name),
+      current_notebook:   {
+        path:       request.current_notebook.path ?? null,
+        cell_count: request.current_notebook.cells.length,
+      },
     });
 
     const lastUserMsg = lastOf(request.messages, m => m.role === 'user')?.content ?? '';
