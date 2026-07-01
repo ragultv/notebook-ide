@@ -23,6 +23,9 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Upgrade npm to fix node-gyp bug
+        run: npm install -g npm@latest
+
       - name: Install All Dependencies
         env:
           npm_config_msvs_version: 2022
