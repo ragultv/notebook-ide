@@ -161,7 +161,14 @@ export async function providersRoutes(app: FastifyInstance): Promise<void> {
    * GET /api/providers/models/enabled
    * List only enabled models (for agent model selector + chat area).
    */
-  app.get('/api/providers/models/enabled', async () => getEnabledModels());
+  app.get('/api/providers/models/enabled', async () => {
+    const models = getEnabledModels();
+    return models.filter(m => {
+      const p = getProvider(m.provider_id);
+      if (p?.is_builtin && !KeyStore.getKey(m.provider_id)) return false;
+      return true;
+    });
+  });
 
   /**
    * POST /api/providers/models/toggle
