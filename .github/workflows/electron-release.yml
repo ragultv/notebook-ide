@@ -27,8 +27,6 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Install All Dependencies
-        env:
-          npm_config_msvs_version: 2022
         run: npm run install:all
 
       - name: Install Native Modules (public registry)
@@ -36,8 +34,6 @@ jobs:
         # The apps/controller-node/.npmrc forces the public registry for this workspace,
         # but we run this explicitly to ensure they are present before build.
         working-directory: apps/controller-node
-        env:
-          npm_config_msvs_version: 2022
         run: npm install --registry https://registry.npmjs.org better-sqlite3 node-pty
 
       - name: Build Controller Node
