@@ -191,36 +191,54 @@ const NOTEBOOK_TEMPLATE = () => ({
 export const createNotebookEntry: ToolEntry = {
   definition: {
     name: 'createNotebook',
-    description: 'Create a new Jupyter notebook in the project\'s notebooks/ folder. Always stored under notebooks/.',
+    description: [
+      'Create a new Jupyter notebook in the project\'s notebooks/ folder.',
+      'If the notebook already exists, activates it WITHOUT overwriting — existing cells are preserved.',
+      'Always stored under notebooks/.',
+    ].join(' '),
     inputSchema: z.object({
-      path:  z.string().describe('Filename only, e.g. "linear_regression.ipynb". Always saved in notebooks/.'),
-      // title: z.string().describe('Human-readable title for the first markdown cell. Provide empty string if no title is needed.'),
+      path: z.string().describe('Filename only, e.g. "linear_regression.ipynb". Always saved in notebooks/.'),
     }),
     permittedModes: ['AGENT', 'AGENTIC'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
     try {
-      // Always place notebooks inside notebooks/ regardless of what the agent provides
-      const basename = path.basename(input['path'] as string);
-      const relPath  = `notebooks/${basename.endsWith('.ipynb') ? basename : basename + '.ipynb'}`;
+      const basename     = path.basename(input['path'] as string);
+      const relPath      = `notebooks/${basename.endsWith('.ipynb') ? basename : basename + '.ipynb'}`;
       const notebookPath = safeWrite(ctx.project_path, relPath);
-      const nb = NOTEBOOK_TEMPLATE();
       await fs.mkdir(path.dirname(notebookPath), { recursive: true });
-      await fs.writeFile(notebookPath, JSON.stringify(nb, null, 2));
 
-      // Track this notebook so createCell can write cells to it directly
-      ctx.mutableCtx.notebookPath = relPath;
-      ctx.mutableCtx.cellCounter  = nb.cells.length;
-      ctx.mutableCtx.runtimeCells.clear();
-
-      // Ensure subsequent cell executions in this agent run broadcast to the newly created notebook
-      const bridge = getKernelBridge();
-      if (bridge) {
-        await bridge.updateBroadcastId(notebookPath);
+      // Check if the notebook already exists — activate it without overwriting
+      let existingCellCount = 0;
+      let existed = false;
+      try {
+        const raw       = await fs.readFile(notebookPath, 'utf-8');
+        const existing  = JSON.parse(raw) as { cells?: unknown[] };
+        existingCellCount = Array.isArray(existing.cells) ? existing.cells.length : 0;
+        existed = true;
+      } catch {
+        // File does not exist — create a fresh notebook
+        const nb = NOTEBOOK_TEMPLATE();
+        await fs.writeFile(notebookPath, JSON.stringify(nb, null, 2));
       }
 
-      ctx.emit({ type: 'notebook_create', path: relPath });
-      return { success: true, data: { path: relPath, cells: nb.cells.length } };
+      ctx.mutableCtx.notebookPath = relPath;
+      ctx.mutableCtx.cellCounter  = existingCellCount;
+      if (!existed) ctx.mutableCtx.runtimeCells.clear();
+
+      const bridge = getKernelBridge();
+      if (bridge) await bridge.updateBroadcastId(notebookPath);
+
+      if (!existed) ctx.emit({ type: 'notebook_create', path: relPath });
+
+      return {
+        success: true,
+        data: {
+          path:  relPath,
+          cells: existingCellCount,
+          ...(existed ? { existed: true, note: 'Notebook already exists — activated without overwriting.' } : {}),
+        },
+      };
     } catch (err) {
       return { success: false, error: String(err) };
     }

@@ -2,6 +2,7 @@
   "name": "notebook-ide",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "scripts": {
     "controller:install": "cd apps/controller-node && npm install",
     "controller:build":   "cd apps/controller-node && npm run build",
@@ -14,7 +15,9 @@
     "electron:build":     "cd apps/electron && npm run build:electron",
     "electron:dist":      "cd apps/electron && npm run build",
     "electron:dev":       "cd apps/electron && npm run dev",
-    "dev": "concurrently \"npm run controller:dev\" \"npm run ui:dev\"",
-    "install:all": "npm run controller:install && npm run ui:install && npm run electron:install"
+    "dev":         "concurrently \"npm run controller:dev\" \"npm run ui:dev\"",
+    "install:all": "npm run controller:install && npm run ui:install && npm run electron:install",
+    "clean":       "node scripts/clean.js",
+    "build:prod":  "node scripts/build-prod.js"
   }
 }

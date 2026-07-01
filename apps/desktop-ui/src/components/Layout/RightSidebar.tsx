@@ -307,19 +307,21 @@ function ModelSelector({
     return acc;
   }, {});
 
-  const displayName = currentModel?.model_name
-    ? (currentModel.model_name.length > 26 ? currentModel.model_name.slice(0, 25) + '…' : currentModel.model_name)
-    : 'Select model';
-
   const hasModel = !!currentModel?.model_id;
+  const modelLabel = currentModel?.model_name || currentModel?.model_id || '';
+  const displayName = hasModel
+    ? (modelLabel.length > 26 ? modelLabel.slice(0, 25) + '…' : modelLabel)
+    : 'No model configured';
 
   return (
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 text-[11px] text-white/40 hover:text-white/70 transition-colors bg-white/4 hover:bg-white/7 rounded-lg px-2 py-1 max-w-[180px]"
+        className={`flex items-center gap-1.5 text-[11px] transition-colors bg-white/4 hover:bg-white/7 rounded-lg px-2 py-1 max-w-[180px] ${
+          hasModel ? 'text-white/40 hover:text-white/70' : 'text-amber-400/60 hover:text-amber-400/90'
+        }`}
       >
-        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hasModel ? 'bg-green-400/70' : 'bg-white/20'}`} />
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hasModel ? 'bg-green-400/70' : 'bg-amber-400/50'}`} />
         <span className="truncate">{displayName}</span>
         <ChevronDown size={9} className="text-white/20 flex-shrink-0 ml-auto" />
       </button>

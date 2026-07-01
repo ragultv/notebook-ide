@@ -159,13 +159,39 @@ export const readFileEntry: ToolEntry = {
         if (bridge) {
           await bridge.updateBroadcastId(safePath);
         }
-        return { 
-          success: true, 
-          data: { 
-            content, 
-            meta, 
-            _CRITICAL_INSTRUCTION: 'Notebook opened in IDE successfully. However, your notebook execution context has not updated yet. You MUST end your turn immediately (return a message and stop calling tools) so the UI can update and start a new turn with the new notebook context before you use runCell.'
-          } 
+
+        // Pre-populate runtimeCells from the notebook so runCell works immediately
+        // in this same turn — no second turn required.
+        if (ctx.current_notebook.cells.length === 0) {
+          try {
+            const rawNb = await fs.readFile(safePath, 'utf-8');
+            const nb = JSON.parse(rawNb) as { cells: Array<{ id?: string; cell_type: string; source: string | string[] }> };
+            if (Array.isArray(nb.cells)) {
+              ctx.mutableCtx.cellCounter = nb.cells.length;
+              nb.cells.forEach((cell, i) => {
+                const cellNum = i + 1;
+                const src = Array.isArray(cell.source) ? cell.source.join('') : (cell.source ?? '');
+                ctx.mutableCtx.runtimeCells.set(cellNum, {
+                  id:   cell.id ?? `cell-${cellNum}`,
+                  source: src,
+                  type: cell.cell_type as 'code' | 'markdown',
+                });
+              });
+            }
+          } catch { /* ignore — runCell will fall back to current_notebook.cells */ }
+        }
+
+        const loaded = ctx.mutableCtx.runtimeCells.size || ctx.current_notebook.cells.length;
+        return {
+          success: true,
+          data: {
+            content,
+            meta,
+            cells_loaded: loaded,
+            _INSTRUCTION: loaded > 0
+              ? `${loaded} cells are now ready. You may call runCell(1) through runCell(${loaded}) directly in this same turn.`
+              : 'Notebook opened. No cells found — you may add cells with createCell.',
+          }
         };
       }
 

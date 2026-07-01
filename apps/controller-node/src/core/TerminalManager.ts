@@ -7,7 +7,16 @@
  */
 
 import { EventEmitter } from 'events';
-import type { IPty } from 'node-pty';
+
+// Local IPty interface — avoids a static import of node-pty which fails under
+// NodeNext module resolution when the package lacks an `exports` field.
+interface IPty {
+    onData(cb: (data: string) => void): void;
+    onExit(cb: (info: { exitCode: number; signal?: number }) => void): void;
+    write(data: string): void;
+    resize(cols: number, rows: number): void;
+    kill(signal?: string): void;
+}
 
 export interface TerminalSession {
     sessionId: string;
@@ -51,7 +60,8 @@ export class TerminalManager extends EventEmitter {
 
         // Dynamic import — node-pty is a native addon and may not be available in all envs.
         // We catch at runtime rather than crashing the whole server.
-        let nodePty: typeof import('node-pty');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let nodePty: any;
         try {
             nodePty = await import('node-pty');
         } catch (e) {
@@ -66,7 +76,7 @@ export class TerminalManager extends EventEmitter {
             ? 'cmd.exe'
             : (process.env.SHELL || '/bin/bash');
 
-        const ptyProcess = nodePty.spawn(shell, [], {
+        const ptyProcess: IPty = nodePty.spawn(shell, [], {
             name: 'xterm-256color',
             cols,
             rows,
