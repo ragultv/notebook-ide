@@ -3,7 +3,6 @@ import { Notebook } from './Notebook/Notebook';
 import { FilePreview } from './FilePreview';
 import { SettingsPage } from './Settings/SettingsPage';
 import { ChatHistory } from './ChatHistory';
-import MemoryMap from './MemoryMap';
 import { TabBar } from './TabBar';
 import { Tab, ProjectFile, CellData } from '../types';
 
@@ -56,15 +55,7 @@ export const MainContent: React.FC<MainContentProps> = ({
         </div>
       )}
       <div className="flex-1 flex overflow-hidden relative">
-        {activeTabId === 'memory-map' ? (
-          <div className="w-full h-full bg-sim-bg">
-            <MemoryMap
-              notebooks={files}
-              initialNotebookId={activeFile?.id || null}
-              onOpenNotebook={(notebookId) => handleActivateTab(notebookId)}
-            />
-          </div>
-        ) : activeTabId === 'chat-history' ? (
+        {activeTabId === 'chat-history' ? (
           <div className="w-full h-full bg-sim-bg">
             <ChatHistory
               onCreateNotebook={onCreateNotebook}

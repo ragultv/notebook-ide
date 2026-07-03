@@ -76,10 +76,7 @@ export async function errorHandler(
     return reply.status(statusCode).send({
         error: {
             code: 'INTERNAL_ERROR',
-            message:
-                process.env.NODE_ENV === 'production'
-                    ? 'An internal error occurred'
-                    : error.message,
+            message: error.message || 'An internal error occurred',
         },
     });
 }

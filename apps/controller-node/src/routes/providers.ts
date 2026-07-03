@@ -98,11 +98,16 @@ export async function providersRoutes(app: FastifyInstance): Promise<void> {
 
     if (!api_key) return reply.status(400).send({ error: 'api_key is required' });
 
-    const provider = getProvider(id);
-    if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
+    try {
+      const provider = getProvider(id);
+      if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
 
-    KeyStore.setKey(id, api_key);
-    return { success: true, provider_id: id };
+      KeyStore.setKey(id, api_key);
+      return { success: true, provider_id: id };
+    } catch (err: any) {
+      req.log.error({ err, providerId: id }, '[providers] setKey failed');
+      return reply.status(500).send({ error: `Failed to save API key: ${err?.message || String(err)}` });
+    }
   });
 
   /**
@@ -111,10 +116,15 @@ export async function providersRoutes(app: FastifyInstance): Promise<void> {
    */
   app.delete('/api/providers/:id/key', async (req, reply) => {
     const id = (req.params as Record<string, string>).id;
-    const provider = getProvider(id);
-    if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
-    KeyStore.deleteKey(id);
-    return { success: true };
+    try {
+      const provider = getProvider(id);
+      if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
+      KeyStore.deleteKey(id);
+      return { success: true };
+    } catch (err: any) {
+      req.log.error({ err, providerId: id }, '[providers] deleteKey failed');
+      return reply.status(500).send({ error: `Failed to delete API key: ${err?.message || String(err)}` });
+    }
   });
 
   /**
@@ -193,9 +203,14 @@ export async function providersRoutes(app: FastifyInstance): Promise<void> {
     if (!id || !name || !base_url) {
       return reply.status(400).send({ error: 'id, name, and base_url are required' });
     }
-    const provider = upsertProvider({ id, name, type: type ?? 'custom', base_url });
-    if (api_key) KeyStore.setKey(id, api_key.trim());
-    return { ...provider, has_key: !!KeyStore.getKey(id) };
+    try {
+      const provider = upsertProvider({ id, name, type: type ?? 'custom', base_url });
+      if (api_key) KeyStore.setKey(id, api_key.trim());
+      return { ...provider, has_key: !!KeyStore.getKey(id) };
+    } catch (err: any) {
+      req.log.error({ err, providerId: id }, '[providers] add custom provider failed');
+      return reply.status(500).send({ error: `Failed to add custom provider: ${err?.message || String(err)}` });
+    }
   });
 
   /**
@@ -203,11 +218,16 @@ export async function providersRoutes(app: FastifyInstance): Promise<void> {
    */
   app.delete('/api/providers/:id', async (req, reply) => {
     const id       = (req.params as Record<string, string>).id;
-    const provider = getProvider(id);
-    if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
-    if (provider.is_builtin) return reply.status(400).send({ error: 'Cannot delete built-in providers' });
-    deleteCustomProvider(id);
-    KeyStore.deleteKey(id);
-    return { success: true };
+    try {
+      const provider = getProvider(id);
+      if (!provider) return reply.status(404).send({ error: `Provider '${id}' not found` });
+      if (provider.is_builtin) return reply.status(400).send({ error: 'Cannot delete built-in providers' });
+      deleteCustomProvider(id);
+      KeyStore.deleteKey(id);
+      return { success: true };
+    } catch (err: any) {
+      req.log.error({ err, providerId: id }, '[providers] delete custom provider failed');
+      return reply.status(500).send({ error: `Failed to delete custom provider: ${err?.message || String(err)}` });
+    }
   });
 }

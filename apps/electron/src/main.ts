@@ -101,9 +101,9 @@ function findServerScript(): { cmd: string; args: string[] } {
     }
   }
 
-  // Production: run compiled JS
+  // Production: run compiled JS using Electron's embedded Node runtime
   const distEntry = path.join(controllerRoot, 'dist', 'index.js');
-  return { cmd: 'node', args: [distEntry] };
+  return { cmd: process.execPath, args: [distEntry] };
 }
 
 function spawnServer(): void {
@@ -114,11 +114,21 @@ function spawnServer(): void {
 
   console.log('[Electron] Spawning server:', cmd, args.join(' '));
 
+  const prodDataDir = path.join(app.getPath('home'), '.octoml', 'data');
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PORT: String(SERVER_PORT),
+    NODE_ENV: isDev ? 'development' : 'production',
+    ...(isDev ? {} : { ELECTRON_RUN_AS_NODE: '1', DATA_DIR: prodDataDir }),
+  };
+
+  const isBatOrCmd = process.platform === 'win32' && (cmd.endsWith('.cmd') || cmd.endsWith('.bat') || cmd === 'npx' || cmd === 'node');
+
   serverProcess = spawn(cmd, args, {
     cwd:    controllerRoot,
-    env:    { ...process.env, PORT: String(SERVER_PORT), NODE_ENV: 'production' },
+    env,
     stdio:  ['pipe', 'pipe', 'pipe'],
-    shell:  process.platform === 'win32',
+    shell:  isBatOrCmd,
   });
 
   serverProcess.stdout?.on('data', (chunk: Buffer) => {

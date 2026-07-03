@@ -1,4 +1,3 @@
-import { MemorySnapshot } from '../../../../packages/shared-types/memory';
 
 // Controller Client - HTTP interface to FastAPI backend
 // Handles execution, kernel management, and AI requests
@@ -76,7 +75,15 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.message || error.error || error.detail || `HTTP ${res.status}`);
+    let errMsg = `HTTP ${res.status}`;
+    if (typeof error === 'string') {
+      errMsg = error;
+    } else if (error && typeof error === 'object') {
+      if (error.message) errMsg = typeof error.message === 'string' ? error.message : JSON.stringify(error.message);
+      else if (error.error) errMsg = typeof error.error === 'string' ? error.error : JSON.stringify(error.error);
+      else if (error.detail) errMsg = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
+    }
+    throw new Error(errMsg);
   }
 
   return res.json();
@@ -116,11 +123,6 @@ export const controllerClient = {
     return request('/kernels/metrics');
   },
 
-  // Memory Visualization
-  async getMemorySnapshot(notebookId: string, method: 'umap' | 'pca' = 'umap'): Promise<MemorySnapshot> {
-    const params = new URLSearchParams({ notebookId, method });
-    return request(`/api/memory/snapshot?${params.toString()}`);
-  },
 
   async sendInput(notebookId: string, value: string): Promise<{ success: boolean }> {
     return request('/execution/input', {

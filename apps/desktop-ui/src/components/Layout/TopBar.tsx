@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Zap, Sparkles, Power, RotateCcw, Save, PlayCircle, Map,
+  Zap, Sparkles, Power, RotateCcw, Save, PlayCircle,
   ChevronDown, FolderOpen, SaveAll, FileCode2, NotebookPen, Cpu, Check,
   ChevronUp, Activity, LogOut, Minus, Square, X
 } from 'lucide-react';
@@ -372,7 +372,6 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSaveFile,
   onRestartKernel,
   onRunAll,
-  onOpenMemoryMap,
   onOpenFolder,
   onSaveAll,
 }) => {
@@ -460,9 +459,6 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         <Divider />
 
-        {/* {onOpenMemoryMap && (
-          <TopBarButton onClick={onOpenMemoryMap} icon={Map} title="Memory Visualization" />
-        )} */}
 
         <TopBarButton
           onClick={onToggleChat}
