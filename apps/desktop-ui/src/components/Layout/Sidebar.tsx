@@ -307,10 +307,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full bg-[#09090b] z-10 shrink-0 relative rounded-2xl border border-sim-border overflow-hidden shadow-lg transition-all duration-300">
+    <div className="flex h-full bg-sim-bg z-10 shrink-0 relative rounded-2xl border border-sim-border overflow-hidden shadow-lg transition-all duration-300">
 
       {/* ── Activity Bar ── */}
-      <div className="w-14 h-full flex flex-col items-center py-4 bg-[#09090b] gap-2 z-20 shrink-0 border-r border-sim-border/50">
+      <div className="w-14 h-full flex flex-col items-center py-4 bg-sim-bg gap-2 z-20 shrink-0 border-r border-sim-border">
         <SidebarIcon
           icon={Folder}
           isActive={drawerOpen && activePanel === 'files'}
@@ -335,16 +335,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* ── Drawer ── */}
       <div
-        className={`bg-[#1e1e20] transition-all duration-300 ease-in-out flex flex-col overflow-hidden h-full
+        className={`bg-sim-surface border-r border-sim-border transition-all duration-300 ease-in-out flex flex-col overflow-hidden h-full
           ${drawerOpen ? 'w-64 opacity-100' : 'w-0 opacity-0'}`}
       >
 
         {/* ━━ FILES panel ━━ */}
         {activePanel === 'files' && (
           <>
-            <div className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-sim-border/30">
-              <span className="text-sm font-semibold text-gray-200 tracking-wide">Explorer</span>
-              <button onClick={() => setDrawerOpen(false)} className="text-gray-400 hover:text-white rounded p-1">
+            <div className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-sim-border">
+              <span className="text-sm font-semibold text-sim-text tracking-wide">Explorer</span>
+              <button onClick={() => setDrawerOpen(false)} className="text-sim-muted hover:text-sim-text hover:bg-sim-border/55 rounded p-1 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -369,9 +369,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* ━━ SEARCH panel ━━ */}
         {activePanel === 'search' && (
           <>
-            <div className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-sim-border/30">
-              <span className="text-sm font-semibold text-gray-200 tracking-wide">Search</span>
-              <button onClick={() => setDrawerOpen(false)} className="text-gray-400 hover:text-white rounded p-1">
+            <div className="h-14 flex items-center justify-between px-4 shrink-0 border-b border-sim-border">
+              <span className="text-sm font-semibold text-sim-text tracking-wide">Search</span>
+              <button onClick={() => setDrawerOpen(false)} className="text-sim-muted hover:text-sim-text hover:bg-sim-border/55 rounded p-1 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -388,9 +388,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     placeholder="Search in notebooks…"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    className="w-full bg-[#2b2b2e] border border-[#3a3a3c] focus:border-sim-red/50
-                      rounded-lg py-2 pl-8 pr-8 text-xs text-gray-200
-                      placeholder-gray-600 outline-none transition-colors"
+                    className="w-full bg-sim-bg border border-sim-border focus:border-sim-red/50
+                      rounded-lg py-2 pl-8 pr-8 text-xs text-sim-text
+                      placeholder-sim-muted outline-none transition-colors"
                   />
                   {searchQuery && (
                     <button
@@ -481,7 +481,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
         
         {/* ━━ Bottom Kernel Connector ━━ */}
-        <div className="p-3 border-t border-sim-border/30 bg-[#18181b] shrink-0 mt-auto">
+        <div className="p-3 border-t border-sim-border bg-sim-surface shrink-0 mt-auto">
           <RuntimeMenu onConnect={onConnectKernel} />
         </div>
       </div>
@@ -489,26 +489,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* ── Context Menu ── */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-[#27272a] border border-[#3a3a3c] shadow-xl rounded-lg py-1 w-36 flex flex-col overflow-hidden"
+          className="fixed z-50 bg-sim-surface border border-sim-border shadow-xl rounded-lg py-1 w-36 flex flex-col overflow-hidden text-sim-text"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={e => e.stopPropagation()}
         >
           <button
             onClick={e => startRenaming(e, contextMenu.fileId, files.find(f => f.id === contextMenu.fileId)?.name || '')}
-            className="flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-[#3a3a3c] hover:text-white text-left transition-colors"
+            className="flex items-center gap-2 px-3 py-2 text-xs text-sim-text hover:bg-sim-selection text-left transition-colors"
           >
             <Edit2 className="w-3.5 h-3.5" /> Rename
           </button>
           <button
             onClick={() => handleDownload(contextMenu.fileId)}
-            className="flex items-center gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-[#3a3a3c] hover:text-white text-left transition-colors"
+            className="flex items-center gap-2 px-3 py-2 text-xs text-sim-text hover:bg-sim-selection text-left transition-colors"
           >
             <Download className="w-3.5 h-3.5" /> Download
           </button>
-          <div className="h-[1px] bg-[#3a3a3c] my-1" />
+          <div className="h-[1px] bg-sim-border my-1" />
           <button
             onClick={e => requestDelete(e, contextMenu.fileId)}
-            className="flex items-center gap-2 px-3 py-2 text-xs text-sim-red hover:bg-sim-red/10 hover:text-sim-redHover text-left transition-colors"
+            className="flex items-center gap-2 px-3 py-2 text-xs text-sim-red hover:bg-sim-red/10 text-left transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete
           </button>
@@ -530,8 +530,8 @@ const SidebarIcon: React.FC<{
     onClick={onClick}
     title={label}
     className={`p-2.5 rounded-xl transition-all duration-150 ${isActive
-        ? 'text-sim-red bg-[#1e1e20]'
-        : 'text-gray-500 hover:text-gray-300 hover:bg-[#1e1e20]/50'
+        ? 'text-sim-red bg-sim-selection'
+        : 'text-sim-muted hover:text-sim-text hover:bg-sim-selection'
       }`}
   >
     <Icon className="w-5 h-5" />
@@ -567,7 +567,7 @@ const FileTreeItem: React.FC<{
         draggable={!isEditing}
         onDragStart={handleDragStart}
         className={`flex items-center gap-2 py-1.5 px-3 rounded-lg cursor-pointer group transition-all duration-200
-          ${isActive ? 'bg-[#2b2b2e] text-sim-red shadow-sm' : 'text-gray-400 hover:text-gray-200 hover:bg-[#2b2b2e]/50'}`}
+          ${isActive ? 'bg-sim-selection text-sim-red shadow-sm' : 'text-sim-muted hover:text-sim-text hover:bg-sim-selection'}`}
       >
         <RenderIcon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-sim-red' : 'text-gray-500 group-hover:text-gray-400'}`} />
 

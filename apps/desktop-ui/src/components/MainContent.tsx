@@ -45,7 +45,7 @@ export const MainContent: React.FC<MainContentProps> = ({
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-sim-bg rounded-2xl border border-sim-border shadow-lg">
       {tabs.length > 0 && (
-        <div className="flex-shrink-0 h-9 bg-[#1e1e20] border-b border-sim-border overflow-hidden px-1 hidden md:flex items-center">
+        <div className="flex-shrink-0 h-9 bg-sim-surface border-b border-sim-border overflow-hidden px-1 hidden md:flex items-center">
           <TabBar
             tabs={tabs}
             activeTabId={activeTabId}

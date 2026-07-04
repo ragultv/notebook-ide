@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { FolderOpen, FolderPlus, Clock, ChevronRight, Loader2, AlertCircle, X } from 'lucide-react';
+import { FolderOpen, FolderPlus, Clock, ChevronRight, Loader2, AlertCircle, X, Minus, Square } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { controllerClient } from '../services/controller.client';
 import octomlLogo from '../icon.png';
@@ -135,8 +135,42 @@ export const ProjectHomescreen: React.FC = () => {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
+  const isElectron = typeof window !== 'undefined' && !!(window as any).octoml;
+
   return (
     <div className="h-screen w-screen bg-sim-bg flex flex-col items-center justify-center relative overflow-hidden">
+      {/* Homescreen Titlebar */}
+      {isElectron && (
+        <div 
+          className="absolute top-0 left-0 right-0 h-10 flex items-center justify-end px-4 select-none z-50 bg-transparent"
+          style={{ WebkitAppRegion: 'drag' } as any}
+        >
+          <div className="flex h-full items-center gap-0.5" style={{ WebkitAppRegion: 'no-drag' } as any}>
+            <button
+              onClick={() => (window as any).octoml?.minimizeWindow?.()}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-sim-border/50 text-sim-muted hover:text-sim-text transition-colors"
+              title="Minimize"
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => (window as any).octoml?.maximizeWindow?.()}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-sim-border/50 text-sim-muted hover:text-sim-text transition-colors"
+              title="Maximize"
+            >
+              <Square className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => (window as any).octoml?.closeWindow?.()}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-red-500 hover:text-white text-sim-muted transition-colors"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Ambient background glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-sim-red/5 rounded-full blur-[120px]" />
@@ -151,7 +185,7 @@ export const ProjectHomescreen: React.FC = () => {
             <div className="w-20 h-20 rounded-xl flex items-center justify-center overflow-hidden">
               <img src={octomlLogo} alt="OctoML Logo" className="w-16 h-16 object-contain" />
             </div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">OctoML</h1>
+            <h1 className="text-3xl font-bold text-sim-text tracking-tight">OctoML</h1>
           </div>
           <p className="text-sim-muted text-sm">Project-centric AI-native notebook for data scientists</p>
         </div>
@@ -169,20 +203,20 @@ export const ProjectHomescreen: React.FC = () => {
               <FolderPlus className="w-5 h-5 text-sim-red" />
             </div>
             <div>
-              <div className="font-semibold text-white mb-1">New Project</div>
+              <div className="font-semibold text-sim-text mb-1">New Project</div>
               <div className="text-xs text-sim-muted">Create a project with notebooks, data, models folders</div>
             </div>
           </button>
 
           <button
             onClick={() => setShowOpen(true)}
-            className="group flex flex-col gap-3 p-6 bg-sim-surface border border-sim-border hover:border-white/20 rounded-2xl text-left transition-all hover:bg-white/5"
+            className="group flex flex-col gap-3 p-6 bg-sim-surface border border-sim-border hover:border-sim-border rounded-2xl text-left transition-all hover:bg-sim-border/50"
           >
-            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center group-hover:bg-white/10 transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-sim-border/50 border border-sim-border flex items-center justify-center group-hover:bg-sim-border transition-colors">
               <FolderOpen className="w-5 h-5 text-sim-muted" />
             </div>
             <div>
-              <div className="font-semibold text-white mb-1">Open Project</div>
+              <div className="font-semibold text-sim-text mb-1">Open Project</div>
               <div className="text-xs text-sim-muted">Open an existing OctoML project folder</div>
             </div>
           </button>
@@ -201,13 +235,13 @@ export const ProjectHomescreen: React.FC = () => {
                   key={proj.path}
                   onClick={() => handleOpen(proj.path)}
                   disabled={loading}
-                  className="group flex items-center gap-3 px-4 py-3 bg-sim-surface hover:bg-sim-surface/80 border border-sim-border hover:border-white/20 rounded-xl text-left transition-all"
+                  className="group flex items-center gap-3 px-4 py-3 bg-sim-surface hover:bg-sim-surface/80 border border-sim-border hover:border-sim-border rounded-xl text-left transition-all"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 overflow-hidden">
+                  <div className="w-8 h-8 rounded-lg bg-sim-border/50 flex items-center justify-center shrink-0 overflow-hidden">
                     <img src={octomlLogo} alt="OctoML Logo" className="w-4 h-4 object-contain opacity-80" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-white text-sm truncate">{proj.name}</div>
+                    <div className="font-medium text-sim-text text-sm truncate">{proj.name}</div>
                     <div className="text-xs text-sim-muted truncate">{proj.path}</div>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-sim-muted shrink-0">
@@ -232,8 +266,8 @@ export const ProjectHomescreen: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-md bg-sim-surface border border-sim-border rounded-2xl p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="font-semibold text-white">New Project</h2>
-              <button onClick={() => setShowCreate(false)} className="text-sim-muted hover:text-white transition-colors">
+              <h2 className="font-semibold text-sim-text">New Project</h2>
+              <button onClick={() => setShowCreate(false)} className="text-sim-muted hover:text-sim-text transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -246,7 +280,7 @@ export const ProjectHomescreen: React.FC = () => {
                   value={createName}
                   onChange={e => setCreateName(e.target.value)}
                   placeholder="my-ml-project"
-                  className="w-full bg-sim-bg border border-sim-border rounded-xl px-4 py-2.5 text-sm text-white placeholder-sim-muted focus:outline-none focus:border-sim-red/50"
+                  className="w-full bg-sim-bg border border-sim-border rounded-xl px-4 py-2.5 text-sm text-sim-text placeholder-sim-muted focus:outline-none focus:border-sim-red/50"
                   autoFocus
                 />
               </div>
@@ -259,11 +293,11 @@ export const ProjectHomescreen: React.FC = () => {
                     value={createPath}
                     onChange={e => setCreatePath(e.target.value)}
                     placeholder="D:/projects or /home/user/projects"
-                    className="flex-1 bg-sim-bg border border-sim-border rounded-xl px-4 py-2.5 text-sm text-white placeholder-sim-muted focus:outline-none focus:border-sim-red/50"
+                    className="flex-1 bg-sim-bg border border-sim-border rounded-xl px-4 py-2.5 text-sm text-sim-text placeholder-sim-muted focus:outline-none focus:border-sim-red/50"
                   />
                   <button
                     onClick={() => handleBrowse(setCreatePath)}
-                    className="px-3 py-2.5 bg-sim-bg border border-sim-border rounded-xl text-sim-muted hover:text-white hover:border-white/20 transition-all"
+                    className="px-3 py-2.5 bg-sim-bg border border-sim-border rounded-xl text-sim-muted hover:text-sim-text hover:border-sim-border transition-all"
                   >
                     <FolderOpen className="w-4 h-4" />
                   </button>
@@ -279,7 +313,7 @@ export const ProjectHomescreen: React.FC = () => {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowCreate(false)}
-                className="flex-1 px-4 py-2.5 bg-sim-bg border border-sim-border rounded-xl text-sm text-sim-muted hover:text-white hover:border-white/20 transition-all"
+                className="flex-1 px-4 py-2.5 bg-sim-bg border border-sim-border rounded-xl text-sm text-sim-muted hover:text-sim-text hover:border-sim-border transition-all"
               >
                 Cancel
               </button>
@@ -301,8 +335,8 @@ export const ProjectHomescreen: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-md bg-sim-surface border border-sim-border rounded-2xl p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="font-semibold text-white">Open Project</h2>
-              <button onClick={() => setShowOpen(false)} className="text-sim-muted hover:text-white transition-colors">
+              <h2 className="font-semibold text-sim-text">Open Project</h2>
+              <button onClick={() => setShowOpen(false)} className="text-sim-muted hover:text-sim-text transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -315,13 +349,13 @@ export const ProjectHomescreen: React.FC = () => {
                   value={openPath}
                   onChange={e => setOpenPath(e.target.value)}
                   placeholder="D:/projects/my-ml-project"
-                  className="flex-1 bg-sim-bg border border-sim-border rounded-xl px-4 py-2.5 text-sm text-white placeholder-sim-muted focus:outline-none focus:border-sim-red/50"
+                  className="flex-1 bg-sim-bg border border-sim-border rounded-xl px-4 py-2.5 text-sm text-sim-text placeholder-sim-muted focus:outline-none focus:border-sim-red/50"
                   autoFocus
                   onKeyDown={e => e.key === 'Enter' && handleOpen(openPath)}
                 />
                 <button
                   onClick={() => handleBrowse(setOpenPath)}
-                  className="px-3 py-2.5 bg-sim-bg border border-sim-border rounded-xl text-sim-muted hover:text-white hover:border-white/20 transition-all"
+                  className="px-3 py-2.5 bg-sim-bg border border-sim-border rounded-xl text-sim-muted hover:text-sim-text hover:border-sim-border transition-all"
                 >
                   <FolderOpen className="w-4 h-4" />
                 </button>
@@ -331,14 +365,14 @@ export const ProjectHomescreen: React.FC = () => {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowOpen(false)}
-                className="flex-1 px-4 py-2.5 bg-sim-bg border border-sim-border rounded-xl text-sm text-sim-muted hover:text-white hover:border-white/20 transition-all"
+                className="flex-1 px-4 py-2.5 bg-sim-bg border border-sim-border rounded-xl text-sm text-sim-muted hover:text-sim-text hover:border-sim-border transition-all"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleOpen(openPath)}
                 disabled={loading || !openPath.trim()}
-                className="flex-1 px-4 py-2.5 bg-white/10 hover:bg-white/15 border border-white/10 rounded-xl text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2.5 bg-sim-border hover:bg-sim-border/80 border border-sim-border rounded-xl text-sm font-medium text-sim-text disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 Open Project

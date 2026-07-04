@@ -63,9 +63,26 @@ export interface AllKernelMetrics {
 
 
 // HTTP helper
+async function safeFetch(url: string, opts: RequestInit = {}): Promise<Response> {
+  try {
+    return await fetch(url, opts);
+  } catch (err: any) {
+    if (
+      err?.message === 'Failed to fetch' ||
+      err?.name === 'TypeError' ||
+      err?.message?.includes('NetworkError') ||
+      err?.message?.includes('ECONNREFUSED') ||
+      err?.message?.includes('fetch')
+    ) {
+      throw new Error('Backend server offline: Cannot connect to local execution engine (port 3001). Please ensure server is running.');
+    }
+    throw err;
+  }
+}
+
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const defaultHeaders: any = opts.body ? { 'Content-Type': 'application/json' } : {};
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await safeFetch(`${BASE_URL}${path}`, {
     ...opts,
     headers: {
       ...defaultHeaders,
@@ -168,7 +185,7 @@ export const controllerClient = {
     formData.append('file', file);
     formData.append('destination', destination);
 
-    const res = await fetch(`${BASE_URL}/files/upload`, {
+    const res = await safeFetch(`${BASE_URL}/files/upload`, {
       method: 'POST',
       body: formData,
     });
@@ -187,7 +204,7 @@ export const controllerClient = {
     files.forEach(file => formData.append('files', file));
     formData.append('destination', destination);
 
-    const res = await fetch(`${BASE_URL}/files/upload-multiple`, {
+    const res = await safeFetch(`${BASE_URL}/files/upload-multiple`, {
       method: 'POST',
       body: formData,
     });
@@ -372,7 +389,7 @@ export const controllerClient = {
   // ─── Legacy Dynamic Providers API ───────────────────────────────────────
 
   async loadProviders(): Promise<ProviderConfig[]> {
-    const response = await fetch(`${BASE_URL}/providers`);
+    const response = await safeFetch(`${BASE_URL}/providers`);
     if (!response.ok) {
       console.error('Failed to load providers:', await response.text());
       return [];
@@ -404,7 +421,7 @@ export const controllerClient = {
       last_fetched: p.lastFetched || null
     };
 
-    const response = await fetch(`${BASE_URL}/providers/${encodeURIComponent(p.id)}`, {
+    const response = await safeFetch(`${BASE_URL}/providers/${encodeURIComponent(p.id)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(row),
@@ -427,7 +444,7 @@ export const controllerClient = {
   },
 
   async deleteProvider(id: string): Promise<void> {
-    await fetch(`${BASE_URL}/providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await safeFetch(`${BASE_URL}/providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
   // fetchProviderModels removed — use new fetchProviderModels above (POST /api/providers/:id/fetch-models)

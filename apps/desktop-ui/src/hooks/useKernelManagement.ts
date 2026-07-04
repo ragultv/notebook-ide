@@ -68,9 +68,14 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
       console.error('Failed to connect kernel:', error);
       setKernelStatus('disconnected');
       const msg = error?.message || 'Unknown error occurred';
-      if (msg.includes('PYTHON_NOT_FOUND') || msg.includes('ENOENT') || msg.toLowerCase().includes('python') || msg.includes('not found')) {
+      if (msg.includes('PYTHON_NOT_FOUND') || msg.includes('ENOENT') || (msg.toLowerCase().includes('python') && msg.includes('not found'))) {
         setToast({
           message: 'Python Not Found: Please install Python 3.10+ and add it to your system PATH to run notebooks.',
+          type: 'error'
+        });
+      } else if (msg.includes('offline') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ECONNREFUSED') || msg.includes('fetch')) {
+        setToast({
+          message: 'Backend Server Offline: Cannot connect to local execution engine (port 3001). Please ensure server is running.',
           type: 'error'
         });
       } else {
@@ -91,9 +96,14 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
       console.error('Failed to restart kernel:', error);
       setKernelStatus('disconnected');
       const msg = error?.message || 'Unknown error occurred';
-      if (msg.includes('PYTHON_NOT_FOUND') || msg.includes('ENOENT') || msg.toLowerCase().includes('python') || msg.includes('not found')) {
+      if (msg.includes('PYTHON_NOT_FOUND') || msg.includes('ENOENT') || (msg.toLowerCase().includes('python') && msg.includes('not found'))) {
         setToast({
           message: 'Python Not Found: Please install Python 3.10+ and add it to your system PATH to run notebooks.',
+          type: 'error'
+        });
+      } else if (msg.includes('offline') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ECONNREFUSED') || msg.includes('fetch')) {
+        setToast({
+          message: 'Backend Server Offline: Cannot connect to local execution engine (port 3001). Please ensure server is running.',
           type: 'error'
         });
       } else {

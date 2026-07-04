@@ -98,7 +98,7 @@ function relativeTime(ms: number): string {
 
 function ActivityTag({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-white/35 animate-pulse">
+    <span className="inline-flex items-center gap-1 text-[11px] text-sim-muted animate-pulse">
       <span>{ACTIVITY_ICONS[label] ?? '⚙️'}</span>
       <span>{label}…</span>
     </span>
@@ -111,29 +111,29 @@ function ToolBlock({ tool, input, result, done }: {
   const [open, setOpen] = useState(false);
   const label = TOOL_ACTIVITIES[tool] ?? tool;
   return (
-    <div className="my-1 text-xs font-mono">
+    <div className="my-1 text-xs font-mono text-sim-text">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 text-white/40 hover:text-white/65 transition-colors w-full text-left"
+        className="flex items-center gap-1.5 text-sim-muted hover:text-sim-text transition-colors w-full text-left"
       >
-        <span className="text-white/25">{open ? '▾' : '▸'}</span>
+        <span className="text-sim-muted/50">{open ? '▾' : '▸'}</span>
         <span>{label}</span>
         {done
-          ? <span className="ml-auto text-green-400/60 text-[10px]">✓</span>
-          : <span className="ml-auto w-2.5 h-2.5 border border-white/20 border-t-white/50 rounded-full animate-spin flex-shrink-0" />
+          ? <span className="ml-auto text-green-500 text-[10px]">✓</span>
+          : <span className="ml-auto w-2.5 h-2.5 border border-sim-border border-t-sim-text rounded-full animate-spin flex-shrink-0" />
         }
       </button>
       {open && (
-        <div className="mt-1 pl-3 space-y-1 border-l border-white/8">
+        <div className="mt-1 pl-3 space-y-1 border-l border-sim-border">
           {input !== undefined && (
-            <pre className="text-white/30 whitespace-pre-wrap break-all leading-relaxed">
+            <pre className="text-sim-muted bg-sim-bg/50 border border-sim-border rounded-lg p-2 whitespace-pre-wrap break-all leading-relaxed">
               {JSON.stringify(input, null, 2)}
             </pre>
           )}
           {done && result !== undefined && (
             <>
-              <div className="text-white/20 text-[10px]">result</div>
-              <pre className="text-white/30 whitespace-pre-wrap break-all leading-relaxed">
+              <div className="text-sim-muted/50 text-[10px]">result</div>
+              <pre className="text-sim-muted bg-sim-bg/50 border border-sim-border rounded-lg p-2 whitespace-pre-wrap break-all leading-relaxed">
                 {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
               </pre>
             </>
@@ -145,23 +145,23 @@ function ToolBlock({ tool, input, result, done }: {
 }
 
 const MD_PROSE = `
-  prose prose-invert max-w-none
-  prose-p:leading-relaxed prose-p:my-1.5 prose-p:text-white/85
-  prose-pre:bg-[#1e1e20] prose-pre:border prose-pre:border-white/10 prose-pre:rounded-xl prose-pre:p-3 prose-pre:shadow-lg prose-pre:text-[11.5px]
-  prose-code:bg-white/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[11px] prose-code:font-mono
-  prose-code:text-[#5eaefd] prose-code:before:content-none prose-code:after:content-none
-  prose-headings:text-white/90 prose-headings:font-semibold prose-headings:tracking-tight prose-headings:mb-1.5 prose-headings:mt-3
+  prose dark:prose-invert max-w-none
+  prose-p:leading-relaxed prose-p:my-1.5 prose-p:text-sim-text/90
+  prose-pre:bg-sim-bg prose-pre:border prose-pre:border-sim-border prose-pre:rounded-xl prose-pre:p-3 prose-pre:shadow-lg prose-pre:text-[11.5px]
+  prose-code:bg-sim-border/70 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[11px] prose-code:font-mono
+  prose-code:text-sim-red prose-code:before:content-none prose-code:after:content-none
+  prose-headings:text-sim-text/90 prose-headings:font-semibold prose-headings:tracking-tight prose-headings:mb-1.5 prose-headings:mt-3
   prose-h1:text-lg prose-h2:text-base prose-h3:text-[13px]
-  prose-a:text-[#5eaefd] hover:prose-a:text-[#8bc7ff] prose-a:transition-colors
-  prose-blockquote:border-l-2 prose-blockquote:border-[#5eaefd]/40 prose-blockquote:bg-[#5eaefd]/5 prose-blockquote:py-0.5 prose-blockquote:px-3 prose-blockquote:rounded-r prose-blockquote:text-white/70
+  prose-a:text-sim-red hover:prose-a:text-sim-redHover prose-a:transition-colors
+  prose-blockquote:border-l-2 prose-blockquote:border-sim-red/40 prose-blockquote:bg-sim-red/5 prose-blockquote:py-0.5 prose-blockquote:px-3 prose-blockquote:rounded-r prose-blockquote:text-sim-text/70
   prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
   prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
-  prose-li:my-0.5 prose-li:text-white/80 prose-li:marker:text-white/40
-  prose-strong:text-white prose-strong:font-semibold
-  prose-em:text-white/70
+  prose-li:my-0.5 prose-li:text-sim-text/80 prose-li:marker:text-sim-text/40
+  prose-strong:text-sim-text prose-strong:font-semibold
+  prose-em:text-sim-text/70
   prose-table:text-[11.5px] prose-table:w-full prose-table:border-collapse
-  prose-th:border-b prose-th:border-white/20 prose-th:p-1.5 prose-th:text-left prose-th:text-white/90
-  prose-td:border-b prose-td:border-white/10 prose-td:p-1.5 prose-td:text-white/70
+  prose-th:border-b prose-th:border-sim-border prose-th:p-1.5 prose-th:text-left prose-th:text-sim-text/90
+  prose-td:border-b prose-td:border-sim-border prose-td:p-1.5 prose-td:text-sim-text/70
 `.trim();
 
 function MarkdownBlock({ text }: { text: string }) {
@@ -176,16 +176,16 @@ function ThinkingAccordion({ text, defaultOpen = false }: { text: string; defaul
   const [open, setOpen] = useState(defaultOpen);
   if (!text.trim()) return null;
   return (
-    <div className="my-2 border border-white/10 rounded-lg overflow-hidden">
+    <div className="my-2 border border-sim-border rounded-lg overflow-hidden bg-transparent">
       <button 
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 bg-[#1a1a1c] hover:bg-[#222225] transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-1.5 bg-transparent hover:bg-sim-border/50 transition-colors text-left"
       >
-        <ChevronRight size={12} className={`text-white/40 transition-transform ${open ? 'rotate-90' : ''}`} />
-        <span className="text-[10px] font-medium text-white/50 uppercase tracking-wider">Agent Thinking</span>
+        <ChevronRight size={12} className={`text-sim-muted transition-transform ${open ? 'rotate-90' : ''}`} />
+        <span className="text-[10px] font-medium text-sim-muted uppercase tracking-wider">Agent Thinking</span>
       </button>
       {open && (
-        <div className="px-3 pb-2 pt-1 bg-[#1a1a1c]">
+        <div className="px-3 pb-2 pt-1 bg-transparent border-t border-sim-border">
           <MarkdownBlock text={text} />
         </div>
       )}
@@ -221,11 +221,6 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
         // Render segments in insertion order — text and tool calls interleaved correctly
         segments!.map((seg, i) => {
           if (seg.kind === 'text') {
-            const isFirst = i === 0;
-            const isLast = i === segments!.length - 1;
-            if (!isLast && !isFirst) {
-              return <ThinkingAccordion key={i} text={seg.text} />;
-            }
             return <MarkdownBlock key={i} text={seg.text} />;
           }
           return <ToolBlock key={seg.id} tool={seg.tool} input={seg.input} result={seg.result} done={seg.done} />;
@@ -317,21 +312,21 @@ function ModelSelector({
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(o => !o)}
-        className={`flex items-center gap-1.5 text-[11px] transition-colors bg-white/4 hover:bg-white/7 rounded-lg px-2 py-1 max-w-[180px] ${
-          hasModel ? 'text-white/40 hover:text-white/70' : 'text-amber-400/60 hover:text-amber-400/90'
+        className={`flex items-center gap-1.5 text-[11px] transition-colors bg-sim-bg border border-sim-border hover:bg-sim-border/50 rounded-lg px-2 py-1 max-w-[180px] ${
+          hasModel ? 'text-sim-muted hover:text-sim-text' : 'text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300'
         }`}
       >
-        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hasModel ? 'bg-green-400/70' : 'bg-amber-400/50'}`} />
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hasModel ? 'bg-green-500' : 'bg-amber-500'}`} />
         <span className="truncate">{displayName}</span>
-        <ChevronDown size={9} className="text-white/20 flex-shrink-0 ml-auto" />
+        <ChevronDown size={9} className="text-sim-muted flex-shrink-0 ml-auto" />
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-1.5 bg-[#141416] rounded-xl border border-white/8 shadow-2xl z-50 flex flex-col" style={{ width: 280, maxHeight: 360 }}>
-          <div className="p-2 border-b border-white/5">
+        <div className="absolute bottom-full left-0 mb-1.5 bg-sim-surface rounded-xl border border-sim-border shadow-2xl z-50 flex flex-col" style={{ width: 280, maxHeight: 360 }}>
+          <div className="p-2 border-b border-sim-border">
             <input autoFocus placeholder="Search models…" value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white/70 placeholder-white/20 outline-none" />
+              className="w-full bg-sim-bg border border-sim-border rounded-lg px-2.5 py-1.5 text-xs text-sim-text placeholder-sim-muted outline-none" />
           </div>
 
           <div className="overflow-y-auto flex-1">
@@ -344,8 +339,8 @@ function ModelSelector({
               </div>
             ) : Object.entries(grouped).map(([providerId, group]) => (
               <div key={providerId}>
-                <div className="px-3 pt-2.5 pb-1 sticky top-0 bg-[#141416]">
-                  <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{group.name}</span>
+                <div className="px-3 pt-2.5 pb-1 sticky top-0 bg-sim-surface">
+                  <span className="text-[10px] font-semibold text-sim-muted uppercase tracking-wider">{group.name}</span>
                 </div>
                 {group.models.map(m => {
                   const isActive = currentModel?.model_id === m.id && currentModel?.provider_id === m.provider_id;
@@ -353,7 +348,7 @@ function ModelSelector({
                     <button key={m.id}
                       onClick={() => { onSelect(m.provider_id, m.id); setOpen(false); setSearch(''); }}
                       className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 ${
-                        isActive ? 'text-white/90 bg-white/7' : 'text-white/55 hover:text-white/85 hover:bg-white/4'
+                        isActive ? 'text-sim-text bg-sim-selection font-semibold' : 'text-sim-text/80 hover:text-sim-text hover:bg-sim-selection/50'
                       }`}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-blue-400' : 'bg-green-400/40'}`} />
@@ -414,19 +409,19 @@ function HistoryPanel({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5">
-        <button onClick={onBack} className="text-white/30 hover:text-white/70 transition-colors p-0.5">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-sim-border">
+        <button onClick={onBack} className="text-sim-muted hover:text-sim-text transition-colors p-0.5">
           <ChevronLeft size={14} />
         </button>
-        <span className="text-[11px] font-semibold tracking-widest text-white/30 uppercase">Chat History</span>
+        <span className="text-[11px] font-semibold tracking-widest text-sim-muted uppercase">Chat History</span>
       </div>
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto">
         {sessions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 py-16">
-            <Clock size={24} className="text-white/15" />
-            <p className="text-white/25 text-xs">No conversations yet</p>
+          <div className="flex flex-col items-center justify-center h-full gap-2 py-16 text-sim-muted">
+            <Clock size={24} className="opacity-40" />
+            <p className="text-xs">No conversations yet</p>
           </div>
         ) : (
           <div className="py-2">
@@ -434,25 +429,25 @@ function HistoryPanel({
               <div
                 key={s.id}
                 onClick={() => onLoad(s.id)}
-                className="group flex items-start gap-3 px-4 py-3 hover:bg-white/4 cursor-pointer transition-colors"
+                className="group flex items-start gap-3 px-4 py-3 hover:bg-sim-border cursor-pointer transition-colors"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white/70 truncate leading-snug">{s.title || 'New conversation'}</p>
+                  <p className="text-sm text-sim-text truncate leading-snug">{s.title || 'New conversation'}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className={`text-[10px] font-medium ${
-                      s.mode === 'ASK' ? 'text-blue-400/60' :
-                      s.mode === 'PLAN' ? 'text-purple-400/60' :
-                      s.mode === 'AGENT' ? 'text-orange-400/60' : 'text-red-400/60'
+                      s.mode === 'ASK' ? 'text-blue-500' :
+                      s.mode === 'PLAN' ? 'text-purple-500' :
+                      s.mode === 'AGENT' ? 'text-orange-500' : 'text-red-500'
                     }`}>{s.mode}</span>
-                    <span className="text-[10px] text-white/20">{relativeTime(s.updated_at)}</span>
+                    <span className="text-[10px] text-sim-muted">{relativeTime(s.updated_at)}</span>
                     {s.message_count !== undefined && (
-                      <span className="text-[10px] text-white/20">{Math.floor(s.message_count / 2)} turns</span>
+                      <span className="text-[10px] text-sim-muted">{Math.floor(s.message_count / 2)} turns</span>
                     )}
                   </div>
                 </div>
                 <button
                   onClick={e => { e.stopPropagation(); onDelete(s.id); }}
-                  className="opacity-0 group-hover:opacity-100 p-1 text-white/25 hover:text-red-400/70 transition-all rounded flex-shrink-0"
+                  className="opacity-0 group-hover:opacity-100 p-1 text-sim-muted hover:text-red-500 transition-all rounded flex-shrink-0"
                 >
                   <Trash2 size={12} />
                 </button>
@@ -628,8 +623,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   return (
     <div
-      className="relative flex flex-col h-full overflow-hidden flex-shrink-0 rounded-2xl border border-[#27272a] shadow-lg"
-      style={{ width, userSelect: isResizing ? 'none' : undefined, background: '#0d0d0f' }}
+      className="relative flex flex-col h-full overflow-hidden flex-shrink-0 rounded-2xl border border-sim-border bg-sim-surface text-sim-text shadow-lg"
+      style={{ width, userSelect: isResizing ? 'none' : undefined }}
     >
       {/* Resize strip (invisible but draggable) */}
       <div
@@ -648,27 +643,27 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         <>
           {/* ── Header ───────────────────────────────────────────────────── */}
           <div className="flex items-center px-4 py-2.5 flex-shrink-0">
-            <span className="text-[10px] font-semibold tracking-[0.15em] text-white/20 uppercase flex-1 select-none">
+            <span className="text-[10px] font-semibold tracking-[0.15em] text-sim-muted uppercase flex-1 select-none">
               OctoML Agent
             </span>
             <div className="flex items-center gap-0.5">
               <button
                 onClick={startNewChat}
                 title="New chat"
-                className="w-7 h-7 flex items-center justify-center text-white/25 hover:text-white/70 rounded-lg hover:bg-white/5 transition-colors"
+                className="w-7 h-7 flex items-center justify-center text-sim-muted hover:text-sim-text rounded-lg hover:bg-sim-border transition-colors"
               >
                 <Plus size={14} />
               </button>
               <button
                 onClick={() => setShowHistory(true)}
                 title="Chat history"
-                className="w-7 h-7 flex items-center justify-center text-white/25 hover:text-white/70 rounded-lg hover:bg-white/5 transition-colors"
+                className="w-7 h-7 flex items-center justify-center text-sim-muted hover:text-sim-text rounded-lg hover:bg-sim-border transition-colors"
               >
                 <Clock size={13} />
               </button>
               <button
                 onClick={onClose}
-                className="w-7 h-7 flex items-center justify-center text-white/25 hover:text-white/70 rounded-lg hover:bg-white/5 transition-colors"
+                className="w-7 h-7 flex items-center justify-center text-sim-muted hover:text-sim-text rounded-lg hover:bg-sim-border transition-colors"
               >
                 <X size={13} />
               </button>
@@ -684,8 +679,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 title={MODE_HINTS[m]}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
                   mode === m
-                    ? `bg-white/7 ${MODE_TEXT[m]}`
-                    : 'text-white/25 hover:text-white/55 hover:bg-white/4'
+                    ? `bg-sim-selection text-sim-text font-semibold`
+                    : 'text-sim-muted hover:text-sim-text hover:bg-sim-selection/50'
                 }`}
               >
                 {mode === m && <span className={`w-1.5 h-1.5 rounded-full ${MODE_DOT[m]} flex-shrink-0`} />}
@@ -698,12 +693,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <div className="flex-1 overflow-y-auto px-4 min-h-0">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-4 pb-16">
-                <div className="w-20 h-20 rounded-2xl bg-white/4 flex items-center justify-center select-none overflow-hidden">
+                <div className="w-20 h-20 rounded-2xl bg-sim-bg border border-sim-border flex items-center justify-center select-none overflow-hidden">
                   <img src={octomlLogo} alt="OctoML Logo" className="w-18 h-18 object-contain opacity-90" />
                 </div>
                 <div className="text-center space-y-1">
-                  <p className="text-white/40 text-sm">Ask OctoML anything</p>
-                  <p className="text-white/20 text-xs">{MODE_HINTS[mode]}</p>
+                  <p className="text-sim-text/60 text-sm">Ask OctoML anything</p>
+                  <p className="text-sim-muted text-xs">{MODE_HINTS[mode]}</p>
                 </div>
               </div>
             ) : (
@@ -713,14 +708,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                     <div key={msg.id} className="py-2 flex justify-end">
                       <div className="max-w-[88%] flex flex-col items-end gap-1.5">
                         {msg.content && (
-                          <div className="text-[11.5px] text-white/72 leading-relaxed bg-white/5 rounded-2xl rounded-tr-sm px-3 py-2 whitespace-pre-wrap break-words">
+                          <div className="text-[11.5px] text-sim-text leading-relaxed bg-sim-bg border border-sim-border rounded-2xl rounded-tr-sm px-3 py-2 whitespace-pre-wrap break-words">
                             {msg.content}
                           </div>
                         )}
                         {msg.attachments && msg.attachments.length > 0 && (
                           <div className="flex flex-wrap justify-end gap-1.5 mt-0.5">
                             {msg.attachments.map((f, i) => (
-                              <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-white/6 border border-white/8 text-white/50">
+                              <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-sim-border/50 border border-sim-border text-sim-text">
                                 <span>{f.name.endsWith('.py') ? '🐍' : f.name.endsWith('.csv') ? '📊' : f.name.endsWith('.json') ? '{}' : '📄'}</span>
                                 <span className="max-w-[110px] truncate">{f.name}</span>
                               </span>
@@ -785,11 +780,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
           {/* ── Escalation banner ─────────────────────────────────────────── */}
           {escalation && (
-            <div className="mx-3 mb-1.5 flex-shrink-0 px-3 py-2 rounded-xl bg-yellow-500/8 text-xs flex items-start gap-2">
-              <span className="text-yellow-400 mt-0.5 flex-shrink-0">⚡</span>
+            <div className="mx-3 mb-1.5 flex-shrink-0 px-3 py-2 rounded-xl bg-yellow-500/10 dark:bg-yellow-500/8 border border-yellow-500/20 text-xs flex items-start gap-2">
+              <span className="text-yellow-500 dark:text-yellow-400 mt-0.5 flex-shrink-0">⚡</span>
               <div className="flex-1 min-w-0">
-                <p className="text-yellow-300/80 font-medium">{escalation.suggest_mode} suggested</p>
-                <p className="text-yellow-300/50 text-[11px] mt-0.5">{escalation.reason}</p>
+                <p className="text-yellow-800 dark:text-yellow-300/80 font-semibold">{escalation.suggest_mode} suggested</p>
+                <p className="text-yellow-700/80 dark:text-yellow-300/50 text-[11px] mt-0.5">{escalation.reason}</p>
               </div>
               <div className="flex gap-1 flex-shrink-0">
                 <button
@@ -800,28 +795,28 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                     dismissEscalation();
                     if (lastUserMsg) sendMessage(lastUserMsg, targetMode);
                   }}
-                  className="px-2 py-0.5 rounded-lg bg-yellow-500/12 text-yellow-300/80 hover:bg-yellow-500/20 transition-colors text-[11px]"
+                  className="px-2 py-0.5 rounded-lg bg-yellow-500/20 text-yellow-800 dark:text-yellow-300/80 hover:bg-yellow-500/30 transition-colors text-[11px] font-medium"
                 >Switch &amp; continue</button>
-                <button onClick={dismissEscalation} className="px-2 py-0.5 rounded-lg hover:bg-white/4 text-white/25 transition-colors text-[11px]">✕</button>
+                <button onClick={dismissEscalation} className="px-2 py-0.5 rounded-lg hover:bg-sim-border text-sim-muted transition-colors text-[11px]">✕</button>
               </div>
             </div>
           )}
 
           {/* ── Permission banner ─────────────────────────────────────────── */}
           {pendingPerm && (
-            <div className="mx-3 mb-1.5 flex-shrink-0 px-3 py-2 rounded-xl bg-red-500/8 text-xs flex items-start gap-2">
-              <Trash2 size={11} className="text-red-400/70 mt-0.5 flex-shrink-0" />
+            <div className="mx-3 mb-1.5 flex-shrink-0 px-3 py-2 rounded-xl bg-red-500/10 dark:bg-red-500/8 border border-red-500/20 text-xs flex items-start gap-2">
+              <Trash2 size={11} className="text-red-500 dark:text-red-400/70 mt-0.5 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-red-300/80 font-medium">Permission required</p>
-                <p className="text-red-300/50 text-[11px] mt-0.5">
+                <p className="text-red-800 dark:text-red-300/80 font-semibold">Permission required</p>
+                <p className="text-red-700/80 dark:text-red-300/50 text-[11px] mt-0.5">
                   {pendingPerm.action === 'delete_cell'
                     ? `Delete cell ${(pendingPerm.payload as Record<string, unknown>)['cell_id']}`
                     : pendingPerm.action}
                 </p>
               </div>
               <div className="flex gap-1 flex-shrink-0">
-                <button onClick={confirmPermission} className="px-2 py-0.5 rounded-lg bg-red-500/12 text-red-300/80 hover:bg-red-500/20 transition-colors text-[11px]">Confirm</button>
-                <button onClick={denyPermission} className="px-2 py-0.5 rounded-lg hover:bg-white/4 text-white/25 transition-colors text-[11px]">Cancel</button>
+                <button onClick={confirmPermission} className="px-2 py-0.5 rounded-lg bg-red-500/20 text-red-800 dark:text-red-300/80 hover:bg-red-500/30 transition-colors text-[11px] font-medium">Confirm</button>
+                <button onClick={denyPermission} className="px-2 py-0.5 rounded-lg hover:bg-sim-border text-sim-muted transition-colors text-[11px]">Cancel</button>
               </div>
             </div>
           )}
@@ -836,21 +831,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   <button
                     onClick={includeCellChip}
                     title="Include active cell in message"
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-white/5 border border-white/8 text-white/40 hover:text-white/70 hover:bg-white/8 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-sim-bg border border-sim-border text-sim-muted hover:text-sim-text hover:bg-sim-border/50 transition-colors"
                   >
                     <span>📋</span>
                     <span className="max-w-[150px] truncate font-mono">
                       {notebookName ? notebookName.replace('.ipynb', '') : 'notebook'}.{activeCell.id}.{activeCell.type === 'code' ? 'py' : 'md'}
                     </span>
-                    <span className="text-white/20">+ include</span>
+                    <span className="text-sim-muted opacity-60">+ include</span>
                   </button>
                 )}
                 {/* File chips */}
                 {attachedFiles.map(f => (
-                  <span key={f.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-white/6 border border-white/8 text-white/50">
+                  <span key={f.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-sim-border/50 border border-sim-border text-sim-text">
                     <span>{f.name.endsWith('.py') ? '🐍' : f.name.endsWith('.csv') ? '📊' : f.name.endsWith('.json') ? '{}' : '📄'}</span>
                     <span className="max-w-[110px] truncate">{f.name}</span>
-                    <button onClick={() => removeFile(f.id)} className="hover:text-white/80 transition-colors flex-shrink-0">
+                    <button onClick={() => removeFile(f.id)} className="hover:text-sim-text transition-colors flex-shrink-0">
                       <X size={9} />
                     </button>
                   </span>
@@ -861,7 +856,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             {/* Textarea container */}
             <div
               className={`rounded-2xl transition-all ${
-                isDragOver ? 'ring-1 ring-blue-400/30 bg-blue-400/4' : 'bg-white/5 hover:bg-white/7'
+                isDragOver ? 'ring-1 ring-blue-400/30 bg-blue-400/5' : 'bg-sim-bg border border-sim-border hover:bg-sim-surface/50 transition-colors'
               }`}
               onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
               onDragLeave={() => setIsDragOver(false)}
@@ -869,7 +864,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             >
               {isDragOver && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                  <span className="text-xs text-white/35 bg-black/50 px-3 py-1.5 rounded-full">Drop to attach</span>
+                  <span className="text-xs text-sim-muted bg-sim-bg px-3 py-1.5 rounded-full">Drop to attach</span>
                 </div>
               )}
               <textarea
@@ -880,7 +875,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 onKeyDown={handleKeyDown}
                 placeholder={`Ask OctoML…  ↵ send  ⇧↵ newline`}
                 rows={3}
-                className="w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm text-white/75 placeholder-white/18 outline-none leading-relaxed"
+                className="w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm text-sim-text placeholder-sim-muted outline-none leading-relaxed"
               />
 
               {/* Bottom toolbar */}
@@ -890,7 +885,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     title="Attach files (or drag & drop)"
-                    className="p-1.5 text-white/20 hover:text-white/55 transition-colors rounded-lg hover:bg-white/5"
+                    className="p-1.5 text-sim-muted hover:text-sim-text transition-colors rounded-lg hover:bg-sim-border/50"
                   >
                     <Paperclip size={13} />
                   </button>
@@ -903,14 +898,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
                   {isLoading && (
-                    <button onClick={stopGeneration} title="Stop" className="p-1.5 text-white/25 hover:text-white/60 rounded-lg hover:bg-white/5 transition-colors">
+                    <button onClick={stopGeneration} title="Stop" className="p-1.5 text-sim-muted hover:text-sim-text rounded-lg hover:bg-sim-border transition-colors">
                       <Square size={12} />
                     </button>
                   )}
                   <button
                     onClick={handleSend}
                     disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
-                    className="w-7 h-7 flex items-center justify-center rounded-xl bg-white/12 hover:bg-white/20 text-white/60 hover:text-white/90 transition-all disabled:opacity-20 disabled:cursor-not-allowed"
+                    className="w-7 h-7 flex items-center justify-center rounded-xl bg-sim-border hover:bg-sim-selection text-sim-text transition-all disabled:opacity-20 disabled:cursor-not-allowed"
                   >
                     <Send size={12} />
                   </button>

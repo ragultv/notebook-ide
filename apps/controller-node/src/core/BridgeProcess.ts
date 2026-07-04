@@ -62,11 +62,23 @@ export class BridgeProcess extends EventEmitter {
         if (BridgeProcess.installPromise) return BridgeProcess.installPromise;
 
         BridgeProcess.installPromise = (async () => {
-            const checkCmd = 'import jupyter_client, ipykernel, ipywidgets, pandas, numpy, tqdm, matplotlib';
+            const checkCmd = `import importlib.util, sys; pkgs = ['jupyter_client', 'ipykernel', 'ipywidgets', 'pandas', 'numpy', 'tqdm', 'matplotlib']; missing = [p for p in pkgs if importlib.util.find_spec(p) is None]; [print(f'[OK] {p}') for p in pkgs if p not in missing]; [print(f'[MISSING] {p}', file=sys.stderr) for p in missing]; sys.exit(1 if missing else 0)`;
             try {
                 await new Promise<void>((resolve, reject) => {
-                    const child = spawn(pythonPath, ['-c', checkCmd], { stdio: 'ignore', windowsHide: true });
-                    child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`Missing modules, exit code ${code}`)));
+                    const child = spawn(pythonPath, ['-c', checkCmd], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+                    let stdout = '';
+                    let stderr = '';
+                    child.stdout?.on('data', (d) => { stdout += d.toString(); });
+                    child.stderr?.on('data', (d) => { stderr += d.toString(); });
+                    child.on('exit', (code) => {
+                        if (stdout.trim()) console.log(`[BridgeProcess] Requirement check:\n${stdout.trim()}`);
+                        if (code === 0) {
+                            resolve();
+                        } else {
+                            if (stderr.trim()) console.warn(`[BridgeProcess] Missing packages:\n${stderr.trim()}`);
+                            reject(new Error(`Missing modules, exit code ${code}: ${stderr.trim()}`));
+                        }
+                    });
                     child.on('error', (err: any) => {
                         if (err.code === 'ENOENT' || err.message?.includes('ENOENT')) {
                             const notFoundErr = new Error(`PYTHON_NOT_FOUND: Python executable ("${pythonPath}") was not found in system PATH. Please install Python 3.10+ and restart the application.`);

@@ -30,7 +30,7 @@ export const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> =
     return (
       <div className="flex items-center gap-2">
         {/* Status pill */}
-        <div className="flex items-center gap-2 px-3 h-8 bg-[#1e1e20] border border-[#27272a] rounded-xl text-[10px] font-mono text-gray-400 flex-1 justify-center">
+        <div className="flex items-center gap-2 px-3 h-8 bg-sim-bg border border-sim-border rounded-xl text-[10px] font-mono text-sim-text flex-1 justify-center">
           <Check className="w-3 h-3 text-green-500 shrink-0" />
           <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusColors[kernelStatus]}`} />
           <span className="uppercase truncate">{runtimeType} · {kernelStatus}</span>
@@ -69,12 +69,12 @@ export const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> =
       {open && (
         <div
           className="absolute right-0 bottom-[calc(100%+6px)] z-50 min-w-[160px] w-full
-            bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl shadow-black/60
+            bg-sim-surface border border-sim-border rounded-xl shadow-2xl
             overflow-hidden py-1.5"
           style={{ animation: 'dropdownIn 0.12s ease-out' }}
         >
-          <div className="px-3 pb-1.5 mb-1.5 border-b border-[#27272a]">
-            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Select Runtime</span>
+          <div className="px-3 pb-1.5 mb-1.5 border-b border-sim-border">
+            <span className="text-[10px] font-bold text-sim-muted uppercase tracking-widest">Select Runtime</span>
           </div>
 
           {(['cpu', 'gpu'] as const).map((type) => {
@@ -90,20 +90,20 @@ export const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> =
                 }}
                 disabled={isGpu}
                 className={`w-full flex items-center justify-between px-3 py-2.5 text-xs transition-colors rounded-lg text-left mb-1
-                  ${isGpu ? 'opacity-50 cursor-not-allowed text-gray-400' : 'hover:bg-white/5 text-gray-300'}
+                  ${isGpu ? 'opacity-50 cursor-not-allowed text-sim-muted' : 'hover:bg-sim-border text-sim-text'}
                   ${runtimeType === type && !isGpu ? 'text-sim-red bg-sim-red/5' : ''}`}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-4 h-4 flex items-center justify-center shrink-0">
                     {runtimeType === type && !isGpu && <Check className="w-3.5 h-3.5 shrink-0" />}
                   </div>
-                  <Cpu className={`w-3.5 h-3.5 shrink-0 ${runtimeType === type && !isGpu ? 'text-sim-red' : 'text-gray-500'}`} />
+                  <Cpu className={`w-3.5 h-3.5 shrink-0 ${runtimeType === type && !isGpu ? 'text-sim-red' : 'text-sim-muted'}`} />
                   <div className="flex flex-col">
                     <span className="font-semibold">{type.toUpperCase()} Runtime</span>
                   </div>
                 </div>
                 {isGpu && (
-                  <span className="text-[9px] bg-[#3a3a3c] text-gray-300 px-1.5 py-0.5 rounded uppercase font-bold tracking-widest shrink-0">
+                  <span className="text-[9px] bg-sim-border text-sim-muted px-1.5 py-0.5 rounded uppercase font-bold tracking-widest shrink-0">
                     Coming Soon
                   </span>
                 )}

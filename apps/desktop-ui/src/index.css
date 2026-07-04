@@ -6,6 +6,31 @@
 @tailwind utilities;
 
 
+:root {
+  --sim-red: #0096FF;
+  --sim-redHover: #1070D0;
+}
+
+/* Light Theme Variables */
+.light {
+  --sim-bg: #f8fafc;
+  --sim-surface: #ffffff;
+  --sim-border: #cbd5e1;
+  --sim-text: #0f172a;
+  --sim-muted: #64748b;
+  --sim-selection: #e2e8f0;
+}
+
+/* Dark Theme Variables (default) */
+.dark, :root:not(.light) {
+  --sim-bg: #09090b;
+  --sim-surface: #161618;
+  --sim-border: #2d2d2d;
+  --sim-text: #e4e4e7;
+  --sim-muted: #71717a;
+  --sim-selection: #2d2d2d;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -13,6 +38,9 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--sim-bg);
+  color: var(--sim-text);
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 code {
@@ -92,27 +120,25 @@ code {
   }
 }
 
-/* Jupyter Widgets Dark Mode styling overrides */
+/* Jupyter Widgets Theme styling overrides */
 .widget-container,
 .widget-wrapper {
-  color: #e4e4e7; /* text-zinc-200 */
-  --jp-layout-color0: #09090b;
-  --jp-layout-color1: #18181b;
-  --jp-layout-color2: #27272a;
-  --jp-layout-color3: #3f3f46;
-  --jp-layout-color4: #52525b;
-  --jp-ui-font-color0: #ffffff;
-  --jp-ui-font-color1: #e4e4e7;
-  --jp-ui-font-color2: #a1a1aa;
-  --jp-ui-font-color3: #71717a;
-  --jp-widgets-color: #e4e4e7;
-  --jp-widgets-bg: #18181b;
-  --jp-widgets-border-color: #3f3f46;
-  --jp-widgets-input-bg: #27272a;
-  --jp-widgets-input-color: #e4e4e7;
-  --jp-widgets-readout-bg: #27272a;
-  --jp-widgets-readout-border-color: #3f3f46;
-  --jp-widgets-readout-color: #e4e4e7;
+  color: var(--sim-text);
+  --jp-layout-color0: var(--sim-bg);
+  --jp-layout-color1: var(--sim-surface);
+  --jp-layout-color2: var(--sim-border);
+  --jp-layout-color3: var(--sim-muted);
+  --jp-ui-font-color0: var(--sim-text);
+  --jp-ui-font-color1: var(--sim-text);
+  --jp-ui-font-color2: var(--sim-muted);
+  --jp-widgets-color: var(--sim-text);
+  --jp-widgets-bg: var(--sim-surface);
+  --jp-widgets-border-color: var(--sim-border);
+  --jp-widgets-input-bg: var(--sim-surface);
+  --jp-widgets-input-color: var(--sim-text);
+  --jp-widgets-readout-bg: var(--sim-surface);
+  --jp-widgets-readout-border-color: var(--sim-border);
+  --jp-widgets-readout-color: var(--sim-text);
 }
 
 /* Target specific ipywidgets components */
@@ -120,27 +146,27 @@ code {
 .widget-container select,
 .widget-container textarea,
 .widget-container button {
-  color: #e4e4e7 !important;
-  background-color: #27272a !important;
-  border-color: #3f3f46 !important;
+  color: var(--sim-text) !important;
+  background-color: var(--sim-surface) !important;
+  border-color: var(--sim-border) !important;
 }
 
 .widget-container input:focus,
 .widget-container select:focus,
 .widget-container textarea:focus {
-  border-color: #10b981 !important; /* emerald accent */
+  border-color: var(--sim-red) !important;
   outline: none !important;
 }
 
 .widget-container .widget-readout {
-  color: #e4e4e7 !important;
-  background: #27272a !important;
-  border: 1px solid #3f3f46 !important;
+  color: var(--sim-text) !important;
+  background: var(--sim-surface) !important;
+  border: 1px solid var(--sim-border) !important;
   border-radius: 4px;
 }
 
 .widget-container label,
 .widget-container span,
 .widget-container .widget-label {
-  color: #e4e4e7 !important;
+  color: var(--sim-text) !important;
 }

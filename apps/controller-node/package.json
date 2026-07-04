@@ -8,6 +8,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "npx tsc",
     "rebuild:electron": "node ../electron/node_modules/electron-builder/out/cli/cli.js install-app-deps",
+    "rebuild:node": "npm rebuild better-sqlite3",
     "start": "node dist/index.js",
     "dev": "nodemon --watch src --ext ts,json --exec \"tsx\" src/index.ts",
     "build-doc": "node build_doc.cjs"
