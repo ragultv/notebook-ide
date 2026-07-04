@@ -2,12 +2,9 @@ appId: com.octoml.ide
 productName: OctoML
 copyright: Copyright © 2026
 
-# Rebuild native modules (better-sqlite3) for Electron's ABI.
-# The controller-node backend is spawned with process.execPath and ELECTRON_RUN_AS_NODE=1,
-# meaning it runs inside Electron's embedded Node runtime (not system Node).
-# We use @electron/rebuild in the build-prod.js step (Step 5) to rebuild
-# better-sqlite3 against the correct Electron ABI before electron-builder packages it.
-# npmRebuild: false here to avoid electron-builder rebuilding from the wrong directory.
+# native modules are rebuilt for Electron's ABI in the CI "rebuild:electron" step
+# (before npm prune). We disable electron-builder's built-in rebuild because it
+# targets the wrong directory (the electron app root, not controller-node).
 npmRebuild: false
 
 directories:
@@ -26,53 +23,79 @@ extraResources:
   - from: ../desktop-ui/dist
     to: app/apps/desktop-ui
 
-  # Compiled Node.js backend — production deps only (run npm prune --omit=dev first)
+  # Compiled Node.js backend — production deps only (CI runs npm prune --omit=dev first)
   - from: ../controller-node
     to: app/apps/controller-node
     filter:
       # package.json MUST be included — Node.js reads it to detect "type":"module"
-      # Without it, Node.js parses the ESM dist files as CommonJS and crashes.
       - package.json
-      # Include compiled output and production node_modules
       - dist/**/*
       - "!dist/**/*.map"
       - node_modules/**/*
 
-      # Exclude dev-only tooling (saved ~100 MB)
-      - "!node_modules/typescript/**"
-      - "!node_modules/tsx/**"
-      - "!node_modules/ts-node/**"
-      - "!node_modules/nodemon/**"
-      - "!node_modules/@types/**"
+      # ── Dev-only tooling (never needed at runtime) ──────────────────────────
+      - "!node_modules/electron/**"          # 249 MB — devDep, Electron is the host process
+      - "!node_modules/@electron/**"         # 0.2 MB — rebuild tool, devDep
+      - "!node_modules/typescript/**"        # tsc compiler, devDep
+      - "!node_modules/tsx/**"               # TS executor, devDep
+      - "!node_modules/ts-node/**"           # TS executor, devDep
+      - "!node_modules/nodemon/**"           # file watcher, devDep
+      - "!node_modules/@types/**"            # type stubs, devDep
+      - "!node_modules/@vercel/ncc/**"       # bundler, devDep
+      - "!node_modules/node-gyp/**"          # native build tool, devDep
+      - "!node_modules/@esbuild/**"          # bundler, transitive devDep
+      - "!node_modules/esbuild/**"           # bundler, transitive devDep
+
+      # ── Dev tooling transitive deps ──────────────────────────────────────────
       - "!node_modules/create-require/**"
       - "!node_modules/diff/**"
       - "!node_modules/make-error/**"
       - "!node_modules/v8-compile-cache-lib/**"
       - "!node_modules/yn/**"
 
-      # Exclude build cache and runtime tools not needed in production
+      # ── Build cache and CLI bins (not needed at runtime) ─────────────────────
       - "!node_modules/.cache/**"
       - "!node_modules/.bin/**"
 
-      # ── Exclude unused native binaries (Windows x64 build only) ─────────────
-      # onnxruntime-node: drop mac + linux prebuilds, keep win32 only
+      # ── Debug symbol files (PDB) — large, only for native crash debugging ────
+      # node-pty PDB files alone are 27 MB
+      - "!node_modules/**/*.pdb"
+
+      # ── @xenova/transformers: drop browser WASM files (use onnxruntime-node) ─
+      # The Node.js backend uses onnxruntime-node (native .node binary), not WASM.
+      # These 4 WASM files account for 37 MB of unnecessary browser-only code.
+      - "!node_modules/@xenova/transformers/dist/*.wasm"
+
+      # ── js-tiktoken: drop CJS duplicates (ESM app uses .js) ──────────────────
+      # js-tiktoken ships both .js and .cjs in dist/ — identical data. Drop .cjs.
+      # @langchain/core imports via ESM: import from 'js-tiktoken/lite' → uses .js
+      # Also drop unused rank files (app only needs cl100k and o200k via @langchain).
+      # Total savings: ~10 MB
+      - "!node_modules/js-tiktoken/dist/*.cjs"
+      - "!node_modules/js-tiktoken/dist/ranks/*.cjs"
+      - "!node_modules/js-tiktoken/dist/ranks/gpt2*"
+      - "!node_modules/js-tiktoken/dist/ranks/p50k*"
+      - "!node_modules/js-tiktoken/dist/ranks/r50k*"
+
+      # ── onnxruntime-node: drop non-Windows architectures ─────────────────────
       - "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**"
       - "!node_modules/onnxruntime-node/bin/napi-v3/linux/**"
+      - "!node_modules/onnxruntime-node/bin/napi-v3/win32/arm64/**"
 
-      # onnxruntime-web: browser-only WASM build, unused in Node backend
+      # ── onnxruntime-web: browser-only WASM build, unused in Node backend ─────
       - "!node_modules/onnxruntime-web/**"
 
-      # node-pty: drop all non-Windows prebuilds
+      # ── node-pty: drop non-Windows prebuilds ─────────────────────────────────
       - "!node_modules/node-pty/prebuilds/darwin-arm64/**"
       - "!node_modules/node-pty/prebuilds/darwin-x64/**"
       - "!node_modules/node-pty/prebuilds/win32-arm64/**"
+      - "!node_modules/node-pty/src/**"
+      - "!node_modules/node-pty/deps/**"
 
-      # sharp: not imported in source code (transitive dep only) — drop entire package
-      # WARNING: do NOT use "!node_modules/sharp/vendor/**/lib/**" — lib/ contains
-      # runtime DLLs (libvips-42.dll etc.) that would crash the app if sharp ever loads
+      # ── sharp: transitive dep, not imported in source code ───────────────────
       - "!node_modules/sharp/**"
 
-      # Exclude documentation, changelogs, and license files from every package
+      # ── Documentation, changelogs, and license files ─────────────────────────
       - "!node_modules/**/*.md"
       - "!node_modules/**/README*"
       - "!node_modules/**/CHANGELOG*"
@@ -84,7 +107,7 @@ extraResources:
       - "!node_modules/**/LICENCE*"
       - "!node_modules/**/*.map"
 
-      # Exclude test suites and fixtures
+      # ── Test suites and fixtures ─────────────────────────────────────────────
       - "!node_modules/**/test/**"
       - "!node_modules/**/tests/**"
       - "!node_modules/**/__tests__/**"
@@ -94,17 +117,31 @@ extraResources:
       - "!node_modules/**/coverage/**"
       - "!node_modules/**/*.test.js"
       - "!node_modules/**/*.spec.js"
+      - "!node_modules/**/__mocks__/**"
 
-      # Exclude TypeScript source files (compiled output is in dist/)
+      # ── TypeScript source (compiled output is in dist/) ──────────────────────
       - "!node_modules/**/*.ts"
       - "!node_modules/**/*.d.ts"
       - "!node_modules/**/*.d.ts.map"
+      - "!node_modules/**/*.flow"
 
-      # Exclude example and documentation folders
+      # ── Example and documentation folders ────────────────────────────────────
       - "!node_modules/**/examples/**"
       - "!node_modules/**/example/**"
       - "!node_modules/**/docs/**"
       - "!node_modules/**/doc/**"
+      - "!node_modules/**/website/**"
+      - "!node_modules/**/scripts/**"
+      - "!node_modules/**/benchmark/**"
+      - "!node_modules/**/benchmarks/**"
+
+      # ── Miscellaneous unnecessary files ──────────────────────────────────────
+      - "!node_modules/**/.github/**"
+      - "!node_modules/**/.git/**"
+      - "!node_modules/**/Makefile"
+      - "!node_modules/**/*.gyp"
+      - "!node_modules/**/*.gypi"
+      - "!node_modules/**/*.coffee"
 
   # Python kernel bridge (source only — Python must be installed on user's system)
   - from: ../kernel-python
