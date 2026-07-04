@@ -51,9 +51,13 @@ run('desktop-ui', 'npm run build', resolve(ROOT, 'apps/desktop-ui'));
 console.log('\n── Step 4: Compile electron main process (TypeScript) ──');
 run('electron', 'npm run build:electron', resolve(ROOT, 'apps/electron'));
 
-// ── 5. Rebuild backend native dependencies for Electron ─────────────────────────
-console.log('\n── Step 5: Rebuild native dependencies (better-sqlite3, node-pty) for Electron ──');
-run('rebuild-deps', 'npm run rebuild:electron', resolve(ROOT, 'apps/controller-node'));
+// ── 5. Rebuild better-sqlite3 for Electron's ABI ────────────────────────────
+// CRITICAL: System Node uses ABI 127 but Electron 31.x uses ABI 125.
+// The controller-node backend runs inside Electron's embedded Node (ELECTRON_RUN_AS_NODE=1),
+// so better-sqlite3 must be compiled for Electron's ABI, not the system Node ABI.
+// @electron/rebuild downloads the correct prebuilt binary targeting Electron's ABI.
+console.log('\n── Step 5: Rebuild better-sqlite3 for Electron ABI (avoiding system Node ABI mismatch) ──');
+run('rebuild-sqlite3', 'npm run rebuild:electron', resolve(ROOT, 'apps/controller-node'));
 
 // ── 6. Package with electron-builder ─────────────────────────────────────────
 // Note: devDependencies (typescript, tsx, nodemon, @types/*) are excluded from

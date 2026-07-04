@@ -2,10 +2,13 @@ appId: com.octoml.ide
 productName: OctoML
 copyright: Copyright © 2026
 
-# Rebuild native modules (better-sqlite3, node-pty) for Electron's ABI.
+# Rebuild native modules (better-sqlite3) for Electron's ABI.
 # The controller-node backend is spawned with process.execPath and ELECTRON_RUN_AS_NODE=1,
 # meaning it runs inside Electron's embedded Node runtime (not system Node).
-npmRebuild: true
+# We use @electron/rebuild in the build-prod.js step (Step 5) to rebuild
+# better-sqlite3 against the correct Electron ABI before electron-builder packages it.
+# npmRebuild: false here to avoid electron-builder rebuilding from the wrong directory.
+npmRebuild: false
 
 directories:
   buildResources: assets

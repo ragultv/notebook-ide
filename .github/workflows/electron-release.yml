@@ -26,15 +26,30 @@ jobs:
       - name: Upgrade npm to fix node-gyp bug
         run: npm install -g npm@latest
 
-      - name: Install All Dependencies
-        run: npm run install:all
+      - name: Install Electron App Dependencies
+        working-directory: apps/electron
+        run: npm install
 
-      - name: Install Native Modules (public registry)
-        # better-sqlite3 and node-pty are native addons not available on Azure Artifacts.
-        # The apps/controller-node/.npmrc forces the public registry for this workspace,
-        # but we run this explicitly to ensure they are present before build.
+      - name: Install Controller Node Dependencies (public registry)
+        # better-sqlite3 and node-pty are native addons — must install from the public
+        # npm registry, not from Azure Artifacts or any private feed.
         working-directory: apps/controller-node
-        run: npm install --registry https://registry.npmjs.org better-sqlite3 node-pty
+        run: npm install --registry https://registry.npmjs.org
+
+      - name: Install Desktop UI Dependencies
+        working-directory: apps/desktop-ui
+        run: npm install
+
+      - name: Rebuild better-sqlite3 for Electron ABI
+        # CRITICAL: The CI runner's Node.js (v20.x, ABI 115) differs from Electron 31.x's
+        # embedded Node (also v20 but with a different ABI due to patches — ABI 125).
+        # Without this step, better-sqlite3 loads fine in CI's Node but crashes at runtime
+        # inside the packaged Electron app, giving:
+        #   "The module was compiled against a different Node.js version"
+        # @electron/rebuild downloads a prebuilt binary targeting Electron's exact ABI.
+        # This MUST run BEFORE `npm prune` because prune removes @electron/rebuild.
+        working-directory: apps/controller-node
+        run: npm run rebuild:electron
 
       - name: Build Controller Node
         run: npm run controller:build
@@ -42,14 +57,20 @@ jobs:
       - name: Build Desktop UI
         run: npm run ui:build
 
-      - name: Prune Dev Dependencies from Controller Node
-        working-directory: apps/controller-node
-        run: npm prune --omit=dev
-
       - name: Build Electron Main Process
         run: npm run electron:build
 
+      - name: Prune Dev Dependencies from Controller Node
+        # Run AFTER rebuild:electron — pruning removes @electron/rebuild and other devDeps.
+        # The native binary is already in build/Release/ so pruning doesn't affect it.
+        working-directory: apps/controller-node
+        run: npm prune --omit=dev
+
       - name: Package Installer (electron-builder)
+        # npmRebuild is set to false in electron-builder.yml because we already rebuilt
+        # better-sqlite3 in the "Rebuild better-sqlite3 for Electron ABI" step above.
+        # electron-builder's built-in rebuild would target its own node_modules root,
+        # missing the controller-node directory entirely.
         working-directory: apps/electron
         run: npx electron-builder --win --publish never
         env:
@@ -77,8 +98,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.${{ github.run_number }}
-          name: OctoML v0.1.${{ github.run_number }}
+          tag_name: v0.5.${{ github.run_number }}
+          name: OctoML v0.5.${{ github.run_number }}
           draft: false
           prerelease: false
           generate_release_notes: true
