@@ -134,6 +134,7 @@ const App: React.FC = () => {
         onToggleChat={toggleChat}
         isChatOpen={chatOpen}
         notebookName={notebook.activeFile?.name || 'No Notebook Selected'}
+        activeTab={tabs.activeTab}
         onNewNotebook={notebook.handleNewNotebook}
         onOpenFile={notebook.handleOpenFile}
         onSaveFile={notebook.handleSaveFile}
@@ -149,6 +150,7 @@ const App: React.FC = () => {
           onImportFiles={fileExplorer.handleImportFiles}
           onClearFiles={() => notebook.setFiles([])}
           activeFileId={notebook.activeFileId}
+          activeFilePath={tabs.activeTab?.path || null}
           onFileSelect={notebook.setActiveFileId}
           onDeleteFile={fileExplorer.handleDeleteFile}
           onRenameFile={fileExplorer.handleRenameFile}

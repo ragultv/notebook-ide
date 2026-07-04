@@ -54,9 +54,8 @@ export const useTabManagement = (
     const tab = tabs.find(t => t.id === id);
     if (tab && tab.type === 'notebook') {
       setActiveFileId(id);
-    } else if (tab && tab.type !== 'notebook') {
-      // For non-notebook tabs (settings, etc.), don't change activeFileId
-      // This prevents errors when opening manage-models or other settings tabs
+    } else {
+      setActiveFileId(null);
     }
   }, [tabs, setActiveFileId]);
 
