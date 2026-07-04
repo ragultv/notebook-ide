@@ -2,10 +2,10 @@ appId: com.octoml.ide
 productName: OctoML
 copyright: Copyright © 2026
 
-# Prevent electron-builder from rebuilding native modules for Electron's ABI.
-# The controller-node backend runs with system Node, not Electron's Node, so
-# native modules (better-sqlite3, node-pty) must keep their original binaries.
-npmRebuild: false
+# Rebuild native modules (better-sqlite3, node-pty) for Electron's ABI.
+# The controller-node backend is spawned with process.execPath and ELECTRON_RUN_AS_NODE=1,
+# meaning it runs inside Electron's embedded Node runtime (not system Node).
+npmRebuild: true
 
 directories:
   buildResources: assets
@@ -50,6 +50,24 @@ extraResources:
       # Exclude build cache and runtime tools not needed in production
       - "!node_modules/.cache/**"
       - "!node_modules/.bin/**"
+
+      # ── Exclude unused native binaries (Windows x64 build only) ─────────────
+      # onnxruntime-node: drop mac + linux prebuilds, keep win32 only
+      - "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**"
+      - "!node_modules/onnxruntime-node/bin/napi-v3/linux/**"
+
+      # onnxruntime-web: browser-only WASM build, unused in Node backend
+      - "!node_modules/onnxruntime-web/**"
+
+      # node-pty: drop all non-Windows prebuilds
+      - "!node_modules/node-pty/prebuilds/darwin-arm64/**"
+      - "!node_modules/node-pty/prebuilds/darwin-x64/**"
+      - "!node_modules/node-pty/prebuilds/win32-arm64/**"
+
+      # sharp: not imported in source code (transitive dep only) — drop entire package
+      # WARNING: do NOT use "!node_modules/sharp/vendor/**/lib/**" — lib/ contains
+      # runtime DLLs (libvips-42.dll etc.) that would crash the app if sharp ever loads
+      - "!node_modules/sharp/**"
 
       # Exclude documentation, changelogs, and license files from every package
       - "!node_modules/**/*.md"

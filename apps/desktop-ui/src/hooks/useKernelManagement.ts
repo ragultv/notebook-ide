@@ -1,12 +1,15 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { controllerClient } from '../services/controller.client';
 import { useUIStore, RuntimeType } from '../store/ui.store';
 import { CellData } from '../types';
+import { ToastNotification } from '../types/ui.types';
 
 interface UseKernelManagementReturn {
   handleConnectKernel: (runtime: RuntimeType) => Promise<void>;
   handleRestartKernel: () => Promise<void>;
   handleRunAll: (cells: CellData[]) => void;
+  toast: ToastNotification | null;
+  setToast: (t: ToastNotification | null) => void;
 }
 
 export const useKernelManagement = (activeFileId: string | null): UseKernelManagementReturn => {
@@ -14,6 +17,8 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
     setKernelStatus, setKernelId, setKernelMetrics,
     clearKernelMetrics, setRuntimeType, recordMetricSnapshot, runtimeType
   } = useUIStore();
+
+  const [toast, setToast] = useState<ToastNotification | null>(null);
 
   // Derive the compute device from the selected runtime
   // GPU runtime → CUDA (cells run on VRAM), CPU runtime → CPU (cells run on RAM)
@@ -59,9 +64,26 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
       await controllerClient.startKernel();
       setKernelId('default');
       setKernelStatus('idle');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to connect kernel:', error);
       setKernelStatus('disconnected');
+      const msg = error?.message || 'Unknown error occurred';
+      if (msg.includes('PYTHON_NOT_FOUND') || msg.includes('ENOENT') || (msg.toLowerCase().includes('python') && msg.includes('not found'))) {
+        setToast({
+          message: 'Python Not Found: Please install Python 3.10+ and add it to your system PATH to run notebooks.',
+          type: 'error'
+        });
+      } else if (msg.includes('offline') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ECONNREFUSED') || msg.includes('fetch')) {
+        setToast({
+          message: 'Backend Server Offline: Cannot connect to local execution engine (port 3001). Please ensure server is running.',
+          type: 'error'
+        });
+      } else {
+        setToast({
+          message: `Kernel Connection Error: ${msg}`,
+          type: 'error'
+        });
+      }
     }
   }, [setKernelStatus, setKernelId, setRuntimeType]);
 
@@ -70,9 +92,26 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
       setKernelStatus('busy');
       await controllerClient.restartKernel();
       setKernelStatus('idle');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to restart kernel:', error);
       setKernelStatus('disconnected');
+      const msg = error?.message || 'Unknown error occurred';
+      if (msg.includes('PYTHON_NOT_FOUND') || msg.includes('ENOENT') || (msg.toLowerCase().includes('python') && msg.includes('not found'))) {
+        setToast({
+          message: 'Python Not Found: Please install Python 3.10+ and add it to your system PATH to run notebooks.',
+          type: 'error'
+        });
+      } else if (msg.includes('offline') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ECONNREFUSED') || msg.includes('fetch')) {
+        setToast({
+          message: 'Backend Server Offline: Cannot connect to local execution engine (port 3001). Please ensure server is running.',
+          type: 'error'
+        });
+      } else {
+        setToast({
+          message: `Kernel Restart Error: ${msg}`,
+          type: 'error'
+        });
+      }
     }
   }, [setKernelStatus]);
 
@@ -111,5 +150,7 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
     handleConnectKernel,
     handleRestartKernel,
     handleRunAll,
+    toast,
+    setToast,
   };
 };

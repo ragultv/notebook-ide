@@ -106,7 +106,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
                   return (
                     <button key={`${m.provider_id}-${m.model_id}`} onClick={() => handleSelect(m)}
                       className={`w-full px-3 py-1.5 text-left flex items-center gap-2 transition-colors ${
-                        isSelected ? 'bg-sim-border/50 text-white' : 'hover:bg-sim-border/30 text-gray-400 hover:text-gray-200'
+                        isSelected ? 'bg-sim-selection text-white font-semibold' : 'hover:bg-sim-selection text-gray-400 hover:text-gray-200'
                       }`}>
                       <div className="flex-1 min-w-0">
                         <div className="text-xs truncate">{m.model_name || m.model_id}</div>
@@ -122,7 +122,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ onOpenManage, refr
 
           <div className="border-t border-[#2d2d2d] mt-1 pt-1">
             <button onClick={() => { setIsOpen(false); onOpenManage(); }}
-              className="w-full px-3 py-2 text-left flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 hover:bg-sim-border/30 transition-colors">
+              className="w-full px-3 py-2 text-left flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 hover:bg-sim-selection transition-colors">
               <Settings className="w-3 h-3" />
               <span>Manage Models</span>
             </button>

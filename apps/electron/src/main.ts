@@ -89,21 +89,27 @@ function findServerScript(): { cmd: string; args: string[] } {
 
   const controllerRoot = path.join(appRoot, 'apps', 'controller-node');
 
-  // Dev mode: use tsx to run TypeScript directly
+  // Dev mode: use tsx via Electron's embedded Node runtime to ensure native module ABI consistency
   if (isDev) {
-    const tsxBin = path.join(controllerRoot, 'node_modules', '.bin', 'tsx');
+    const tsxCli = path.join(controllerRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
     const srcEntry = path.join(controllerRoot, 'src', 'index.ts');
+    if (fs.existsSync(srcEntry) && fs.existsSync(tsxCli)) {
+      return { cmd: process.execPath, args: [tsxCli, srcEntry] };
+    }
+    const binName = process.platform === 'win32' ? 'tsx.cmd' : 'tsx';
+    const tsxBin = path.join(controllerRoot, 'node_modules', '.bin', binName);
     if (fs.existsSync(srcEntry)) {
       if (fs.existsSync(tsxBin)) {
         return { cmd: tsxBin, args: [srcEntry] };
       }
-      return { cmd: 'npx', args: ['tsx', srcEntry] };
+      const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+      return { cmd: npxCmd, args: ['tsx', srcEntry] };
     }
   }
 
-  // Production: run compiled JS
+  // Production: run compiled JS using Electron's embedded Node runtime
   const distEntry = path.join(controllerRoot, 'dist', 'index.js');
-  return { cmd: 'node', args: [distEntry] };
+  return { cmd: process.execPath, args: [distEntry] };
 }
 
 function spawnServer(): void {
@@ -114,11 +120,22 @@ function spawnServer(): void {
 
   console.log('[Electron] Spawning server:', cmd, args.join(' '));
 
+  const prodDataDir = path.join(app.getPath('home'), '.octoml', 'data');
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PORT: String(SERVER_PORT),
+    NODE_ENV: isDev ? 'development' : 'production',
+    ELECTRON_RUN_AS_NODE: '1',
+    ...(isDev ? {} : { DATA_DIR: prodDataDir }),
+  };
+
+  const isBatOrCmd = process.platform === 'win32' && (cmd.endsWith('.cmd') || cmd.endsWith('.bat') || cmd.endsWith('.ps1') || cmd === 'npx' || cmd === 'npx.cmd' || cmd === 'node');
+
   serverProcess = spawn(cmd, args, {
     cwd:    controllerRoot,
-    env:    { ...process.env, PORT: String(SERVER_PORT), NODE_ENV: 'production' },
+    env,
     stdio:  ['pipe', 'pipe', 'pipe'],
-    shell:  process.platform === 'win32',
+    shell:  isBatOrCmd,
   });
 
   serverProcess.stdout?.on('data', (chunk: Buffer) => {

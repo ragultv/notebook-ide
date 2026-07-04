@@ -351,8 +351,8 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
                     key={session.id}
                     onClick={() => setSelectedSessionId(session.id)}
                     className={`w-full text-left p-3 rounded-md mb-2 transition-colors ${selectedSessionId === session.id
-                        ? 'bg-sim-selection text-white'
-                        : 'bg-sim-bg hover:bg-white/5 text-sim-text'
+                        ? 'bg-sim-selection text-sim-text font-semibold'
+                        : 'bg-sim-bg hover:bg-sim-selection/50 text-sim-text'
                       }`}
                   >
                     <div className="flex items-start justify-between gap-2 mb-1">
@@ -409,7 +409,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
                           >
                             <div
                               className={`max-w-[80%] rounded-lg p-3 ${message.role === 'user'
-                                  ? 'bg-sim-selection text-white'
+                                  ? 'bg-sim-selection text-sim-text'
                                   : 'bg-sim-surface border border-sim-border text-sim-text'
                                 }`}
                             >
@@ -426,7 +426,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
                                   {formatDate(message.created_at)}
                                 </span>
                               </div>
-                              <div className="text-xs prose prose-invert max-w-none">
+                              <div className="text-xs prose dark:prose-invert max-w-none text-sim-text">
                                 {message.role === 'assistant' ? (
                                   <>
                                     {displayContent && (
@@ -444,7 +444,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
                                             );
                                           },
                                           pre: ({ children }) => (
-                                            <pre className="bg-black/30 rounded p-2 overflow-x-auto mb-2">
+                                            <pre className="bg-sim-bg border border-sim-border rounded p-2 overflow-x-auto mb-2 text-sim-text">
                                               {children}
                                             </pre>
                                           ),

@@ -71,8 +71,8 @@ const ToolBtn: React.FC<{
         onClick={(e) => { e.stopPropagation(); onClick(e); }}
         title={label}
         className={`p-2 rounded-full transition-colors ${danger
-            ? 'text-red-400 hover:text-white hover:bg-red-500/20'
-            : 'text-gray-400 hover:text-white hover:bg-white/10'
+            ? 'text-red-500 hover:text-red-600 hover:bg-red-500/10'
+            : 'text-sim-muted hover:text-sim-text hover:bg-sim-border'
             }`}
     >
         <Icon className="w-4 h-4" />
@@ -349,7 +349,7 @@ export const Cell: React.FC<CellProps> = React.memo(({
                 title="Drag to reorder"
                 onClick={(e) => e.stopPropagation()}
             >
-                <GripVertical className="w-4 h-4 text-gray-400 hover:text-white" />
+                <GripVertical className="w-4 h-4 text-sim-muted hover:text-sim-text" />
             </div>
 
             {/* Gutter / Controls (VS Code: CellExecution.ts) */}
@@ -362,8 +362,8 @@ export const Cell: React.FC<CellProps> = React.memo(({
                                 onClick={(e) => { e.stopPropagation(); if (!isStopping) handleInterrupt(); }}
                                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border
                                     ${isStopping
-                                        ? 'bg-blue-950/20 text-sim-redHover border-sim-red ring-2 ring-sim-red cursor-not-allowed'
-                                        : 'bg-red-900/20 text-red-400 border-red-500 ring-2 ring-red-500 hover:bg-red-900/40'
+                                        ? 'bg-blue-500/10 dark:bg-blue-950/20 text-sim-redHover border-sim-red ring-2 ring-sim-red cursor-not-allowed'
+                                        : 'bg-red-500/10 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-400 dark:border-red-500 ring-2 ring-red-400 dark:ring-red-500 hover:bg-red-500/20 dark:hover:bg-red-900/40'
                                     }`}
                                 title={isStopping ? 'Stopping...' : 'Interrupt kernel'}
                                 disabled={isStopping}
@@ -375,7 +375,7 @@ export const Cell: React.FC<CellProps> = React.memo(({
                         ) : isQueued ? (
                             <button
                                 onClick={(e) => { e.stopPropagation(); handleCancelQueue(); }}
-                                className="w-8 h-8 rounded-full flex items-center justify-center bg-yellow-900/20 text-yellow-500 border border-yellow-600 hover:bg-yellow-900/40 hover:text-yellow-300 hover:border-yellow-400 transition-all group/cancel"
+                                className="w-8 h-8 rounded-full flex items-center justify-center bg-yellow-500/10 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-500 border border-yellow-400 dark:border-yellow-600 hover:bg-yellow-500/20 dark:hover:bg-yellow-900/40 hover:text-yellow-750 dark:hover:text-yellow-300 hover:border-yellow-400 transition-all group/cancel"
                                 title="Queued — click to cancel"
                             >
                                 <Loader2 className="w-3.5 h-3.5 animate-spin group-hover/cancel:hidden" />
@@ -386,10 +386,10 @@ export const Cell: React.FC<CellProps> = React.memo(({
                                 onClick={(e) => { e.stopPropagation(); runCell(); }}
                                 disabled={!connected}
                                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border
-                                    ${!connected ? 'opacity-40 cursor-not-allowed bg-[#2b2b2e] border-white/10' : ''}
-                                    ${isSuccess ? 'bg-green-950/40 text-green-500 border-green-800 hover:border-green-500 shadow-lg shadow-green-950/50' : ''}
-                                    ${isError ? 'bg-red-900/20 text-red-500 border-red-500' : ''}
-                                    ${!isRunning && !isSuccess && !isError && connected ? 'bg-[#2b2b2e] border-white/10 hover:bg-white hover:text-black' : ''}
+                                    ${!connected ? 'opacity-40 cursor-not-allowed bg-sim-border border-sim-border text-sim-muted' : ''}
+                                    ${isSuccess ? 'bg-green-500/10 dark:bg-green-950/40 text-green-600 dark:text-green-500 border-green-300 dark:border-green-800 hover:border-green-500 hover:bg-green-500/20 dark:hover:bg-green-950/60 shadow-lg' : ''}
+                                    ${isError ? 'bg-red-500/10 dark:bg-red-900/20 text-red-600 dark:text-red-500 border-red-300 dark:border-red-500 hover:bg-red-500/20 dark:hover:bg-red-900/40' : ''}
+                                    ${!isRunning && !isSuccess && !isError && connected ? 'bg-sim-border border-sim-border text-sim-text hover:bg-sim-selection hover:border-sim-red/50 hover:text-sim-red' : ''}
                                 `}
                                 title={connected ? 'Run cell (Shift+Enter)' : 'Kernel not connected'}
                             >
@@ -491,12 +491,12 @@ export const Cell: React.FC<CellProps> = React.memo(({
 
             {/* Hover toolbar */}
             <div
-                className={`absolute right-4 top-2 flex items-center gap-1 p-1 rounded-full bg-[#2b2b2e] border border-white/10 shadow-xl transition-all duration-200 z-30
+                className={`absolute right-4 top-2 flex items-center gap-1 p-1 rounded-full bg-sim-surface border border-sim-border shadow-xl transition-all duration-200 z-30
                     ${isHovered && !isDragOver ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}
             >
                 <ToolBtn icon={ArrowUp} onClick={() => onMoveUp(cell.id)} label="Up" />
                 <ToolBtn icon={ArrowDown} onClick={() => onMoveDown(cell.id)} label="Down" />
-                <div className="w-[1px] h-4 bg-white/10 mx-1" />
+                <div className="w-[1px] h-4 bg-sim-border mx-1" />
                 <ToolBtn icon={Trash2} onClick={() => onDelete(cell.id)} label="Delete" danger />
                 <ToolBtn icon={MoreHorizontal} onClick={() => { }} label="More" />
             </div>

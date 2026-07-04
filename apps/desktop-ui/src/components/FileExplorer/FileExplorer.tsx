@@ -84,22 +84,22 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         <div
             ref={menuRef}
             style={{ top: adjustedY, left: adjustedX }}
-            className="fixed z-[9999] min-w-[180px] bg-[#1c1c1e] border border-[#303035] rounded-xl shadow-2xl py-1 text-sm"
+            className="fixed z-[9999] min-w-[180px] bg-sim-surface border border-sim-border rounded-xl shadow-2xl py-1 text-sm text-sim-text"
         >
             {items.map((item, idx) => {
                 if ((item as any).separator) {
-                    return <div key={idx} className="h-px bg-[#303035] mx-2 my-1" />;
+                    return <div key={idx} className="h-px bg-sim-border mx-2 my-1" />;
                 }
                 const Icon = (item as any).icon;
                 return (
                     <button
                         key={idx}
                         onClick={(item as any).action}
-                        className={`w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-white/5 transition-colors
-                            ${(item as any).danger ? 'text-red-400' : 'text-sim-text'}`}
+                        className={`w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-sim-selection hover:text-sim-text transition-colors
+                            ${(item as any).danger ? 'text-red-500' : 'text-sim-text'}`}
                     >
                         <Icon className="w-3.5 h-3.5 opacity-70" />
-                        {(item as any).label}
+                        <span>{(item as any).label}</span>
                     </button>
                 );
             })}
@@ -206,7 +206,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                 }}
                 onDoubleClick={() => { if (!isDir) onOpen(node); }}
                 className={`flex items-center gap-1.5 pr-2 py-[3px] cursor-pointer select-none rounded-sm mx-1 group transition-colors
-                    ${isSelected ? 'bg-white/10 text-white' : 'text-[#cccccc] hover:bg-white/5'}
+                    ${isSelected ? 'bg-sim-selection text-sim-red font-semibold' : 'text-sim-text hover:bg-sim-selection/50'}
                     ${isDragOver ? 'bg-blue-500/20 ring-1 ring-blue-500/50' : ''}`}
             >
                 {/* Expand arrow for directories */}
@@ -238,7 +238,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                         }}
                         onBlur={() => onRenameSubmit(node, renameVal)}
                         onClick={e => e.stopPropagation()}
-                        className="flex-1 bg-[#1a1a1e] border border-sim-red/50 rounded px-1 text-xs text-white outline-none"
+                        className="flex-1 bg-sim-bg border border-sim-border focus:border-sim-red/50 rounded px-1 text-xs text-sim-text outline-none"
                     />
                 ) : (
                     <span className="flex-1 text-xs truncate leading-tight">{node.name}</span>
@@ -300,7 +300,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                                 }}
                                 onBlur={onNewItemSubmit}
                                 placeholder={newItemState.type === 'file' ? 'filename.py' : 'folder-name'}
-                                className="flex-1 bg-[#1a1a1e] border border-sim-red/50 rounded px-1 text-xs text-white outline-none"
+                                className="flex-1 bg-sim-bg border border-sim-border focus:border-sim-red/50 rounded px-1 text-xs text-sim-text outline-none"
                             />
                         </div>
                     )}
@@ -500,7 +500,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     return (
         <div className="flex flex-col h-full">
             {/* Header toolbar */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-[#27272a]">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-sim-border">
                 <span className="text-[11px] font-semibold text-sim-muted uppercase tracking-wider">Explorer</span>
                 <div className="flex items-center gap-0.5">
                     <button
@@ -618,7 +618,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
                                     }}
                                     onBlur={handleNewItemSubmit}
                                     placeholder={newItemState.type === 'file' ? 'filename.py' : 'folder-name'}
-                                    className="flex-1 bg-[#1a1a1e] border border-sim-red/50 rounded px-1 text-xs text-white outline-none"
+                                    className="flex-1 bg-sim-bg border border-sim-border focus:border-sim-red/50 rounded px-1 text-xs text-sim-text outline-none"
                                 />
                             </div>
                         )}

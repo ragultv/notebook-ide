@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { config } from '../config.js';
 
 export interface DynamicProviderConfig {
   id: string;
@@ -14,8 +15,7 @@ export interface DynamicProviderConfig {
 }
 
 function getDataDir(): string {
-    const raw = process.env.DATA_DIR || './data';
-    return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+    return config.dataDir;
 }
 
 function getStorePath(): string {

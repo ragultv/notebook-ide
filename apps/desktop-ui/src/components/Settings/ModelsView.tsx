@@ -86,21 +86,21 @@ export const ModelsView: React.FC<ModelsViewProps> = ({ onModelsChanged }) => {
   const totalModels  = providers.reduce((acc, p) => acc + p.model_count, 0);
 
   return (
-    <div className="w-full h-full flex flex-col overflow-hidden bg-[#09090b]">
+    <div className="w-full h-full flex flex-col overflow-hidden bg-sim-bg text-sim-text">
       {/* Header / Toolbar */}
-      <div className="h-16 border-b border-[#2d2d2d] flex items-center px-6 gap-4 shrink-0 bg-[#09090b]">
+      <div className="h-16 border-b border-sim-border flex items-center px-6 gap-4 shrink-0 bg-sim-surface">
         <div>
-          <h1 className="text-lg font-bold text-white tracking-wide">Models</h1>
-          <p className="text-[11px] text-gray-500">Enable models to use them in the AI chat.</p>
+          <h1 className="text-lg font-bold text-sim-text tracking-wide">Models</h1>
+          <p className="text-[11px] text-sim-muted">Enable models to use them in the AI chat.</p>
         </div>
 
         <div className="flex-1" />
 
         {/* Filter tabs */}
-        <div className="flex items-center bg-[#161618] rounded-lg p-1 border border-[#2d2d2d]">
+        <div className="flex items-center bg-sim-bg rounded-lg p-1 border border-sim-border">
           {(['all', 'enabled'] as const).map(tab => (
             <button key={tab} onClick={() => setFilterTab(tab)}
-              className={`px-4 py-1.5 rounded-md text-xs font-medium transition-colors capitalize ${filterTab === tab ? 'bg-[#2b2b2e] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>
+              className={`px-4 py-1.5 rounded-md text-xs font-medium transition-colors capitalize ${filterTab === tab ? 'bg-sim-border text-sim-text shadow-sm' : 'text-sim-muted hover:text-sim-text'}`}>
               {tab === 'enabled' ? `Enabled (${totalEnabled})` : 'All'}
             </button>
           ))}
@@ -108,27 +108,27 @@ export const ModelsView: React.FC<ModelsViewProps> = ({ onModelsChanged }) => {
 
         {/* Search */}
         <div className="relative w-56">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-sim-muted" />
           <input type="text" placeholder="Search models…" value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full bg-[#161618] border border-[#2d2d2d] rounded-lg pl-9 pr-4 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-[#444] placeholder-gray-600" />
+            className="w-full bg-sim-bg border border-sim-border rounded-lg pl-9 pr-4 py-1.5 text-sm text-sim-text focus:outline-none focus:border-sim-red placeholder-sim-muted" />
         </div>
       </div>
 
       {/* Model List */}
       <div className="flex-1 overflow-auto custom-scrollbar p-6">
         {loading ? (
-          <div className="flex items-center justify-center h-full text-gray-500">
+          <div className="flex items-center justify-center h-full text-sim-muted">
             <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading models…
           </div>
         ) : providers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-3">
+          <div className="flex flex-col items-center justify-center h-full text-sim-muted gap-3">
             <AlertCircle className="w-10 h-10 opacity-20" />
             <p className="text-sm">No connected providers with models.</p>
-            <p className="text-xs text-gray-600">Go to <strong className="text-gray-400">Connect Provider</strong>, add an API key, then click <strong className="text-gray-400">Fetch Models</strong>.</p>
+            <p className="text-xs text-sim-muted">Go to <strong className="text-sim-text">Connect Provider</strong>, add an API key, then click <strong className="text-sim-text">Fetch Models</strong>.</p>
           </div>
         ) : allRows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-3">
+          <div className="flex flex-col items-center justify-center h-full text-sim-muted gap-3">
             <AlertCircle className="w-10 h-10 opacity-20" />
             <p>No models match your filter.</p>
           </div>
@@ -156,12 +156,12 @@ export const ModelsView: React.FC<ModelsViewProps> = ({ onModelsChanged }) => {
                   <div key={provider.id}>
                     {/* Provider header */}
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-sm font-semibold text-gray-300">{provider.name}</h3>
-                      <span className="text-[11px] text-gray-600 font-mono">{provider.enabled_count}/{provider.model_count} enabled</span>
+                      <h3 className="text-sm font-semibold text-sim-text">{provider.name}</h3>
+                      <span className="text-[11px] text-sim-muted font-mono">{provider.enabled_count}/{provider.model_count} enabled</span>
                       <button
                         onClick={() => handleFetchModels(provider.id)}
                         disabled={fetchingId === provider.id}
-                        className="ml-auto flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40"
+                        className="ml-auto flex items-center gap-1.5 text-[11px] text-sim-muted hover:text-sim-text transition-colors disabled:opacity-40"
                       >
                         {fetchingId === provider.id
                           ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -171,22 +171,22 @@ export const ModelsView: React.FC<ModelsViewProps> = ({ onModelsChanged }) => {
                     </div>
 
                     {/* Models table */}
-                    <div className="rounded-xl border border-[#2d2d2d] overflow-hidden bg-[#161618]">
+                    <div className="rounded-xl border border-sim-border overflow-hidden bg-sim-surface">
                       <table className="w-full text-left border-collapse">
-                        <thead className="bg-[#1c1c1f] text-gray-500 text-[10px] uppercase tracking-wider">
+                        <thead className="bg-sim-bg text-sim-muted text-[10px] uppercase tracking-wider">
                           <tr>
-                            <th className="px-5 py-3 font-semibold border-b border-[#2d2d2d] w-12 text-center">On</th>
-                            <th className="px-5 py-3 font-semibold border-b border-[#2d2d2d]">Model</th>
-                            <th className="px-5 py-3 font-semibold border-b border-[#2d2d2d] w-32 text-right">Context</th>
+                            <th className="px-5 py-3 font-semibold border-b border-sim-border w-12 text-center">On</th>
+                            <th className="px-5 py-3 font-semibold border-b border-sim-border">Model</th>
+                            <th className="px-5 py-3 font-semibold border-b border-sim-border w-32 text-right">Context</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#232325] text-gray-300">
+                        <tbody className="divide-y divide-sim-border text-sim-text">
                           {visibleModels.map(m => {
                             const toggleKey  = `${provider.id}::${m.model_id}`;
                             const isEnabled  = m.is_enabled === 1;
                             const isToggling = togglingKey === toggleKey;
                             return (
-                              <tr key={m.model_id} className="hover:bg-white/3 transition-colors group">
+                              <tr key={m.model_id} className="hover:bg-sim-bg transition-colors group">
                                 <td className="px-5 py-2.5 text-center">
                                   <button
                                     onClick={() => handleToggle(provider.id, m.model_id, isEnabled)}
@@ -194,23 +194,23 @@ export const ModelsView: React.FC<ModelsViewProps> = ({ onModelsChanged }) => {
                                     className="disabled:opacity-40 transition-colors"
                                   >
                                     {isToggling
-                                      ? <Loader2 className="w-4 h-4 text-gray-500 animate-spin" />
+                                      ? <Loader2 className="w-4 h-4 text-sim-muted animate-spin" />
                                       : isEnabled
-                                        ? <CheckSquare className="w-4 h-4 text-blue-400" />
-                                        : <Square className="w-4 h-4 text-gray-600 hover:text-gray-400" />
+                                        ? <CheckSquare className="w-4 h-4 text-sim-red" />
+                                        : <Square className="w-4 h-4 text-sim-muted hover:text-sim-text" />
                                     }
                                   </button>
                                 </td>
                                 <td className="px-5 py-2.5">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-gray-200 leading-tight">{m.model_name || m.model_id}</span>
+                                    <span className="text-sm font-medium text-sim-text leading-tight">{m.model_name || m.model_id}</span>
                                     {isEnabled && (
-                                      <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[9px] font-bold border border-blue-500/20 uppercase tracking-wider">Active</span>
+                                      <span className="px-1.5 py-0.5 rounded bg-sim-selection text-sim-red text-[9px] font-bold border border-sim-red uppercase tracking-wider">Active</span>
                                     )}
                                   </div>
-                                  <div className="text-[11px] text-gray-600 font-mono mt-0.5">{m.model_id}</div>
+                                  <div className="text-[11px] text-sim-muted font-mono mt-0.5">{m.model_id}</div>
                                 </td>
-                                <td className="px-5 py-2.5 text-right text-xs text-gray-500 font-mono">
+                                <td className="px-5 py-2.5 text-right text-xs text-sim-muted font-mono">
                                   {m.context_length > 0 ? `${(m.context_length / 1000).toFixed(0)}k` : '—'}
                                 </td>
                               </tr>
@@ -228,7 +228,7 @@ export const ModelsView: React.FC<ModelsViewProps> = ({ onModelsChanged }) => {
       </div>
 
       {/* Footer */}
-      <div className="h-10 border-t border-[#2d2d2d] bg-[#161618] flex items-center justify-between px-6 text-[11px] text-gray-500 select-none shrink-0">
+      <div className="h-10 border-t border-sim-border bg-sim-surface flex items-center justify-between px-6 text-[11px] text-sim-muted select-none shrink-0">
         <span>{totalEnabled} models enabled for AI chat · {totalModels} total fetched</span>
       </div>
     </div>

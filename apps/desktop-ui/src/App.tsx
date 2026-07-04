@@ -12,6 +12,7 @@ import {
   useKernelManagement,
   useFileExplorer,
 } from './hooks';
+import { Toast } from './components/shared/Toast';
 
 const App: React.FC = () => {
   const defaultFileId = useMemo(() => crypto.randomUUID(), []);
@@ -140,14 +141,6 @@ const App: React.FC = () => {
         onOpenFolder={(_path) => { /* FileExplorer manages project state */ }}
         onRestartKernel={kernel.handleRestartKernel}
         onRunAll={() => kernel.handleRunAll(notebook.activeCells)}
-        onOpenMemoryMap={() => {
-          const memoryMapTab = tabs.tabs.find(t => t.id === 'memory-map');
-          if (!memoryMapTab) {
-            tabs.setTabs(prev => [...prev, { id: 'memory-map', title: 'Memory Map', type: 'visualization' as const }]);
-          }
-          notebook.setActiveFileId(null);
-          tabs.setActiveTabId('memory-map');
-        }}
       />
 
       <div className="flex-1 flex overflow-hidden relative p-2 gap-2">
@@ -300,6 +293,7 @@ const App: React.FC = () => {
           onStartResizing={handleStartResizing}
         />
       </div>
+      <Toast toast={kernel.toast} onClose={() => kernel.setToast(null)} />
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Zap, Sparkles, Power, RotateCcw, Save, PlayCircle, Map,
+  Zap, Sparkles, Power, RotateCcw, Save, PlayCircle,
   ChevronDown, FolderOpen, SaveAll, FileCode2, NotebookPen, Cpu, Check,
   ChevronUp, Activity, LogOut, Minus, Square, X
 } from 'lucide-react';
@@ -40,15 +40,15 @@ const TopBarButton: React.FC<{
     title={title}
     className={`w-9 h-9 flex items-center justify-center rounded-md transition-all duration-200
       ${isActive
-        ? 'bg-sim-red/10 text-sim-red ring-1 ring-sim-red/50'
-        : 'text-sim-muted hover:text-white hover:bg-[#27272a]'}
+        ? 'bg-sim-selection text-sim-red border border-sim-red'
+        : 'text-sim-muted hover:text-sim-text hover:bg-sim-border'}
       ${disabled ? 'opacity-30 cursor-not-allowed hover:bg-transparent' : ''}`}
   >
     <Icon className="w-4 h-4" />
   </button>
 );
 
-const Divider = () => <div className="h-4 w-[1px] bg-[#27272a] mx-1" />;
+const Divider = () => <div className="h-4 w-[1px] bg-sim-border mx-1" />;
 
 // ── Notebook Resource Bar (center) ───────────────────────────────────────────
 
@@ -320,8 +320,8 @@ const FileMenu: React.FC<FileMenuProps> = ({
           onClick={() => setOpen(v => !v)}
           className={`flex items-center gap-1.5 px-2.5 h-8 rounded-md text-xs font-medium transition-all duration-150 select-none
             ${open
-              ? 'bg-[#27272a] text-white ring-1 ring-white/10'
-              : 'text-sim-muted hover:text-white hover:bg-[#27272a]'}`}
+              ? 'bg-sim-border text-sim-text ring-1 ring-sim-border'
+              : 'text-sim-muted hover:text-sim-text hover:bg-sim-border'}`}
           title="File Menu"
         >
           <FileCode2 className="w-4 h-4" />
@@ -333,23 +333,23 @@ const FileMenu: React.FC<FileMenuProps> = ({
         {open && (
           <div
             className="absolute left-0 top-[calc(100%+6px)] z-50 min-w-[220px]
-              bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl shadow-black/60
+              bg-sim-surface border border-sim-border rounded-xl shadow-2xl
               overflow-hidden py-1"
             style={{ animation: 'dropdownIn 0.12s ease-out' }}
           >
             {items.map((item, idx) => (
               <React.Fragment key={idx}>
-                {item.separator && <div className="my-1 border-t border-[#27272a]" />}
+                {item.separator && <div className="my-1 border-t border-sim-border" />}
                 <button
                   onClick={item.onClick}
                   className={`w-full flex items-center gap-3 px-3 py-2 text-sm
-                    transition-colors duration-100 hover:bg-white/5 text-left group
-                    ${item.color || 'text-gray-300'}`}
+                    transition-colors duration-100 hover:bg-sim-border text-left group
+                    ${item.color || 'text-sim-text'}`}
                 >
-                  <item.icon className={`w-4 h-4 shrink-0 ${item.color || 'text-gray-500 group-hover:text-gray-300'}`} />
+                  <item.icon className={`w-4 h-4 shrink-0 ${item.color || 'text-sim-muted group-hover:text-sim-text'}`} />
                   <span className="flex-1">{item.label}</span>
                   {item.kbd && (
-                    <span className="text-[10px] text-gray-600 font-mono whitespace-nowrap">{item.kbd}</span>
+                    <span className="text-[10px] text-sim-muted font-mono whitespace-nowrap">{item.kbd}</span>
                   )}
                 </button>
               </React.Fragment>
@@ -372,7 +372,6 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSaveFile,
   onRestartKernel,
   onRunAll,
-  onOpenMemoryMap,
   onOpenFolder,
   onSaveAll,
 }) => {
@@ -383,7 +382,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <div 
-      className="h-12 bg-[#09090b] border-b border-[#27272a] flex items-center justify-between px-2 z-20 relative select-none shadow-sm"
+      className="h-12 bg-sim-bg border-b border-sim-border flex items-center justify-between px-2 z-20 relative select-none shadow-sm"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
 
@@ -393,30 +392,30 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="flex items-center gap-2 mr-1 px-2">
           <img src={octomlLogo} alt="OctoML Logo" className="w-5 h-5 object-contain" />
           <div className="font-mono font-bold tracking-wider text-base">
-            <span className="text-white">OctoML</span>
+            <span className="text-sim-text">OctoML</span>
           </div>
         </div>
 
         {/* Project breadcrumb */}
         {project && (
-          <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-white/5 border border-white/10 max-w-[200px]">
+          <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-sim-surface border border-sim-border max-w-[200px]">
             <span className="text-xs text-sim-muted truncate">{project.name}</span>
             <button
               onClick={closeProject}
               title="Close Project"
-              className="ml-1 text-sim-muted hover:text-white transition-colors shrink-0"
+              className="ml-1 text-sim-muted hover:text-sim-text transition-colors shrink-0"
             >
               <LogOut className="w-3 h-3" />
             </button>
           </div>
         )}
-        <FileMenu
+        {/* <FileMenu
           onOpenNotebook={onOpenFile}
           onOpenFolder={onOpenFolder}
           onNewNotebook={onNewNotebook}
           onSave={onSaveFile}
           onSaveAll={onSaveAll ?? onSaveFile}
-        />
+        /> */}
 
         <Divider />
 
@@ -437,13 +436,6 @@ export const TopBar: React.FC<TopBarProps> = ({
         {project && (
           <div className="flex items-center gap-1.5 px-3 h-7  max-w-[300px]">
             <span className="text-xs text-sim-muted truncate">{project.name}</span>
-            {/* <button
-              onClick={closeProject}
-              title="Close Project"
-              className="ml-2 text-sim-muted hover:text-white transition-colors shrink-0"
-            >
-              <LogOut className="w-3 h-3" />
-            </button> */}
           </div>
         )}
       </div>
@@ -460,9 +452,6 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         <Divider />
 
-        {/* {onOpenMemoryMap && (
-          <TopBarButton onClick={onOpenMemoryMap} icon={Map} title="Memory Visualization" />
-        )} */}
 
         <TopBarButton
           onClick={onToggleChat}
@@ -473,23 +462,23 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {isElectron && (
           <>
-            <div className="h-4 w-[1px] bg-[#27272a] mx-2" />
+            <div className="h-4 w-[1px] bg-sim-border mx-2" />
             <div className="flex items-center gap-1">
               <button 
                 onClick={() => (window as any).octoml?.minimizeWindow?.()} 
-                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-sim-selection text-sim-muted hover:text-sim-text transition-colors"
               >
                 <Minus className="w-4 h-4" />
               </button>
               <button 
                 onClick={() => (window as any).octoml?.maximizeWindow?.()} 
-                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-sim-selection text-sim-muted hover:text-sim-text transition-colors"
               >
                 <Square className="w-3.5 h-3.5" />
               </button>
               <button 
                 onClick={() => (window as any).octoml?.closeWindow?.()} 
-                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-sim-red hover:text-white text-gray-400 transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-sim-red hover:text-white text-sim-muted transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>

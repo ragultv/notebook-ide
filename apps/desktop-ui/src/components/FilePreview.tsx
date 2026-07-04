@@ -30,12 +30,12 @@ function syntaxHighlight(json: string): string {
   return json.replace(
     /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
     (match) => {
-      let cls = 'text-[#b5cea8]'; // number — green
+      let cls = 'text-green-700 dark:text-[#b5cea8]'; // number
       if (/^"/.test(match)) {
-        if (/:$/.test(match)) cls = 'text-[#9cdcfe]'; // key — blue
-        else cls = 'text-[#ce9178]'; // string — orange
-      } else if (/true|false/.test(match)) cls = 'text-[#569cd6]'; // boolean — blue
-      else if (/null/.test(match)) cls = 'text-[#808080]'; // null — grey
+        if (/:$/.test(match)) cls = 'text-blue-700 dark:text-[#9cdcfe]'; // key
+        else cls = 'text-amber-800 dark:text-[#ce9178]'; // string
+      } else if (/true|false/.test(match)) cls = 'text-indigo-700 dark:text-[#569cd6]'; // boolean
+      else if (/null/.test(match)) cls = 'text-gray-500 dark:text-[#808080]'; // null
       return `<span class="${cls}">${match}</span>`;
     }
   );
@@ -59,39 +59,39 @@ const JsonViewer: React.FC<{ content: string }> = ({ content }) => {
   const highlighted = syntaxHighlight(prettyJson.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full text-sim-text">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-[#2d2d30] bg-[#252526] flex-shrink-0">
-        <div className="flex items-center gap-1 bg-[#1e1e1e] rounded-lg p-0.5">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-sim-border bg-sim-surface flex-shrink-0">
+        <div className="flex items-center gap-1 bg-sim-bg rounded-lg p-0.5 border border-sim-border">
           <button
             onClick={() => setView('pretty')}
-            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${view === 'pretty' ? 'bg-sim-red text-white' : 'text-[#888] hover:text-white'}`}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${view === 'pretty' ? 'bg-sim-red text-white' : 'text-sim-muted hover:text-sim-text'}`}
           >
             Pretty
           </button>
           <button
             onClick={() => setView('raw')}
-            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${view === 'raw' ? 'bg-sim-red text-white' : 'text-[#888] hover:text-white'}`}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${view === 'raw' ? 'bg-sim-red text-white' : 'text-sim-muted hover:text-sim-text'}`}
           >
             Raw
           </button>
         </div>
-        {parseError && <span className="text-xs text-red-400">⚠ {parseError}</span>}
+        {parseError && <span className="text-xs text-red-500">⚠ {parseError}</span>}
         {parsed && (
-          <span className="text-xs text-[#666] ml-auto">
+          <span className="text-xs text-sim-muted ml-auto">
             {Array.isArray(parsed) ? `Array[${parsed.length}]` : `Object{${Object.keys(parsed).length}}`}
           </span>
         )}
       </div>
       {/* Content */}
-      <div className="flex-1 overflow-auto bg-[#1e1e1e] p-4">
+      <div className="flex-1 overflow-auto bg-sim-bg p-4 border border-sim-border rounded-lg m-4">
         {view === 'pretty' ? (
           <pre
-            className="text-sm font-mono leading-relaxed"
+            className="text-sm font-mono leading-relaxed text-sim-text"
             dangerouslySetInnerHTML={{ __html: highlighted }}
           />
         ) : (
-          <pre className="text-sm font-mono text-[#d4d4d4] leading-relaxed whitespace-pre-wrap">{content}</pre>
+          <pre className="text-sm font-mono text-sim-text leading-relaxed whitespace-pre-wrap">{content}</pre>
         )}
       </div>
     </div>
@@ -109,26 +109,26 @@ const ImageViewer: React.FC<{ imageUrl: string; fileName: string }> = ({ imageUr
   const reset   = () => setZoom(1);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full text-sim-text">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-[#2d2d30] bg-[#252526] flex-shrink-0">
-        <button onClick={zoomOut} className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors" title="Zoom out">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-sim-border bg-sim-surface flex-shrink-0">
+        <button onClick={zoomOut} className="p-1.5 rounded hover:bg-sim-border text-sim-muted hover:text-sim-text transition-colors" title="Zoom out">
           <ZoomOut className="w-4 h-4" />
         </button>
-        <span className="text-xs text-[#666] min-w-[50px] text-center">{Math.round(zoom * 100)}%</span>
-        <button onClick={zoomIn} className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors" title="Zoom in">
+        <span className="text-xs text-sim-muted min-w-[50px] text-center">{Math.round(zoom * 100)}%</span>
+        <button onClick={zoomIn} className="p-1.5 rounded hover:bg-sim-border text-sim-muted hover:text-sim-text transition-colors" title="Zoom in">
           <ZoomIn className="w-4 h-4" />
         </button>
-        <button onClick={reset} className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors" title="Reset zoom">
+        <button onClick={reset} className="p-1.5 rounded hover:bg-sim-border text-sim-muted hover:text-sim-text transition-colors" title="Reset zoom">
           <RotateCcw className="w-4 h-4" />
         </button>
-        <span className="ml-auto text-xs text-[#666]">{fileName}</span>
+        <span className="ml-auto text-xs text-sim-muted">{fileName}</span>
       </div>
       {/* Image area */}
-      <div className="flex-1 overflow-auto bg-[#141414] flex items-center justify-center p-4"
-           style={{ backgroundImage: 'radial-gradient(circle, #1a1a1a 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+      <div className="flex-1 overflow-auto bg-sim-bg flex items-center justify-center p-4"
+           style={{ backgroundImage: 'radial-gradient(circle, var(--sim-border) 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
         {error ? (
-          <div className="text-red-400 text-sm">Failed to load image</div>
+          <div className="text-red-500 text-sm">Failed to load image</div>
         ) : (
           <img
             src={imageUrl}
@@ -257,11 +257,11 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
 
   const getIcon = () => {
     switch (fileType) {
-      case 'csv':   return <Table className="w-4 h-4 text-green-400" />;
-      case 'xlsx':  return <FileSpreadsheet className="w-4 h-4 text-green-500" />;
-      case 'image': return <Image className="w-4 h-4 text-purple-400" />;
-      case 'json':  return <Braces className="w-4 h-4 text-yellow-400" />;
-      default:      return <FileText className="w-4 h-4 text-[#888]" />;
+      case 'csv':   return <Table className="w-4 h-4 text-green-500" />;
+      case 'xlsx':  return <FileSpreadsheet className="w-4 h-4 text-green-600" />;
+      case 'image': return <Image className="w-4 h-4 text-purple-500" />;
+      case 'json':  return <Braces className="w-4 h-4 text-yellow-600" />;
+      default:      return <FileText className="w-4 h-4 text-sim-muted" />;
     }
   };
 
@@ -273,31 +273,31 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
     const totalPages = Math.ceil(tableData.rows.length / rowsPerPage);
 
     return (
-      <div className="flex flex-col h-full">
-        <div className="px-4 py-2 bg-[#252526] border-b border-[#2d2d30] flex items-center justify-between text-xs flex-shrink-0">
+      <div className="flex flex-col h-full text-sim-text">
+        <div className="px-4 py-2 bg-sim-surface border-b border-sim-border flex items-center justify-between text-xs flex-shrink-0">
           <div className="flex items-center gap-4">
-            <span className="text-[#888]">
+            <span className="text-sim-muted">
               {tableData.totalRows.toLocaleString()} rows × {tableData.headers.length} columns
             </span>
             {tableData.sheets && tableData.sheets.length > 1 && (
               <select
                 value={currentSheet || ''}
                 onChange={e => setCurrentSheet(e.target.value)}
-                className="bg-[#1e1e1e] border border-[#404040] rounded px-2 py-0.5 text-xs text-[#ccc]"
+                className="bg-sim-bg border border-sim-border rounded px-2 py-0.5 text-xs text-sim-text"
               >
                 {tableData.sheets.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             )}
           </div>
           {totalPages > 1 && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 text-sim-text">
               <button onClick={() => setCurrentPage(p => Math.max(0, p - 1))} disabled={currentPage === 0}
-                className="p-1 hover:bg-[#3d3d3d] rounded disabled:opacity-30">
+                className="p-1 hover:bg-sim-border rounded disabled:opacity-30">
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
-              <span className="text-[#666]">Page {currentPage + 1} / {totalPages}</span>
+              <span className="text-sim-muted">Page {currentPage + 1} / {totalPages}</span>
               <button onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))} disabled={currentPage >= totalPages - 1}
-                className="p-1 hover:bg-[#3d3d3d] rounded disabled:opacity-30">
+                className="p-1 hover:bg-sim-border rounded disabled:opacity-30">
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -305,14 +305,14 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
         </div>
         <div className="flex-1 overflow-auto">
           <table className="w-full text-xs border-collapse">
-            <thead className="sticky top-0 bg-[#2a2a2e] z-10">
+            <thead className="sticky top-0 bg-sim-surface z-10">
               <tr>
-                <th className="px-3 py-2 text-left text-[#555] font-normal border-b border-[#2d2d30] w-10 sticky left-0 bg-[#2a2a2e]">#</th>
+                <th className="px-3 py-2 text-left text-sim-muted font-normal border-b border-sim-border w-10 sticky left-0 bg-sim-surface">#</th>
                 {tableData.headers.map((h, i) => (
-                  <th key={i} className="px-3 py-2 text-left text-[#9cdcfe] font-medium border-b border-[#2d2d30] min-w-[90px] whitespace-nowrap">
+                  <th key={i} className="px-3 py-2 text-left text-sim-red font-medium border-b border-sim-border min-w-[90px] whitespace-nowrap">
                     {String(h)}
                     {tableData.dtypes?.[h] && (
-                      <span className="ml-1.5 text-[#666] font-normal">{tableData.dtypes[h]}</span>
+                      <span className="ml-1.5 text-sim-muted font-normal">{tableData.dtypes[h]}</span>
                     )}
                   </th>
                 ))}
@@ -320,12 +320,12 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
             </thead>
             <tbody>
               {displayRows.map((row, ri) => (
-                <tr key={ri} className="hover:bg-[#252526] border-b border-[#1e1e1e]">
-                  <td className="px-3 py-1 text-[#555] sticky left-0 bg-[#1e1e1e]">{startIdx + ri + 1}</td>
+                <tr key={ri} className="hover:bg-sim-bg/50 border-b border-sim-border text-sim-text">
+                  <td className="px-3 py-1 text-sim-muted sticky left-0 bg-sim-bg">{startIdx + ri + 1}</td>
                   {row.map((cell, ci) => (
-                    <td key={ci} className="px-3 py-1 text-[#d4d4d4] max-w-[280px] truncate" title={String(cell)}>
+                    <td key={ci} className="px-3 py-1 text-sim-text max-w-[280px] truncate" title={String(cell)}>
                       {cell === null || cell === undefined
-                        ? <span className="text-[#555] italic">null</span>
+                        ? <span className="text-sim-muted italic">null</span>
                         : String(cell)}
                     </td>
                   ))}
@@ -339,30 +339,13 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
   };
 
   const renderTextPreview = () => (
-    <div className="flex-1 overflow-auto bg-[#1e1e1e] p-4">
-      <pre className="text-sm text-[#d4d4d4] font-mono whitespace-pre-wrap leading-relaxed">{content}</pre>
+    <div className="flex-1 overflow-auto bg-sim-bg p-4 border border-sim-border rounded-lg m-4">
+      <pre className="text-sm text-sim-text font-mono whitespace-pre-wrap leading-relaxed">{content}</pre>
     </div>
   );
 
   return (
-    <div className="flex-1 flex flex-col bg-[#1e1e1e] overflow-hidden">
-      {/* Header bar */}
-      {/* <div className="flex items-center gap-2 px-4 py-2 border-b border-[#2d2d30] bg-[#252526] flex-shrink-0">
-        {getIcon()}
-        <span className="text-sm text-[#ccc] font-medium truncate flex-1">{fileName}</span>
-        <a
-          href={isObjectUrl ? filePath : `${BASE_URL}/files/raw?path=${encodeURIComponent(filePath)}`}
-          download={fileName}
-          className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors"
-          title="Download"
-        >
-          <Download className="w-4 h-4" />
-        </a>
-        <button onClick={onClose} className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors" title="Close">
-          <X className="w-4 h-4" />
-        </button>
-      </div> */}
-
+    <div className="flex-1 flex flex-col bg-sim-bg overflow-hidden">
       {/* Content */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
@@ -371,8 +354,8 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
       ) : error ? (
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-sm">
-            <div className="text-red-400 mb-2 text-sm font-medium">{error}</div>
-            <p className="text-xs text-[#666]">Try loading this file using pandas or another library in a code cell.</p>
+            <div className="text-red-500 mb-2 text-sm font-medium">{error}</div>
+            <p className="text-xs text-sim-muted">Try loading this file using pandas or another library in a code cell.</p>
             <button onClick={loadFile} className="mt-3 px-4 py-1.5 bg-sim-red/20 hover:bg-sim-red/30 border border-sim-red/30 rounded-lg text-xs text-sim-red transition-colors">
               Retry
             </button>

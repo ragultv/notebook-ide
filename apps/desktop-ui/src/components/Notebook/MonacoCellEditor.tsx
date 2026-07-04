@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import Editor, { useMonaco } from "@monaco-editor/react";
 import controllerClient from '../../services/controller.client';
 import { CellData } from '../../types';
+import { useThemeStore } from '../../store/theme.store';
 
 interface MonacoCellEditorProps {
     value: string;
@@ -48,6 +49,25 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = React.memo(func
     const editorRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    // ── Theme Detection ────────────────────────────────────────────────────────
+    const { theme } = useThemeStore();
+    const [systemIsDark, setSystemIsDark] = useState(() => 
+        typeof window !== 'undefined' ? window.matchMedia('(prefers-color-scheme: dark)').matches : true
+    );
+
+    useEffect(() => {
+        if (theme !== 'system') return;
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const listener = (e: MediaQueryListEvent) => {
+            setSystemIsDark(e.matches);
+        };
+        mediaQuery.addEventListener('change', listener);
+        return () => mediaQuery.removeEventListener('change', listener);
+    }, [theme]);
+
+    const isDarkMode = theme === 'system' ? systemIsDark : theme === 'dark';
+    const editorTheme = isDarkMode ? 'notebook-dark' : 'notebook-light';
+
     // ── Theme ──────────────────────────────────────────────────────────────────
     const handleEditorWillMount = (monaco: any) => {
         monaco.editor.defineTheme('notebook-dark', {
@@ -57,6 +77,15 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = React.memo(func
             colors: {
                 'editor.background': '#09090b',
                 'editor.lineHighlightBackground': '#ffffff08',
+            }
+        });
+        monaco.editor.defineTheme('notebook-light', {
+            base: 'vs',
+            inherit: true,
+            rules: [],
+            colors: {
+                'editor.background': '#ffffff',
+                'editor.lineHighlightBackground': '#00000005',
             }
         });
     };
@@ -266,7 +295,7 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = React.memo(func
     return (
         <div
             ref={containerRef}
-            className="w-full bg-[#09090b] border border-white/5 rounded-xl shadow-inner overflow-hidden no-drag"
+            className="w-full bg-sim-bg border border-sim-border rounded-xl shadow-inner overflow-hidden no-drag"
             style={{ height: `${initialHeight}px` }}
         >
             <Editor
@@ -274,7 +303,7 @@ export const MonacoCellEditor: React.FC<MonacoCellEditorProps> = React.memo(func
                 defaultLanguage={language}
                 value={value}
                 onChange={(val) => onChangeRef.current(val || '')}
-                theme="notebook-dark"
+                theme={editorTheme}
                 onMount={handleEditorDidMount}
                 beforeMount={handleEditorWillMount}
                 loading={<div className="h-10 flex items-center px-4 text-xs text-gray-500">Loading editor...</div>}

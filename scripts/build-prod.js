@@ -51,12 +51,16 @@ run('desktop-ui', 'npm run build', resolve(ROOT, 'apps/desktop-ui'));
 console.log('\n── Step 4: Compile electron main process (TypeScript) ──');
 run('electron', 'npm run build:electron', resolve(ROOT, 'apps/electron'));
 
-// ── 5. Package with electron-builder ─────────────────────────────────────────
+// ── 5. Rebuild backend native dependencies for Electron ─────────────────────────
+console.log('\n── Step 5: Rebuild native dependencies (better-sqlite3, node-pty) for Electron ──');
+run('rebuild-deps', 'npm run rebuild:electron', resolve(ROOT, 'apps/controller-node'));
+
+// ── 6. Package with electron-builder ─────────────────────────────────────────
 // Note: devDependencies (typescript, tsx, nodemon, @types/*) are excluded from
 // the installer by the filter rules in electron-builder.yml — no prune needed here.
 // The CI workflow runs `npm prune --omit=dev` before this step for extra savings.
 // `npm run build` uses --publish never (local packaging only)
 // The CI workflow uses `npm run dist` which adds --publish always
-console.log('\n── Step 5: Package application (electron-builder) ──');
+console.log('\n── Step 6: Package application (electron-builder) ──');
 run('electron-builder', 'npm run build', resolve(ROOT, 'apps/electron'));
 console.log('\n✅ Build complete. Installer is in apps/electron/dist-electron/');
