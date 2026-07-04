@@ -480,10 +480,10 @@ export const Cell: React.FC<CellProps> = React.memo(({
                     <div className="flex items-center gap-2 mt-1">
                         <button
                             onClick={handleFixError}
-                            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-950/30 border border-red-500/20 text-red-400 text-xs hover:bg-red-950/50 transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-sim-surface border border-sim-border shadow-xl hover:bg-sim-bg transition-colors"
                         >
-                            <Wrench className="w-3 h-3" />
-                            💬 Fix in Chat
+                            <Wrench className="w-3 h-3 text-red-400" />
+                            <span className="text-sm text-red-400">Fix in Chat</span>
                         </button>
                     </div>
                 )}

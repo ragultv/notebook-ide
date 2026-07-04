@@ -60,29 +60,6 @@ const JsonViewer: React.FC<{ content: string }> = ({ content }) => {
 
   return (
     <div className="flex flex-col h-full text-sim-text">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-sim-border bg-sim-surface flex-shrink-0">
-        <div className="flex items-center gap-1 bg-sim-bg rounded-lg p-0.5 border border-sim-border">
-          <button
-            onClick={() => setView('pretty')}
-            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${view === 'pretty' ? 'bg-sim-red text-white' : 'text-sim-muted hover:text-sim-text'}`}
-          >
-            Pretty
-          </button>
-          <button
-            onClick={() => setView('raw')}
-            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${view === 'raw' ? 'bg-sim-red text-white' : 'text-sim-muted hover:text-sim-text'}`}
-          >
-            Raw
-          </button>
-        </div>
-        {parseError && <span className="text-xs text-red-500">⚠ {parseError}</span>}
-        {parsed && (
-          <span className="text-xs text-sim-muted ml-auto">
-            {Array.isArray(parsed) ? `Array[${parsed.length}]` : `Object{${Object.keys(parsed).length}}`}
-          </span>
-        )}
-      </div>
       {/* Content */}
       <div className="flex-1 overflow-auto bg-sim-bg p-4 border border-sim-border rounded-lg m-4">
         {view === 'pretty' ? (

@@ -17,6 +17,7 @@ interface SidebarProps {
   onImportFiles: (files: ProjectFile[]) => void;
   onClearFiles: () => void;
   activeFileId: string | null;
+  activeFilePath?: string | null;
   onFileSelect: (id: string) => void;
   onDeleteFile?: (id: string) => void;
   onRenameFile?: (id: string, newName: string) => void;
@@ -139,6 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onImportFiles,
   onClearFiles,
   activeFileId,
+  activeFilePath,
   onFileSelect,
   onDeleteFile,
   onRenameFile,
@@ -352,7 +354,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Project file tree */}
             <div className="flex-1 overflow-hidden">
               <FileExplorer
-                activeFilePath={files.find(f => f.id === activeFileId)?.path || null}
+                activeFilePath={activeFilePath}
                 onOpenNotebook={onOpenNotebook}
                 onOpenFile={onOpenFile}
                 onDeleteFile={(virtualPath) => {

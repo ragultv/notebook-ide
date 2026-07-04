@@ -1,7 +1,7 @@
 {
   "name": "octoml",
   "productName": "OctoML",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Project-centric AI-native desktop notebook for data scientists",
   "main": "dist/main.js",
   "private": true,
