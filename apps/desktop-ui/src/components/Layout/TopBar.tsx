@@ -9,6 +9,8 @@ import { controllerClient } from '../../services/controller.client';
 import { useCenterDialog } from '../shared/CenterDialog';
 import { useProject } from '../../context/ProjectContext';
 import octomlLogo from '../../icon.png';
+import { Tab } from '../../types';
+import { getFileIcon } from '../shared/FileIcons';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -16,6 +18,7 @@ interface TopBarProps {
   onToggleChat: () => void;
   isChatOpen: boolean;
   notebookName: string;
+  activeTab?: Tab;
   onNewNotebook: (name?: string, cells?: any[], path?: string) => void;
   onOpenFile?: () => void;
   onSaveFile?: () => Promise<void>;
@@ -367,6 +370,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onToggleChat,
   isChatOpen,
   notebookName,
+  activeTab,
   onNewNotebook,
   onOpenFile,
   onSaveFile,
@@ -428,15 +432,25 @@ export const TopBar: React.FC<TopBarProps> = ({
         />
       </div>
 
-      {/* Center: Project Name */}
+      {/* Center: Active File Icon & Name */}
       <div 
         className="flex-1 mx-4 hidden md:flex items-center justify-center h-8"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        {project && (
-          <div className="flex items-center gap-1.5 px-3 h-7  max-w-[300px]">
-            <span className="text-xs text-sim-muted truncate">{project.name}</span>
+        {activeTab ? (
+          <div className="flex items-center gap-2 px-3 h-7 bg-sim-surface border border-sim-border rounded-lg max-w-[400px]">
+            <span className="flex-shrink-0 opacity-80">
+              {getFileIcon(activeTab.title.includes('.') ? activeTab.title.substring(activeTab.title.lastIndexOf('.')) : undefined, "w-3.5 h-3.5")}
+            </span>
+            <span className="text-xs font-mono text-sim-text truncate">{activeTab.title}</span>
+            {project && <span className="text-[10px] text-sim-muted font-mono">• {project.name}</span>}
           </div>
+        ) : (
+          project && (
+            <div className="flex items-center gap-1.5 px-3 h-7 max-w-[300px]">
+              <span className="text-xs text-sim-muted truncate">{project.name}</span>
+            </div>
+          )
         )}
       </div>
 

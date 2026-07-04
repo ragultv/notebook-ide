@@ -8,6 +8,7 @@ import { controllerClient } from '../../services/controller.client';
 import { useProject } from '../../context/ProjectContext';
 import type { CellData, ProjectFile } from '../../types';
 import octomlLogo from '../../icon.png';
+import { getFileIcon } from '../shared/FileIcons';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 interface RightSidebarProps {
@@ -693,7 +694,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <div className="flex-1 overflow-y-auto px-4 min-h-0">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-4 pb-16">
-                <div className="w-20 h-20 rounded-2xl bg-sim-bg border border-sim-border flex items-center justify-center select-none overflow-hidden">
+                <div className="w-20 h-20 rounded-2xl  flex items-center justify-center select-none overflow-hidden">
                   <img src={octomlLogo} alt="OctoML Logo" className="w-18 h-18 object-contain opacity-90" />
                 </div>
                 <div className="text-center space-y-1">
@@ -714,12 +715,15 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                         )}
                         {msg.attachments && msg.attachments.length > 0 && (
                           <div className="flex flex-wrap justify-end gap-1.5 mt-0.5">
-                            {msg.attachments.map((f, i) => (
-                              <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-sim-border/50 border border-sim-border text-sim-text">
-                                <span>{f.name.endsWith('.py') ? '🐍' : f.name.endsWith('.csv') ? '📊' : f.name.endsWith('.json') ? '{}' : '📄'}</span>
-                                <span className="max-w-[110px] truncate">{f.name}</span>
-                              </span>
-                            ))}
+                            {msg.attachments.map((f, i) => {
+                              const extension = f.name.includes('.') ? f.name.substring(f.name.lastIndexOf('.')) : undefined;
+                              return (
+                                <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-sim-border/50 border border-sim-border text-sim-text">
+                                  <span className="flex-shrink-0 opacity-80">{getFileIcon(extension, "w-3 h-3")}</span>
+                                  <span className="max-w-[110px] truncate">{f.name}</span>
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -841,15 +845,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   </button>
                 )}
                 {/* File chips */}
-                {attachedFiles.map(f => (
-                  <span key={f.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-sim-border/50 border border-sim-border text-sim-text">
-                    <span>{f.name.endsWith('.py') ? '🐍' : f.name.endsWith('.csv') ? '📊' : f.name.endsWith('.json') ? '{}' : '📄'}</span>
-                    <span className="max-w-[110px] truncate">{f.name}</span>
-                    <button onClick={() => removeFile(f.id)} className="hover:text-sim-text transition-colors flex-shrink-0">
-                      <X size={9} />
-                    </button>
-                  </span>
-                ))}
+                {attachedFiles.map(f => {
+                  const extension = f.name.includes('.') ? f.name.substring(f.name.lastIndexOf('.')) : undefined;
+                  return (
+                    <span key={f.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-sim-border/50 border border-sim-border text-sim-text">
+                      <span className="flex-shrink-0 opacity-80">{getFileIcon(extension, "w-3 h-3")}</span>
+                      <span className="max-w-[110px] truncate">{f.name}</span>
+                      <button onClick={() => removeFile(f.id)} className="hover:text-sim-text transition-colors flex-shrink-0">
+                        <X size={9} />
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
             )}
 
