@@ -268,20 +268,20 @@ export const CellOutputView: React.FC<CellOutputViewProps> = React.memo(({
         return (
             <>
                 <div className="w-1.5 h-1.5 rounded-full bg-green-500/50" />
-                <span className="text-[10px] text-gray-600 font-mono tracking-widest uppercase">
+                <span className="text-[10px] text-sim-muted font-mono tracking-widest uppercase">
                     Output {execCount ? `[${execCount}]` : ''}
                 </span>
                 {fmtDuration && (
-                    <span className="ml-auto text-[10px] text-gray-700 font-mono">{fmtDuration}</span>
+                    <span className="ml-auto text-[10px] text-sim-muted font-mono">{fmtDuration}</span>
                 )}
             </>
         );
     };
 
     return (
-        <div className="text-sm font-mono rounded-xl bg-black/40 border border-white/5 shadow-inner overflow-hidden">
+        <div className="text-sm font-mono rounded-xl bg-slate-100/70 dark:bg-black/40 border border-sim-border shadow-inner overflow-hidden">
             {/* Header */}
-            <div className="flex items-center gap-2 px-4 py-1.5 border-b border-white/5 bg-black/20">
+            <div className="flex items-center gap-2 px-4 py-1.5 border-b border-sim-border bg-slate-200/50 dark:bg-black/20">
                 {renderStatusBadge()}
             </div>
 
@@ -293,7 +293,7 @@ export const CellOutputView: React.FC<CellOutputViewProps> = React.memo(({
 
                 {/* Fallback plain-text output */}
                 {!isLive && !displayOutputs.length && persistedText && state !== 'error' && (
-                    <div className="text-gray-300 whitespace-pre-wrap break-words text-[13px] leading-5">{persistedText}</div>
+                    <div className="text-sim-text whitespace-pre-wrap break-words text-[13px] leading-5">{persistedText}</div>
                 )}
 
                 {/* Error output — render with ANSI colors (tracebacks have escape codes) */}
@@ -309,10 +309,10 @@ export const CellOutputView: React.FC<CellOutputViewProps> = React.memo(({
 
                 {/* stdin input prompt */}
                 {inputRequest && (
-                    <div className="mt-4 p-4 bg-black/40 border border-white/10 rounded-xl flex flex-col gap-3 group transition-all">
+                    <div className="mt-4 p-4 bg-sim-bg border border-sim-border rounded-xl flex flex-col gap-3 group transition-all">
                         <div className="flex items-center gap-2 mb-1">
-                            <Terminal className="w-3.5 h-3.5 text-gray-400 group-focus-within:text-blue-400 transition-colors" />
-                            <span className="text-[12px] text-gray-200 font-medium">{inputRequest.prompt}</span>
+                            <Terminal className="w-3.5 h-3.5 text-sim-muted group-focus-within:text-blue-500 transition-colors" />
+                            <span className="text-[12px] text-sim-text font-medium">{inputRequest.prompt}</span>
                         </div>
                         <div className="relative">
                             <input
@@ -321,7 +321,7 @@ export const CellOutputView: React.FC<CellOutputViewProps> = React.memo(({
                                 onChange={(e) => setInputValue(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleInputSubmit()}
                                 autoFocus
-                                className="w-full bg-black/40 border border-white/10 focus:border-blue-500/50 rounded-lg px-3 py-2 text-[13px] text-white font-mono outline-none transition-all placeholder:text-gray-600 shadow-inner"
+                                className="w-full bg-sim-bg border border-sim-border focus:border-blue-500/50 rounded-lg px-3 py-2 text-[13px] text-sim-text font-mono outline-none transition-all placeholder:text-sim-muted shadow-inner"
                                 placeholder="Type response and press Enter..."
                             />
                             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 opacity-40 group-focus-within:opacity-100 transition-opacity">

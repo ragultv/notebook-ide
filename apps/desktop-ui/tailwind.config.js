@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -7,14 +8,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        'sim-bg': '#09090b',
-        'sim-surface': '#18181b',
-        'sim-border': '#27272a',
-        'sim-text': '#fafafa',
-        'sim-muted': '#71717a',
-        'sim-red': '#0096FF',
-        'sim-redHover': '#1070D0',
-        'sim-selection': '#27272a',
+        'sim-bg': 'var(--sim-bg)',
+        'sim-surface': 'var(--sim-surface)',
+        'sim-border': 'var(--sim-border)',
+        'sim-text': 'var(--sim-text)',
+        'sim-muted': 'var(--sim-muted)',
+        'sim-red': 'var(--sim-red)',
+        'sim-redHover': 'var(--sim-redHover)',
+        'sim-selection': 'var(--sim-selection)',
       },
       boxShadow: {
         'cell-focus': '0 0 0 2px #0096FF',

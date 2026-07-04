@@ -83,42 +83,42 @@ function ProviderCard({ provider, onRefresh }: ProviderCardProps) {
   const docs = PROVIDER_DOCS[provider.id];
 
   return (
-    <div className="bg-[#161618] border border-[#2d2d2d] rounded-xl overflow-hidden">
+    <div className="bg-sim-surface border border-sim-border rounded-xl overflow-hidden text-sim-text">
       {/* Header */}
       <div
-        className="flex items-center gap-3 px-5 py-4 cursor-pointer hover:bg-white/2 transition-colors select-none"
+        className="flex items-center gap-3 px-5 py-4 cursor-pointer hover:bg-sim-bg transition-colors select-none"
         onClick={() => setExpanded(e => !e)}
       >
         <span className="text-xl w-8 text-center">{icon}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-gray-200 text-sm">{provider.name}</span>
+            <span className="font-semibold text-sim-text text-sm">{provider.name}</span>
             {provider.is_builtin && (
-              <span className="text-[9px] bg-white/5 text-white/30 px-1.5 py-0.5 rounded font-mono uppercase">built-in</span>
+              <span className="text-[9px] bg-sim-bg border border-sim-border text-sim-muted px-1.5 py-0.5 rounded font-mono uppercase">built-in</span>
             )}
           </div>
-          <div className="text-[11px] text-gray-500 font-mono mt-0.5">{provider.base_url}</div>
+          <div className="text-[11px] text-sim-muted font-mono mt-0.5">{provider.base_url}</div>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           {provider.has_key ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-green-500/10 border border-green-500/20 text-green-400 text-[10px] font-bold uppercase tracking-wider">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-green-500/10 border border-green-500/20 text-green-500 text-[10px] font-bold uppercase tracking-wider">
               <CheckCircle2 className="w-3 h-3" /> Connected
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-500/10 border border-gray-500/20 text-gray-500 text-[10px] font-bold uppercase tracking-wider">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-sim-bg border border-sim-border text-sim-muted text-[10px] font-bold uppercase tracking-wider">
               <AlertCircle className="w-3 h-3" /> No key
             </div>
           )}
           {provider.model_count > 0 && (
-            <span className="text-[11px] text-gray-500">{provider.enabled_count}/{provider.model_count} enabled</span>
+            <span className="text-[11px] text-sim-muted">{provider.enabled_count}/{provider.model_count} enabled</span>
           )}
-          {expanded ? <ChevronUp className="w-4 h-4 text-white/20" /> : <ChevronDown className="w-4 h-4 text-white/20" />}
+          {expanded ? <ChevronUp className="w-4 h-4 text-sim-muted" /> : <ChevronDown className="w-4 h-4 text-sim-muted" />}
         </div>
       </div>
 
       {/* Expandable body */}
       {expanded && (
-        <div className="border-t border-[#2d2d2d] px-5 py-4 space-y-3">
+        <div className="border-t border-sim-border px-5 py-4 space-y-3">
           {/* API key input */}
           <div className="flex gap-2">
             <input
@@ -127,12 +127,12 @@ function ProviderCard({ provider, onRefresh }: ProviderCardProps) {
               value={apiKey}
               onChange={e => setApiKey(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSaveKey()}
-              className="flex-1 bg-[#0e0e11] border border-[#2d2d2d] rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#444] transition-colors placeholder-gray-600 font-mono"
+              className="flex-1 bg-sim-bg border border-sim-border rounded-lg px-3 py-2 text-sm text-sim-text focus:outline-none focus:border-sim-red transition-colors placeholder-sim-muted font-mono"
             />
             <button
               onClick={handleSaveKey}
               disabled={!apiKey.trim() || saving}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium text-sm transition-colors bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium text-sm transition-colors bg-sim-red hover:bg-sim-redHover text-white disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
               Save
@@ -146,7 +146,7 @@ function ProviderCard({ provider, onRefresh }: ProviderCardProps) {
                 <button
                   onClick={handleFetchModels}
                   disabled={fetching}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 hover:bg-white/8 text-gray-300 transition-colors disabled:opacity-40"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-sim-bg border border-sim-border hover:bg-sim-border text-sim-text transition-colors disabled:opacity-40"
                 >
                   {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                   Fetch Models
@@ -154,7 +154,7 @@ function ProviderCard({ provider, onRefresh }: ProviderCardProps) {
                 <button
                   onClick={handleRemoveKey}
                   disabled={removing}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-400/70 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-500 hover:text-red-600 hover:bg-red-500/10 transition-colors disabled:opacity-40"
                 >
                   {removing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                   Remove key
@@ -163,14 +163,14 @@ function ProviderCard({ provider, onRefresh }: ProviderCardProps) {
             )}
             {docs && (
               <a href={docs} target="_blank" rel="noopener noreferrer"
-                className="ml-auto text-[11px] text-blue-400/50 hover:text-blue-400 transition-colors">
+                className="ml-auto text-[11px] text-sim-red hover:text-sim-redHover transition-colors">
                 Get API key →
               </a>
             )}
           </div>
 
-          {fetchMsg && <p className="text-[11px] text-green-400">{fetchMsg}</p>}
-          {error && <p className="text-[11px] text-red-400">{error}</p>}
+          {fetchMsg && <p className="text-[11px] text-green-500">{fetchMsg}</p>}
+          {error && <p className="text-[11px] text-red-500">{error}</p>}
         </div>
       )}
     </div>
@@ -209,7 +209,7 @@ function AddCustomProvider({ onAdded }: { onAdded: () => void }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 w-full px-5 py-3 rounded-xl border border-dashed border-[#2d2d2d] text-gray-500 hover:text-gray-300 hover:border-[#444] transition-colors text-sm"
+        className="flex items-center gap-2 w-full px-5 py-3 rounded-xl border border-dashed border-sim-border text-sim-muted hover:text-sim-text hover:border-sim-border transition-colors text-sm"
       >
         <Plus className="w-4 h-4" /> Add custom provider (OpenAI-compatible)
       </button>
@@ -217,25 +217,25 @@ function AddCustomProvider({ onAdded }: { onAdded: () => void }) {
   }
 
   return (
-    <div className="bg-[#161618] border border-[#2d2d2d] rounded-xl px-5 py-4 space-y-3">
-      <h4 className="text-sm font-semibold text-gray-200">Add Custom Provider</h4>
+    <div className="bg-sim-surface border border-sim-border rounded-xl px-5 py-4 space-y-3 text-sim-text">
+      <h4 className="text-sm font-semibold text-sim-text">Add Custom Provider</h4>
       <div className="grid grid-cols-2 gap-2">
         <input placeholder="Provider ID (e.g. my-llm)" value={id} onChange={e => setId(e.target.value)}
-          className="bg-[#0e0e11] border border-[#2d2d2d] rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#444] placeholder-gray-600" />
+          className="bg-sim-bg border border-sim-border rounded-lg px-3 py-2 text-sm text-sim-text focus:outline-none focus:border-sim-red placeholder-sim-muted" />
         <input placeholder="Display name" value={name} onChange={e => setName(e.target.value)}
-          className="bg-[#0e0e11] border border-[#2d2d2d] rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#444] placeholder-gray-600" />
+          className="bg-sim-bg border border-sim-border rounded-lg px-3 py-2 text-sm text-sim-text focus:outline-none focus:border-sim-red placeholder-sim-muted" />
       </div>
       <input placeholder="Base URL (e.g. http://localhost:11434/v1)" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
-        className="w-full bg-[#0e0e11] border border-[#2d2d2d] rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#444] placeholder-gray-600 font-mono" />
+        className="w-full bg-sim-bg border border-sim-border rounded-lg px-3 py-2 text-sm text-sim-text focus:outline-none focus:border-sim-red placeholder-sim-muted font-mono" />
       <input type="password" placeholder="API key (optional for local servers)" value={apiKey} onChange={e => setApiKey(e.target.value)}
-        className="w-full bg-[#0e0e11] border border-[#2d2d2d] rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#444] placeholder-gray-600 font-mono" />
-      {error && <p className="text-[11px] text-red-400">{error}</p>}
+        className="w-full bg-sim-bg border border-sim-border rounded-lg px-3 py-2 text-sm text-sim-text focus:outline-none focus:border-sim-red placeholder-sim-muted font-mono" />
+      {error && <p className="text-[11px] text-red-500">{error}</p>}
       <div className="flex gap-2">
         <button onClick={handleAdd} disabled={saving}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-40">
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sim-red hover:bg-sim-redHover text-white text-sm font-medium disabled:opacity-40">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add Provider
         </button>
-        <button onClick={() => setOpen(false)} className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/8 text-gray-400 text-sm">
+        <button onClick={() => setOpen(false)} className="px-4 py-2 rounded-lg bg-sim-bg hover:bg-sim-border text-sim-muted text-sm">
           Cancel
         </button>
       </div>
@@ -265,14 +265,14 @@ export const ConnectProviderView: React.FC = () => {
   const connected = providers.filter(p => p.has_key).length;
 
   return (
-    <div className="w-full h-full flex flex-col overflow-hidden bg-[#09090b]">
+    <div className="w-full h-full flex flex-col overflow-hidden bg-sim-bg text-sim-text">
       {/* Header */}
-      <div className="h-16 border-b border-[#2d2d2d] flex items-center px-6 gap-3 shrink-0 bg-[#09090b]">
+      <div className="h-16 border-b border-sim-border flex items-center px-6 gap-3 shrink-0 bg-sim-surface">
         <div>
-          <h1 className="text-lg font-bold text-white tracking-wide">Connect Provider</h1>
-          <p className="text-[11px] text-gray-500">Add API keys, then fetch models to enable them in chat.</p>
+          <h1 className="text-lg font-bold text-sim-text tracking-wide">Connect Provider</h1>
+          <p className="text-[11px] text-sim-muted">Add API keys, then fetch models to enable them in chat.</p>
         </div>
-        <div className="ml-auto text-[11px] text-gray-500">
+        <div className="ml-auto text-[11px] text-sim-muted">
           {connected} of {providers.length} providers connected
         </div>
       </div>
@@ -280,20 +280,20 @@ export const ConnectProviderView: React.FC = () => {
       {/* Content */}
       <div className="flex-1 overflow-auto custom-scrollbar p-6">
         {loading ? (
-          <div className="flex items-center justify-center h-full text-gray-500">
+          <div className="flex items-center justify-center h-full text-sim-muted">
             <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading providers…
           </div>
         ) : (
           <div className="max-w-2xl flex flex-col gap-3">
             {builtin.length > 0 && (
               <>
-                <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider px-1">Built-in Providers</h3>
+                <h3 className="text-[11px] font-semibold text-sim-muted uppercase tracking-wider px-1">Built-in Providers</h3>
                 {builtin.map(p => <ProviderCard key={p.id} provider={p} onRefresh={load} />)}
               </>
             )}
             {custom.length > 0 && (
               <>
-                <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider px-1 mt-3">Custom Providers</h3>
+                <h3 className="text-[11px] font-semibold text-sim-muted uppercase tracking-wider px-1 mt-3">Custom Providers</h3>
                 {custom.map(p => <ProviderCard key={p.id} provider={p} onRefresh={load} />)}
               </>
             )}

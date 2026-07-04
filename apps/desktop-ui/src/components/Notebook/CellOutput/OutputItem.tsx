@@ -116,7 +116,7 @@ const MimeBundleRenderer: React.FC<{ bundle: Record<string, unknown> }> = React.
     if (mime === 'text/markdown') {
         return (
             <div
-                className="prose prose-invert prose-sm max-w-none text-gray-200 leading-relaxed font-sans"
+                className="prose dark:prose-invert prose-sm max-w-none text-sim-text leading-relaxed font-sans"
                 dangerouslySetInnerHTML={renderMarkdown(data as string)}
             />
         );
@@ -125,7 +125,7 @@ const MimeBundleRenderer: React.FC<{ bundle: Record<string, unknown> }> = React.
     // 8. LaTeX
     if (mime === 'text/latex') {
         return (
-            <div className="font-mono text-yellow-400 py-2 overflow-x-auto whitespace-pre">
+            <div className="font-mono text-yellow-600 dark:text-yellow-400 py-2 overflow-x-auto whitespace-pre">
                 {data as string}
             </div>
         );
@@ -134,7 +134,7 @@ const MimeBundleRenderer: React.FC<{ bundle: Record<string, unknown> }> = React.
     // 9. JSON
     if (mime === 'application/json') {
         return (
-            <div className="bg-[#1e1e20] p-3 rounded-lg border border-white/10 overflow-x-auto text-[13px] font-mono text-[#ce9178]">
+            <div className="bg-sim-bg p-3 rounded-lg border border-sim-border overflow-x-auto text-[13px] font-mono text-[#ce9178]">
                 <pre className="break-words whitespace-pre-wrap m-0">
                     {JSON.stringify(data, null, 2)}
                 </pre>
@@ -153,7 +153,7 @@ const MimeBundleRenderer: React.FC<{ bundle: Record<string, unknown> }> = React.
     return (
         <AnsiRenderer
             text={text}
-            className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-gray-300"
+            className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-sim-text"
         />
     );
 });
@@ -203,7 +203,7 @@ export const OutputItem: React.FC<{ output: CellOutput }> = React.memo(({ output
         return (
             <AnsiRenderer
                 text={text}
-                className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-gray-300"
+                className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-sim-text"
             />
         );
     }
@@ -223,8 +223,8 @@ export const OutputItem: React.FC<{ output: CellOutput }> = React.memo(({ output
         return (
             <AnsiRenderer
                 text={text}
-                className={`whitespace-pre-wrap break-words font-mono text-[13px] leading-5 ${isStderr ? 'text-yellow-300' : 'text-gray-300'}`}
-                defaultColor={isStderr ? '#fde047' : '#d1d5db'}
+                className={`whitespace-pre-wrap break-words font-mono text-[13px] leading-5 ${isStderr ? 'text-yellow-600 dark:text-yellow-300' : 'text-sim-text'}`}
+                defaultColor={isStderr ? undefined : undefined}
             />
         );
     }
@@ -233,7 +233,7 @@ export const OutputItem: React.FC<{ output: CellOutput }> = React.memo(({ output
     return (
         <AnsiRenderer
             text={String(output.data ?? '')}
-            className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-gray-300"
+            className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-sim-text"
         />
     );
 });

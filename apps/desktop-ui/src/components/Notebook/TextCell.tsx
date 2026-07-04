@@ -31,22 +31,22 @@ export const renderMarkdown = (text: string) => {
         .replace(/>/g, "&gt;")
 
         // Headings (no extra margin/padding)
-        .replace(/^### (.*$)/gim, '<h3 class="text-xl font-bold text-gray-300">$1</h3>')
-        .replace(/^## (.*$)/gim, '<h2 class="text-2xl font-bold text-gray-200">$1</h2>')
-        .replace(/^# (.*$)/gim, '<h1 class="text-3xl font-bold text-gray-100">$1</h1>')
+        .replace(/^### (.*$)/gim, '<h3 class="text-xl font-bold text-sim-text/90">$1</h3>')
+        .replace(/^## (.*$)/gim, '<h2 class="text-2xl font-bold text-sim-text/95">$1</h2>')
+        .replace(/^# (.*$)/gim, '<h1 class="text-3xl font-bold text-sim-text">$1</h1>')
 
         // Bold / Italic
-        .replace(/\*\*(.*?)\*\*/gim, '<strong class="font-bold text-gray-100">$1</strong>')
-        .replace(/\*(.*?)\*/gim, '<em class="italic text-gray-300">$1</em>')
+        .replace(/\*\*(.*?)\*\*/gim, '<strong class="font-bold text-sim-text">$1</strong>')
+        .replace(/\*(.*?)\*/gim, '<em class="italic text-sim-muted">$1</em>')
 
         // Inline code (no padding)
         .replace(/`(.*?)`/gim,
-            '<code class="bg-[#2b2b2e] rounded font-mono text-[0.9em] text-sim-red">$1</code>'
+            '<code class="bg-sim-bg border border-sim-border px-1 rounded font-mono text-[0.9em] text-sim-red">$1</code>'
         )
 
         // Links
         .replace(/\[(.*?)\]\((.*?)\)/gim,
-            '<a href="$2" target="_blank" class="text-blue-400 hover:underline">$1</a>'
+            '<a href="$2" target="_blank" class="text-blue-500 hover:underline">$1</a>'
         )
 
         // Images (no wrapper padding)
@@ -56,26 +56,26 @@ export const renderMarkdown = (text: string) => {
 
         // Blockquote (minimal spacing)
         .replace(/^> (.*$)/gim,
-            '<blockquote class="border-l-4 border-sim-red pl-4 italic text-gray-400">$1</blockquote>'
+            '<blockquote class="border-l-4 border-sim-red pl-4 italic text-sim-muted">$1</blockquote>'
         )
 
         // Unordered list (semantic)
         .replace(/^\s*-\s+(.*$)/gim,
-            '<li class="list-disc ml-6 text-gray-300">$1</li>'
+            '<li class="list-disc ml-6 text-sim-text">$1</li>'
         )
 
         // Ordered list
         .replace(/^\s*\d+\.\s+(.*$)/gim,
-            '<li class="list-decimal ml-6 text-gray-300">$1</li>'
+            '<li class="list-decimal ml-6 text-sim-text">$1</li>'
         )
 
         // Horizontal rule
         .replace(/^---$/gim,
-            '<hr class="border-white/10 my-4"/>'
+            '<hr class="border-sim-border my-4"/>'
         )
 
         // Math
-        .replace(/\$\$(.*?)\$\$/gim,
+        .replace(/\$\{(.*?)\}/gim,
             '<span class="font-mono text-yellow-500">$1</span>'
         )
 
@@ -157,9 +157,9 @@ export const TextCell: React.FC<TextCellProps> = ({ content, isActive, onUpdate,
         `}
             >
                 {!content.trim() ? (
-                    <div className="text-gray-500 italic opacity-50 select-none">Double-click to edit markdown...</div>
+                    <div className="text-sim-muted italic opacity-55 select-none">Double-click to edit markdown...</div>
                 ) : (
-                    <div className="prose prose-invert prose-sm max-w-none text-gray-200 leading-relaxed font-sans" dangerouslySetInnerHTML={renderMarkdown(content)} />
+                    <div className="prose dark:prose-invert prose-sm max-w-none text-sim-text leading-relaxed font-sans" dangerouslySetInnerHTML={renderMarkdown(content)} />
                 )}
             </div>
         );
@@ -168,50 +168,49 @@ export const TextCell: React.FC<TextCellProps> = ({ content, isActive, onUpdate,
     return (
         <div
             onDragStart={(e) => e.stopPropagation()}
-            className="flex flex-col border border-sim-red/30 rounded-lg overflow-hidden bg-[#1e1e20] shadow-2xl w-full transition-all ring-1 ring-sim-red/20"
+            className="flex flex-col border border-sim-red/30 rounded-lg overflow-hidden bg-sim-surface shadow-2xl w-full transition-all ring-1 ring-sim-red/20"
         >
             {/* Toolbar */}
-            <div className="flex items-center flex-wrap gap-1 p-2 bg-[#2b2b2e] border-b border-white/10 select-none sticky top-0 z-10 transition-all text-gray-300">
+            <div className="flex items-center flex-wrap gap-1 p-2 bg-sim-bg border-b border-sim-border select-none sticky top-0 z-10 transition-all text-sim-text">
                 <ToolBtn icon={Type} onClick={() => handleMarkdownAction('heading')} label="Heading" />
                 <ToolBtn icon={Bold} onClick={() => handleMarkdownAction('bold')} label="Bold" />
                 <ToolBtn icon={Italic} onClick={() => handleMarkdownAction('italic')} label="Italic" />
-                <div className="w-[1px] h-4 bg-white/10 mx-1"></div>
+                <div className="w-[1px] h-4 bg-sim-border mx-1"></div>
                 <ToolBtn icon={Code} onClick={() => handleMarkdownAction('code')} label="Code" />
                 <ToolBtn icon={LinkIcon} onClick={() => handleMarkdownAction('link')} label="Link" />
                 <ToolBtn icon={ImageIcon} onClick={() => handleMarkdownAction('image')} label="Image" />
                 <ToolBtn icon={Quote} onClick={() => handleMarkdownAction('quote')} label="Quote" />
-                <div className="w-[1px] h-4 bg-white/10 mx-1"></div>
+                <div className="w-[1px] h-4 bg-sim-border mx-1"></div>
                 <ToolBtn icon={List} onClick={() => handleMarkdownAction('list')} label="Unordered List" />
                 <ToolBtn icon={ListOrdered} onClick={() => handleMarkdownAction('ordered-list')} label="Ordered List" />
                 <ToolBtn icon={Minus} onClick={() => handleMarkdownAction('divider')} label="Divider" />
                 <ToolBtn icon={Sigma} onClick={() => handleMarkdownAction('latex')} label="Latex" />
                 <ToolBtn icon={Smile} onClick={() => handleMarkdownAction('emoji')} label="Emoji" />
-                <div className="w-[1px] h-4 bg-white/10 mx-1"></div>
+                <div className="w-[1px] h-4 bg-sim-border mx-1"></div>
                 <ToolBtn icon={MoreHorizontal} onClick={() => { }} label="More" />
                 <ToolBtn icon={X} onClick={() => setIsEditing(false)} label="Close Editor" />
 
                 <div className="flex-1"></div>
-                <div className="px-3 text-[10px] font-mono text-gray-500 uppercase tracking-widest hidden sm:block opacity-50">Markdown Mode</div>
+                <div className="px-3 text-[10px] font-mono text-sim-muted uppercase tracking-widest hidden sm:block opacity-50">Markdown Mode</div>
             </div>
 
             {/* Split View (Auto-expanding) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 w-full min-h-[300px] divide-y md:divide-y-0 md:divide-x divide-white/10 bg-[#09090b]">
+            <div className="grid grid-cols-1 md:grid-cols-2 w-full min-h-[300px] divide-y md:divide-y-0 md:divide-x divide-sim-border bg-sim-bg">
                 {/* Editor Pane */}
                 <div className="relative w-full h-full min-h-[inherit] no-drag">
-                    <div className="absolute top-2 right-2 text-[10px] bg-white/5 px-2 py-0.5 rounded text-gray-500 font-mono pointer-events-none z-10">MARKDOWN</div>
+                    <div className="absolute top-2 right-2 text-[10px] bg-sim-surface px-2 py-0.5 rounded text-sim-muted font-mono pointer-events-none z-10">MARKDOWN</div>
                     <textarea
                         ref={textareaRef}
                         value={content}
                         onChange={(e) => onUpdate(e.target.value)}
-                        className="w-full h-full p-6 bg-transparent resize-none text-gray-300 font-mono text-sm leading-relaxed outline-none min-h-[300px] overflow-hidden"
+                        className="w-full h-full p-6 bg-transparent resize-none text-sim-text font-mono text-sm leading-relaxed outline-none min-h-[300px] overflow-hidden"
                         placeholder="Type markdown here..."
                         autoFocus
                     />
                 </div>
-
                 {/* Preview Pane */}
-                <div className="w-full h-full p-6 min-h-[300px] bg-[#09090b] no-drag">
-                    <div className="prose prose-invert prose-sm max-w-none text-gray-300 leading-relaxed font-sans" dangerouslySetInnerHTML={renderMarkdown(content)} />
+                <div className="w-full h-full p-6 min-h-[300px] bg-sim-bg no-drag">
+                    <div className="prose dark:prose-invert prose-sm max-w-none text-sim-text leading-relaxed font-sans" dangerouslySetInnerHTML={renderMarkdown(content)} />
                 </div>
             </div>
         </div>

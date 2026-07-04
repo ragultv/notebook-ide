@@ -5,6 +5,10 @@ import App from './App';
 import { ProjectProvider } from './context/ProjectContext';
 
 import { SettingsWindowApp } from './components/Settings/SettingsWindowApp';
+import { useThemeStore, applyTheme } from './store/theme.store';
+
+// Apply initial theme immediately before rendering to prevent flash of wrong colors
+applyTheme(useThemeStore.getState().theme);
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

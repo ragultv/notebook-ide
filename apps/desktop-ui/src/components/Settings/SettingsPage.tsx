@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Loader2, Trash2, RefreshCw, Eye, EyeOff, Globe, Check, Layers,
-  CheckCircle2, AlertCircle, Plus,
+  CheckCircle2, AlertCircle, Plus, Palette, Sun, Moon, Monitor,
 } from 'lucide-react';
+import { useThemeStore, ThemeMode } from '../../store/theme.store';
 import controllerClient, { ProviderEntry, ProviderModelEntry } from '../../services/controller.client';
 
 // ── Provider presets ─────────────────────────────────────────────────────────
@@ -123,24 +124,24 @@ function ProviderForm({ onSaved, onCancel }: {
   };
 
   return (
-    <div className="space-y-4 border border-[#2d2d2d] rounded-xl p-5 bg-[#161618]">
-      <h3 className="font-semibold text-gray-200">New Provider</h3>
+    <div className="space-y-4 border border-sim-border rounded-xl p-5 bg-sim-surface">
+      <h3 className="font-semibold text-sim-text">New Provider</h3>
 
       {/* Provider type grid */}
       <div>
-        <label className="text-xs font-semibold text-gray-500 uppercase tracking-widest block mb-2">Provider Type</label>
+        <label className="text-xs font-semibold text-sim-muted uppercase tracking-widest block mb-2">Provider Type</label>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {Object.entries(PROVIDER_PRESETS).map(([key, p]) => (
             <button key={key} onClick={() => setType(key)}
               className={cn(
                 'flex flex-col items-start gap-1 px-3 py-2.5 rounded-lg border text-left transition-all text-sm',
                 type === key
-                  ? 'border-blue-500/50 bg-blue-500/10 text-gray-200'
-                  : 'border-[#2d2d2d] bg-[#09090b] text-gray-500 hover:border-[#3d3d3d] hover:bg-[#1a1a1c]',
+                  ? 'border-blue-500/50 bg-blue-500/10 text-sim-text'
+                  : 'border-sim-border bg-sim-bg text-sim-muted hover:border-sim-border hover:bg-sim-surface',
               )}
             >
               <span className="font-semibold text-xs" style={{ color: p.color }}>{p.name}</span>
-              <span className="text-[10px] leading-tight opacity-70 text-gray-400">{p.description}</span>
+              <span className="text-[10px] leading-tight opacity-70 text-sim-muted">{p.description}</span>
             </button>
           ))}
         </div>
@@ -148,15 +149,15 @@ function ProviderForm({ onSaved, onCancel }: {
 
       {type === 'openai-compatible' && (
         <div>
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-widest block mb-1.5">Display Name</label>
+          <label className="text-xs font-semibold text-sim-muted uppercase tracking-widest block mb-1.5">Display Name</label>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="My Local LLM"
-            className="w-full bg-[#09090b] border border-[#2d2d2d] rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500/50" />
+            className="w-full bg-sim-bg border border-sim-border rounded-lg px-3 py-2 text-sm text-sim-text placeholder-sim-muted focus:outline-none focus:border-blue-500/50" />
         </div>
       )}
 
       <div>
-        <label className="text-xs font-semibold text-gray-500 uppercase tracking-widest block mb-1.5">
-          API Key
+        <label className="text-xs font-semibold text-sim-muted uppercase tracking-widest block mb-1.5 flex items-center justify-between">
+          <span>API Key</span>
           {preset.docsUrl && (
             <a href={preset.docsUrl} target="_blank" rel="noopener noreferrer"
               className="ml-2 normal-case text-blue-500/70 hover:text-blue-500 transition-colors">Get key ↗</a>
@@ -168,10 +169,10 @@ function ProviderForm({ onSaved, onCancel }: {
             onChange={e => setApiKey(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSave()}
             placeholder="sk-..."
-            className="w-full bg-[#09090b] border border-[#2d2d2d] rounded-lg px-3 py-2 pr-10 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500/50 font-mono"
+            className="w-full bg-sim-bg border border-sim-border rounded-lg px-3 py-2 pr-10 text-sm text-sim-text placeholder-sim-muted focus:outline-none focus:border-blue-500/50 font-mono"
           />
           <button onClick={() => setShowKey(s => !s)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sim-muted hover:text-sim-text">
             {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
           </button>
         </div>
@@ -179,10 +180,10 @@ function ProviderForm({ onSaved, onCancel }: {
 
       {type === 'openai-compatible' && (
         <div>
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-widest block mb-1.5">Base URL</label>
+          <label className="text-xs font-semibold text-sim-muted uppercase tracking-widest block mb-1.5">Base URL</label>
           <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
             placeholder="http://localhost:11434/v1"
-            className="w-full bg-[#09090b] border border-[#2d2d2d] rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500/50 font-mono" />
+            className="w-full bg-sim-bg border border-sim-border rounded-lg px-3 py-2 text-sm text-sim-text placeholder-sim-muted focus:outline-none focus:border-blue-500/50 font-mono" />
         </div>
       )}
 
@@ -190,11 +191,11 @@ function ProviderForm({ onSaved, onCancel }: {
 
       <div className="flex gap-2 justify-end">
         <button onClick={onCancel}
-          className="px-4 py-2 text-sm rounded-lg border border-[#2d2d2d] text-gray-400 hover:bg-[#2d2d2d] transition-all">
+          className="px-4 py-2 text-sm rounded-lg border border-sim-border text-sim-muted hover:bg-sim-border transition-all">
           Cancel
         </button>
         <button onClick={handleSave} disabled={saving}
-          className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all flex items-center gap-2 disabled:opacity-60">
+          className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all flex items-center gap-2 disabled:opacity-60 font-medium">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
           Add Provider
         </button>
@@ -247,7 +248,7 @@ function ProviderCard({ provider, onRefresh }: { provider: ProviderEntry; onRefr
   };
 
   return (
-    <div className="border border-[#2d2d2d] rounded-xl overflow-hidden bg-[#161618]">
+    <div className="border border-sim-border rounded-xl overflow-hidden bg-sim-surface">
       <div className="flex items-center gap-3 px-4 py-4">
         <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-white font-bold text-xs"
           style={{ background: preset.color }}>
@@ -255,17 +256,17 @@ function ProviderCard({ provider, onRefresh }: { provider: ProviderEntry; onRefr
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm text-gray-200 truncate">{provider.name}</span>
+            <span className="font-semibold text-sm text-sim-text truncate">{provider.name}</span>
             {provider.has_key
               ? <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/20">
                   <CheckCircle2 size={9} /> Connected
                 </span>
-              : <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-500/10 text-gray-500 border border-gray-500/20">
+              : <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sim-bg border border-sim-border text-sim-muted">
                   <AlertCircle size={9} /> No key
                 </span>
             }
           </div>
-          <p className="text-[11px] text-gray-500 mt-0.5">
+          <p className="text-[11px] text-sim-muted mt-0.5">
             {provider.enabled_count}/{provider.model_count} models enabled
           </p>
           {fetchErr && <p className="text-red-400 text-[10px] mt-1">{fetchErr}</p>}
@@ -274,13 +275,13 @@ function ProviderCard({ provider, onRefresh }: { provider: ProviderEntry; onRefr
         <div className="flex items-center gap-2 shrink-0">
           {provider.has_key && (
             <button onClick={handleFetchModels} disabled={fetching}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[#2d2d2d] hover:bg-[#2d2d2d] text-gray-400 hover:text-gray-200 transition-all disabled:opacity-60">
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-sim-border hover:bg-sim-border text-sim-muted hover:text-sim-text transition-all disabled:opacity-60">
               {fetching ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
               {fetching ? 'Fetching…' : 'Fetch Models'}
             </button>
           )}
           <button onClick={handleRemove} disabled={removing}
-            className="w-8 h-8 rounded-lg flex items-center justify-center border border-transparent text-gray-400 hover:text-red-400 hover:bg-red-400/10 transition-all">
+            className="w-8 h-8 rounded-lg flex items-center justify-center border border-transparent text-sim-muted hover:text-red-400 hover:bg-red-400/10 transition-all">
             {removing ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
           </button>
         </div>
@@ -325,10 +326,10 @@ function ModelsTab({ providers }: { providers: ProviderEntry[] }) {
 
   if (connectedProviders.length === 0) {
     return (
-      <div className="text-center py-12 border border-dashed border-[#2d2d2d] rounded-xl text-gray-500 bg-[#161618]/50">
+      <div className="text-center py-12 border border-dashed border-sim-border rounded-xl text-sim-muted bg-sim-surface">
         <Layers size={32} className="mx-auto mb-3 opacity-20" />
         <p className="text-sm font-medium">No providers connected</p>
-        <p className="text-xs mt-1">Add a provider in <strong className="text-gray-400">AI Providers</strong>, then click Fetch Models</p>
+        <p className="text-xs mt-1">Add a provider in <strong className="text-sim-text">AI Providers</strong>, then click Fetch Models</p>
       </div>
     );
   }
@@ -336,8 +337,8 @@ function ModelsTab({ providers }: { providers: ProviderEntry[] }) {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-gray-100">AI Models</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Enable models to use them in the chat sidebar</p>
+        <h1 className="text-xl font-bold text-sim-text">AI Models</h1>
+        <p className="text-sm text-sim-muted mt-0.5">Enable models to use them in the chat sidebar</p>
       </div>
 
       {connectedProviders.map(provider => {
@@ -345,17 +346,17 @@ function ModelsTab({ providers }: { providers: ProviderEntry[] }) {
         const models  = modelsMap[provider.id] ?? [];
 
         return (
-          <div key={provider.id} className="border border-[#2d2d2d] rounded-xl overflow-hidden bg-[#161618]">
-            <div className="px-4 py-3 bg-[#1a1a1c] border-b border-[#2d2d2d] flex items-center gap-2">
-              <span className="font-semibold text-sm text-gray-200">{provider.name}</span>
+          <div key={provider.id} className="border border-sim-border rounded-xl overflow-hidden bg-sim-surface">
+            <div className="px-4 py-3 bg-sim-bg border-b border-sim-border flex items-center gap-2">
+              <span className="font-semibold text-sm text-sim-text">{provider.name}</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
                 style={{ color: preset.color, background: `${preset.color}22` }}>
                 {provider.type}
               </span>
-              <span className="ml-auto text-[11px] text-gray-500">{provider.enabled_count} enabled</span>
+              <span className="ml-auto text-[11px] text-sim-muted">{provider.enabled_count} enabled</span>
             </div>
             {models.length === 0 ? (
-              <p className="text-center text-[11px] text-gray-600 py-6">
+              <p className="text-center text-[11px] text-sim-muted py-6">
                 No models fetched — go to AI Providers and click Fetch Models
               </p>
             ) : (
@@ -366,13 +367,13 @@ function ModelsTab({ providers }: { providers: ProviderEntry[] }) {
                   const isToggling = togglingKey === toggleKey;
                   return (
                     <label key={m.model_id}
-                      className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#2d2d2d]/50 cursor-pointer transition-all group">
+                      className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-sim-selection cursor-pointer transition-all group">
                       <button
                         onClick={() => handleToggle(provider.id, m.model_id, enabled)}
                         disabled={isToggling}
                         className={cn(
                           'w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all',
-                          enabled ? 'bg-blue-600 border-blue-600' : 'border-[#3d3d3d] group-hover:border-blue-500/50',
+                          enabled ? 'bg-blue-600 border-blue-600' : 'border-sim-border group-hover:border-blue-500/50',
                         )}
                       >
                         {isToggling
@@ -380,8 +381,8 @@ function ModelsTab({ providers }: { providers: ProviderEntry[] }) {
                           : enabled && <Check size={10} className="text-white" />
                         }
                       </button>
-                      <span className="text-xs font-mono text-gray-300 truncate flex-1">{m.model_name || m.model_id}</span>
-                      <span className="text-[10px] text-gray-600 font-mono truncate hidden group-hover:block">{m.model_id}</span>
+                      <span className="text-xs font-mono text-sim-text truncate flex-1">{m.model_name || m.model_id}</span>
+                      <span className="text-[10px] text-sim-muted font-mono truncate hidden group-hover:block">{m.model_id}</span>
                       {enabled && (
                         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase flex-shrink-0"
                           style={{ color: preset.color, background: `${preset.color}22` }}>
@@ -400,10 +401,86 @@ function ModelsTab({ providers }: { providers: ProviderEntry[] }) {
   );
 }
 
+// ── Themes View ───────────────────────────────────────────────────────────────
+
+function ThemesView() {
+  const { theme, setTheme } = useThemeStore();
+
+  const themeOptions: { id: ThemeMode; name: string; description: string; icon: React.ReactNode }[] = [
+    {
+      id: 'light',
+      name: 'Light Theme',
+      description: 'Clean, high contrast appearance for bright rooms.',
+      icon: <Sun className="w-5 h-5 text-amber-500" />,
+    },
+    {
+      id: 'dark',
+      name: 'Dark Theme',
+      description: 'Sleek, low-contrast style optimized for low light.',
+      icon: <Moon className="w-5 h-5 text-indigo-400" />,
+    },
+    {
+      id: 'system',
+      name: 'System Preference',
+      description: 'Automatically match your system appearance config.',
+      icon: <Monitor className="w-5 h-5 text-emerald-400" />,
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-sim-text">Appearance</h1>
+        <p className="text-sm text-sim-muted mt-0.5">
+          Customize the visual theme of your development environment.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {themeOptions.map((t) => {
+          const isActive = theme === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTheme(t.id)}
+              className={cn(
+                'flex flex-col items-start gap-4 p-5 rounded-xl border text-left transition-all relative overflow-hidden group',
+                isActive
+                  ? 'border-blue-500 bg-blue-500/5 text-sim-text'
+                  : 'border-sim-border bg-sim-surface text-sim-muted hover:border-sim-border hover:text-sim-text'
+              )}
+            >
+              <div className={cn(
+                'p-2.5 rounded-lg border transition-colors',
+                isActive
+                  ? 'bg-blue-500/10 border-blue-500/30'
+                  : 'bg-sim-bg border-sim-border group-hover:border-sim-border'
+              )}>
+                {t.icon}
+              </div>
+
+              <div className="space-y-1">
+                <span className="font-semibold text-sm block">{t.name}</span>
+                <span className="text-[11px] leading-snug block opacity-80">{t.description}</span>
+              </div>
+
+              {isActive && (
+                <div className="absolute top-3 right-3 bg-blue-500 text-white rounded-full p-0.5">
+                  <Check size={10} className="stroke-[3]" />
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Settings Page ────────────────────────────────────────────────────────
 
 export function SettingsPage() {
-  const [activeTab,       setActiveTab]       = useState<'providers' | 'models'>('providers');
+  const [activeTab,       setActiveTab]       = useState<'providers' | 'models' | 'appearance'>('providers');
   const [providers,       setProviders]       = useState<ProviderEntry[]>([]);
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [loading,         setLoading]         = useState(true);
@@ -422,26 +499,30 @@ export function SettingsPage() {
 
   const connected = providers.filter(p => p.has_key).length;
 
-  // Only show providers that have a key (connected) in the providers list — all 8 always exist in DB
   const connectedProviders = providers.filter(p => p.has_key);
   const allProviders       = providers;
 
   return (
-    <div className="flex h-full w-full bg-[#09090b] overflow-hidden">
+    <div className="flex h-full w-full bg-sim-bg text-sim-text overflow-hidden">
       {/* Sidebar nav */}
-      <nav className="w-56 shrink-0 flex flex-col border-r border-[#2d2d2d] bg-[#161618] px-3 py-4 gap-1">
-        <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest px-3 mb-1">Settings</p>
-        {(['providers', 'models'] as const).map(tab => (
+      <nav className="w-56 shrink-0 flex flex-col border-r border-sim-border bg-sim-surface px-3 py-4 gap-1">
+        <p className="text-[10px] font-bold text-sim-muted uppercase tracking-widest px-3 mb-1">Settings</p>
+        {(['providers', 'models', 'appearance'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={cn(
-              'flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left capitalize',
+              'flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left capitalize border',
               activeTab === tab
-                ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
-                : 'text-gray-400 hover:bg-[#2d2d2d] hover:text-gray-200 border border-transparent',
+                ? 'bg-blue-500/10 text-blue-500 border-blue-500/20 font-semibold'
+                : 'text-sim-muted hover:bg-sim-border hover:text-sim-text border-transparent',
             )}
           >
-            {tab === 'providers' ? <Globe size={15} /> : <Layers size={15} />}
-            {tab === 'providers' ? 'AI Providers' : 'Models'}
+            {tab === 'providers' && <Globe size={15} />}
+            {tab === 'models' && <Layers size={15} />}
+            {tab === 'appearance' && <Palette size={15} />}
+            
+            {tab === 'providers' && 'AI Providers'}
+            {tab === 'models' && 'Models'}
+            {tab === 'appearance' && 'Appearance'}
           </button>
         ))}
       </nav>
@@ -453,8 +534,8 @@ export function SettingsPage() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-xl font-bold text-gray-100">AI Providers</h1>
-                  <p className="text-sm text-gray-400 mt-0.5">
+                  <h1 className="text-xl font-bold text-sim-text">AI Providers</h1>
+                  <p className="text-sm text-sim-muted mt-0.5">
                     {connected > 0 ? `${connected} provider${connected > 1 ? 's' : ''} connected` : 'Connect a provider to get started'}
                   </p>
                 </div>
@@ -472,7 +553,7 @@ export function SettingsPage() {
               )}
 
               {loading ? (
-                <div className="flex items-center justify-center py-12 text-gray-500">
+                <div className="flex items-center justify-center py-12 text-sim-muted">
                   <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading providers…
                 </div>
               ) : (
@@ -481,10 +562,10 @@ export function SettingsPage() {
                     <ProviderCard key={p.id} provider={p} onRefresh={load} />
                   ))}
                   {connectedProviders.length === 0 && !showAddProvider && (
-                    <div className="text-center py-12 border border-dashed border-[#2d2d2d] rounded-xl text-gray-500 bg-[#161618]/50">
+                    <div className="text-center py-12 border border-dashed border-sim-border rounded-xl text-sim-muted bg-sim-surface">
                       <Globe size={32} className="mx-auto mb-3 opacity-20" />
                       <p className="text-sm font-medium">No providers connected</p>
-                      <p className="text-xs mt-1">Click <strong className="text-gray-400">Add Provider</strong> to connect your first API</p>
+                      <p className="text-xs mt-1">Click <strong className="text-sim-text">Add Provider</strong> to connect your first API</p>
                     </div>
                   )}
                 </div>
@@ -494,6 +575,10 @@ export function SettingsPage() {
 
           {activeTab === 'models' && (
             <ModelsTab providers={allProviders} />
+          )}
+
+          {activeTab === 'appearance' && (
+            <ThemesView />
           )}
         </div>
       </main>

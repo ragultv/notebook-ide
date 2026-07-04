@@ -26,10 +26,10 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onActivateTab
                         key={tab.id}
                         onClick={() => onActivateTab(tab.id)}
                         className={`
-              group flex items-center gap-2 px-3 h-full border-r border-[#27272a] cursor-pointer min-w-[120px] max-w-[200px] text-xs transition-colors
+              group flex items-center gap-2 px-3 h-full border-r border-sim-border cursor-pointer min-w-[120px] max-w-[200px] text-xs transition-colors
               ${isActive
-                                ? 'bg-[#1e1e1e] text-white border-t-2 border-t-sim-red'
-                                : 'bg-[#121212] text-gray-500 hover:bg-[#18181b] hover:text-gray-300 border-t-2 border-t-transparent'
+                                ? 'bg-sim-surface text-sim-text border-t-2 border-t-sim-red font-semibold'
+                                : 'bg-sim-bg text-sim-muted hover:bg-sim-surface hover:text-sim-text border-t-2 border-t-transparent'
                             }
             `}
                     >
@@ -41,17 +41,17 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onActivateTab
                                 onCloseTab(tab.id, e);
                             }}
                             className={`
-                p-0.5 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/10
-                ${isActive ? 'text-gray-300' : 'text-gray-500'}
+                p-0.5 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-sim-border
+                ${isActive ? 'text-sim-text' : 'text-sim-muted'}
               `}
                         >
                             <X className="w-3 h-3" />
                         </button>
                         {tab.isDirty && !isActive && (
-                            <div className="w-2 h-2 rounded-full bg-white/20 ml-1" />
+                            <div className="w-2 h-2 rounded-full bg-sim-muted ml-1 opacity-50" />
                         )}
                         {tab.isDirty && isActive && (
-                            <div className="w-2 h-2 rounded-full bg-white ml-1" />
+                            <div className="w-2 h-2 rounded-full bg-sim-red ml-1" />
                         )}
                     </div>
                 );

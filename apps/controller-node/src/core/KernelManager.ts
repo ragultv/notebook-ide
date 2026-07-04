@@ -610,36 +610,6 @@ export class KernelManager extends EventEmitter {
         }
     }
 
-    public async getMemorySnapshot(notebookId: string): Promise<any> {
-        const state = this.kernels.get(notebookId);
-        if (!state) {
-            throw new Error('Kernel not running for this notebook');
-        }
-
-        return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Timeout getting memory snapshot'));
-            }, 5000);
-
-            const onVariables = (msgNotebookId: string, data: any) => {
-                if (msgNotebookId === notebookId) {
-                    clearTimeout(timeout);
-                    this.off('kernel:variables', onVariables);
-                    resolve({
-                        timestamp: Date.now() / 1000,
-                        variables: data || [],
-                        coordinates_2d: [],
-                        total_memory_bytes: 0,
-                        algorithm: 'umap'
-                    });
-                }
-            };
-
-            this.on('kernel:variables', onVariables);
-            this.getVariables(notebookId);
-        });
-    }
-
     public async getCompletions(
         notebookId: string,
         code: string,

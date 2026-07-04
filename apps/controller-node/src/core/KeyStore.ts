@@ -11,6 +11,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { config } from '../config.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -21,8 +22,7 @@ const KEY_BYTES = 32;
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
 function getDataDir(): string {
-    const raw = process.env.DATA_DIR || './data';
-    return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+    return config.dataDir;
 }
 
 function getSecretPath(): string {
@@ -42,16 +42,32 @@ function getStorePath(): string {
  */
 function getMasterKey(): Buffer {
     const secretPath = getSecretPath();
-    fs.mkdirSync(path.dirname(secretPath), { recursive: true });
-
-    if (fs.existsSync(secretPath)) {
-        const hex = fs.readFileSync(secretPath, 'utf-8').trim();
-        return Buffer.from(hex, 'hex');
+    try {
+        fs.mkdirSync(path.dirname(secretPath), { recursive: true });
+    } catch (err) {
+        console.warn(`[KeyStore] Could not create directory for secret at ${secretPath}:`, err);
     }
 
-    // First boot — generate a fresh random secret
+    if (fs.existsSync(secretPath)) {
+        try {
+            const hex = fs.readFileSync(secretPath, 'utf-8').trim();
+            const buf = Buffer.from(hex, 'hex');
+            if (buf.length === KEY_BYTES) {
+                return buf;
+            }
+            console.warn(`[KeyStore] Existing secret in ${secretPath} has invalid length (${buf.length}), regenerating...`);
+        } catch (err) {
+            console.warn(`[KeyStore] Failed to read secret file at ${secretPath}, regenerating...`, err);
+        }
+    }
+
+    // First boot or invalid secret — generate a fresh random secret
     const secret = crypto.randomBytes(KEY_BYTES);
-    fs.writeFileSync(secretPath, secret.toString('hex'), { mode: 0o600 }); // owner-read only
+    try {
+        fs.writeFileSync(secretPath, secret.toString('hex'), { mode: 0o600 }); // owner-read only
+    } catch (err) {
+        console.error(`[KeyStore] Failed to write secret to ${secretPath}:`, err);
+    }
     return secret;
 }
 
@@ -97,8 +113,13 @@ function readStore(): KeyMap {
 
 function writeStore(store: KeyMap): void {
     const p = getStorePath();
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, JSON.stringify(store, null, 2), { mode: 0o600 });
+    try {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, JSON.stringify(store, null, 2), { mode: 0o600 });
+    } catch (err) {
+        console.error(`[KeyStore] Failed to write keystore file at ${p}:`, err);
+        throw new Error(`Failed to save key to disk (${p}): ${err instanceof Error ? err.message : String(err)}`);
+    }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

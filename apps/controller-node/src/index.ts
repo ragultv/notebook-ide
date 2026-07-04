@@ -7,7 +7,6 @@ import { kernelRoutes } from './routes/kernels.js';
 import { executionRoutes } from './routes/execution.js';
 import { providersRoutes } from './routes/providers.js';
 import { filesRoutes } from './routes/files.js';
-import { memoryRoutes } from './routes/memory.js';
 import { websocketRoutes } from './routes/websocket.js';
 import { notebookRoutes } from './routes/notebook.js';
 import { agentRoutes } from './routes/agent.js';
@@ -95,7 +94,7 @@ const start = async () => {
             //   null / no origin  — health-check requests, CLI tools, fallback
             origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => {
                 if (!origin || origin === 'null') { cb(null, true); return; }
-                if (origin === 'octoml-app://app') { cb(null, true); return; }
+                if (origin.startsWith('octoml-app:')) { cb(null, true); return; }
                 if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
                     cb(null, true); return;
                 }
@@ -136,7 +135,6 @@ const start = async () => {
         await server.register(kernelRoutes,      { prefix: '/kernels' });
         await server.register(executionRoutes,   { prefix: '/execution' });
         await server.register(filesRoutes,       { prefix: '/files' });
-        await server.register(memoryRoutes,      { prefix: '/api/memory' });
         await server.register(websocketRoutes);
         await server.register(notebookRoutes,    { prefix: '/notebooks' });
         await server.register(agentRoutes);

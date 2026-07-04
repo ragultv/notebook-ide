@@ -10,7 +10,7 @@ interface AddCellDividerProps {
 export const AddCellDivider: React.FC<AddCellDividerProps> = ({ onAddCode, onAddText, visible }) => {
   return (
     <div className={`group relative h-8 w-full flex items-center justify-center my-1 z-10 transition-opacity duration-200 ${visible ? 'opacity-100' : 'opacity-0 hover:opacity-100'}`}>
-      <div className="absolute inset-x-0 h-[1px] bg-sim-border group-hover:bg-sim-muted/30"></div>
+      <div className="absolute inset-x-0 h-[1px] bg-sim-border group-hover:bg-sim-muted"></div>
 
       <div className="flex gap-2 relative bg-transparent">
         <button

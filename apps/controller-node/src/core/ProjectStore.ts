@@ -1,7 +1,10 @@
 import fs from 'fs-extra';
 import path from 'path';
+import { config } from '../config.js';
 
-const STORE_FILE = path.resolve('./data/projects.json');
+function getStoreFile(): string {
+    return path.join(config.dataDir, 'projects.json');
+}
 
 // ── OctoML project structure ─────────────────────────────────────────────────
 
@@ -101,8 +104,9 @@ export class ProjectStore {
 
     private load(): void {
         try {
-            if (fs.existsSync(STORE_FILE)) {
-                const raw = fs.readFileSync(STORE_FILE, 'utf-8');
+            const storeFile = getStoreFile();
+            if (fs.existsSync(storeFile)) {
+                const raw = fs.readFileSync(storeFile, 'utf-8');
                 this.data = { ...defaultStore, ...JSON.parse(raw) };
             }
         } catch {
@@ -111,8 +115,9 @@ export class ProjectStore {
     }
 
     private async persist(): Promise<void> {
-        await fs.ensureDir(path.dirname(STORE_FILE));
-        await fs.writeJson(STORE_FILE, this.data, { spaces: 2 });
+        const storeFile = getStoreFile();
+        await fs.ensureDir(path.dirname(storeFile));
+        await fs.writeJson(storeFile, this.data, { spaces: 2 });
     }
 
     // ── Current project ───────────────────────────────────────────────────────
