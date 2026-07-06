@@ -270,6 +270,23 @@ const App: React.FC = () => {
             }
           }}
           onDeleteNotebook={() => { }}
+          onActivateCell={(indexOrId: number | string) => {
+            let targetId: string | undefined;
+            if (typeof indexOrId === 'number') {
+              const c = notebook.activeCells[indexOrId - 1];
+              if (c) targetId = c.id;
+            } else {
+              const c = notebook.activeCells.find(cell => cell.id === indexOrId);
+              if (c) targetId = c.id;
+            }
+            if (targetId) {
+              cells.setActiveCellId(targetId);
+              setTimeout(() => {
+                const el = document.getElementById(`cell-${targetId}`) || document.querySelector(`[data-cell-id="${targetId}"]`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 50);
+            }
+          }}
           notebookCells={notebook.activeCells}
           notebookName={notebook.activeFile?.name || 'Untitled'}
           notebookId={notebook.activeFile?.id}

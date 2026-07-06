@@ -326,6 +326,9 @@ export const Cell: React.FC<CellProps> = React.memo(({
 
     return (
         <div
+            id={`cell-${cell.id}`}
+            data-cell-id={cell.id}
+            data-cell-index={index + 1}
             onDragOver={handleDragOver}
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
             onDrop={handleDrop}

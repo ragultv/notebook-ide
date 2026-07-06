@@ -16,7 +16,7 @@ function safeRead(projectPath: string, userPath: string): string {
 }
 
 const DATA_PREVIEW_ROWS = 50;
-const MAX_TEXT_BYTES    = 8_000;
+const MAX_TEXT_BYTES    = 100_000;
 
 async function readDataFile(filePath: string, ext: string): Promise<{ content: string; meta?: string }> {
   if (ext === '.ipynb') {
@@ -155,31 +155,38 @@ export const readFileEntry: ToolEntry = {
 
       if (ext === '.ipynb') {
         ctx.mutableCtx.notebookPath = userPath;
+        ctx.current_notebook.path   = userPath;
         const bridge = getKernelBridge();
         if (bridge) {
           await bridge.updateBroadcastId(safePath);
         }
 
-        // Pre-populate runtimeCells from the notebook so runCell works immediately
-        // in this same turn — no second turn required.
-        if (ctx.current_notebook.cells.length === 0) {
-          try {
-            const rawNb = await fs.readFile(safePath, 'utf-8');
-            const nb = JSON.parse(rawNb) as { cells: Array<{ id?: string; cell_type: string; source: string | string[] }> };
-            if (Array.isArray(nb.cells)) {
-              ctx.mutableCtx.cellCounter = nb.cells.length;
-              nb.cells.forEach((cell, i) => {
-                const cellNum = i + 1;
-                const src = Array.isArray(cell.source) ? cell.source.join('') : (cell.source ?? '');
-                ctx.mutableCtx.runtimeCells.set(cellNum, {
-                  id:   cell.id ?? `cell-${cellNum}`,
-                  source: src,
-                  type: cell.cell_type as 'code' | 'markdown',
-                });
+        // Pre-populate runtimeCells and current_notebook.cells from the read notebook
+        // so runCell works immediately in this same turn on the newly opened notebook.
+        try {
+          const rawNb = await fs.readFile(safePath, 'utf-8');
+          const nb = JSON.parse(rawNb) as { cells: Array<{ id?: string; cell_type: string; source: string | string[] }> };
+          if (Array.isArray(nb.cells)) {
+            ctx.mutableCtx.cellCounter = nb.cells.length;
+            ctx.mutableCtx.runtimeCells.clear();
+            ctx.current_notebook.cells = [];
+            nb.cells.forEach((cell, i) => {
+              const cellNum = i + 1;
+              const src = Array.isArray(cell.source) ? cell.source.join('') : (cell.source ?? '');
+              const id  = cell.id ?? `cell-${cellNum}`;
+              ctx.mutableCtx.runtimeCells.set(cellNum, {
+                id,
+                source: src,
+                type:   cell.cell_type as 'code' | 'markdown',
               });
-            }
-          } catch { /* ignore — runCell will fall back to current_notebook.cells */ }
-        }
+              ctx.current_notebook.cells.push({
+                id,
+                source: src,
+                type:   cell.cell_type as 'code' | 'markdown',
+              });
+            });
+          }
+        } catch { /* ignore — runCell will fall back to current_notebook.cells */ }
 
         const loaded = ctx.mutableCtx.runtimeCells.size || ctx.current_notebook.cells.length;
         return {

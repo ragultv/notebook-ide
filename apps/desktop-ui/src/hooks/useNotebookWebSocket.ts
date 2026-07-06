@@ -23,7 +23,7 @@ export interface WebSocketMessage {
 export function useNotebookWebSocket(notebookId: string | null) {
     const wsRef = useRef<WebSocket | null>(null);
     const [connected, setConnected] = useState(false);
-    const [kernelStatus, setKernelStatus] = useState<'idle' | 'busy' | 'error' | 'starting'>('starting');
+    const [kernelStatus, setKernelStatus] = useState<'idle' | 'busy' | 'error' | 'starting' | 'dormant'>('dormant');
     // Map of message type → list of handlers
     const listeners = useRef<Map<string, Function[]>>(new Map());
     // Pending executions: localId → callback called when server sends execution_started
@@ -52,7 +52,7 @@ export function useNotebookWebSocket(notebookId: string | null) {
             ws.onclose = () => {
                 console.log(`[WebSocket] Disconnected for notebook: ${notebookId}`);
                 setConnected(false);
-                setKernelStatus('starting');
+                setKernelStatus('dormant');
                 // Remove exposed WS instance
                 if ((window as any).__notebookWS) {
                     delete (window as any).__notebookWS[notebookId];

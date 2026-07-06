@@ -162,7 +162,7 @@ win:
 nsis:
   oneClick: false
   perMachine: false
-  allowElevation: true
+  allowElevation: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true

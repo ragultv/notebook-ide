@@ -5,7 +5,7 @@ import type {
 import { OctomlStore } from './store/octoml-store.js';
 import { EmbeddingStore } from './embeddings/embedding-store.js';
 
-const TOKEN_BUDGET  = 8_000;
+const TOKEN_BUDGET  = 129_000;
 const CHARS_PER_TOK = 4;
 
 function est(text: string): number {
@@ -32,8 +32,8 @@ export async function buildContext(request: AgentRequest): Promise<BuiltContext>
   const [state, memory, recentChat, rawChunks, lastRun, knowledgeDocs] = await Promise.all([
     store.getState(),
     store.getMemory(),
-    store.getRecentChat(20),
-    embStore.search(lastMsg, 5).catch((): EmbeddingChunk[] => []),
+    store.getRecentChat(40),
+    embStore.search(lastMsg, 2).catch((): EmbeddingChunk[] => []),
     store.getLastRun(),
     store.getKnowledgeDocs(),
   ]);

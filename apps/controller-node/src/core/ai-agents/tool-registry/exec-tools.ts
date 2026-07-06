@@ -18,14 +18,16 @@ export function getKernelBridge(): KernelBridge | null {
 export const runCellEntry: ToolEntry = {
   definition: {
     name: 'runCell',
-    description: 'Execute a single notebook cell by its number or raw source. You must provide EITHER cell_number (as string) OR source code.',
+    description: 'Execute a single notebook cell by its number or raw source. You must provide EITHER cell_number (as string or number) OR source code.',
     inputSchema: z.object({
-      target: z.string().describe('The cell number to run (e.g. "1") or the raw Python source code to execute directly.'),
+      target: z.union([z.string(), z.number()]).optional().describe('The cell number to run (e.g. "1" or 1) or the raw Python source code.'),
+      cell_number: z.union([z.string(), z.number()]).optional().describe('The cell number to run (e.g. 1 or "1")'),
     }),
     permittedModes: ['AGENTIC'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
-    const target = input['target'] as string;
+    const rawTarget = input['target'] ?? input['cell_number'];
+    const target = String(rawTarget !== undefined && rawTarget !== null ? rawTarget : '');
     const isNumber = /^\d+$/.test(target.trim());
     let sourceToRun = '';
     let cellId: string | null = null;
@@ -33,28 +35,40 @@ export const runCellEntry: ToolEntry = {
 
     if (isNumber) {
       const n = parseInt(target.trim(), 10);
-      const existing = ctx.current_notebook.cells;
-      if (n <= existing.length) {
-        sourceToRun = existing[n - 1]!.source;
-        cellId      = existing[n - 1]!.id;
-        cellType    = existing[n - 1]!.type;
-      } else {
-        const runtime = ctx.mutableCtx.runtimeCells.get(n);
-        if (!runtime) return { success: false, error: `Cell ${n} not found` };
+      const runtime = ctx.mutableCtx.runtimeCells.get(n);
+      if (runtime) {
         sourceToRun = runtime.source;
         cellId      = runtime.id;
         cellType    = runtime.type;
+      } else {
+        const existing = ctx.current_notebook.cells;
+        if (n <= existing.length) {
+          sourceToRun = existing[n - 1]!.source;
+          cellId      = existing[n - 1]!.id;
+          cellType    = existing[n - 1]!.type;
+        } else {
+          return { success: false, error: `Cell ${n} not found` };
+        }
       }
     } else {
       sourceToRun = target;
       // If the agent passed raw source code, try to find the corresponding cell ID in the notebook
       // so we can broadcast the execution state to the UI.
-      const matchedCell = ctx.current_notebook.cells.find(
-        c => c.source.trim() === target.trim()
-      );
-      if (matchedCell) {
-        cellId = matchedCell.id;
-        cellType = matchedCell.type;
+      for (const cell of ctx.mutableCtx.runtimeCells.values()) {
+        if (cell.source.trim() === target.trim()) {
+          cellId = cell.id;
+          cellType = cell.type;
+          break;
+        }
+      }
+      if (!cellId) {
+        const matchedCell = ctx.current_notebook.cells.find(
+          c => c.source.trim() === target.trim()
+        );
+        if (matchedCell) {
+          cellId = matchedCell.id;
+          cellType = matchedCell.type;
+        }
       }
     }
 
@@ -78,13 +92,19 @@ export const runCellEntry: ToolEntry = {
     const store = new OctomlStore(ctx.project_path);
     const state = await store.getState();
     if (state.last_run_id) {
-      await fs.mkdir(store.getRunArtifactsDir(state.last_run_id), { recursive: true });
+      const runDir  = store.getRunArtifactsDir(state.last_run_id);
+      const outPath = path.join(runDir, `cell_${cellId ?? 'anon'}_output.json`);
+      await fs.mkdir(runDir, { recursive: true });
+      await fs.writeFile(outPath, JSON.stringify(result, null, 2), 'utf-8');
     }
 
     return {
       success: result.success,
-      data:    { outputs: result.outputs },
-      ...(result.error ? { error: `${result.error.ename}: ${result.error.evalue}` } : {}),
+      data: {
+        success: result.success,
+        outputs: result.outputs,
+        error:   result.error,
+      },
     };
   },
 };
@@ -100,7 +120,9 @@ export const runNotebookEntry: ToolEntry = {
     const bridge = _bridge;
     if (!bridge) return { success: false, error: 'Kernel bridge not connected' };
 
-    const { cells } = ctx.current_notebook;
+    const cells = ctx.mutableCtx.runtimeCells.size > 0
+      ? Array.from(ctx.mutableCtx.runtimeCells.entries()).sort((a, b) => a[0] - b[0]).map(e => e[1])
+      : ctx.current_notebook.cells;
     const fromId    = (input['from_cell_id'] as string || '').trim();
     const startIdx  = fromId ? cells.findIndex(c => c.id === fromId) : 0;
 

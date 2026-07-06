@@ -92,9 +92,18 @@ export class AgentRuntime {
 
     const mutableCtx = {
       notebookPath: request.current_notebook.path ?? null,
-      cellCounter:  request.current_notebook.cells.length,
+      cellCounter:  request.current_notebook.cells?.length ?? 0,
       runtimeCells: new Map<number, RuntimeCell>(),
     };
+    if (request.current_notebook?.cells) {
+      request.current_notebook.cells.forEach((c, idx) => {
+        mutableCtx.runtimeCells.set(idx + 1, {
+          id:     c.id,
+          source: c.source,
+          type:   c.type,
+        });
+      });
+    }
 
     if (mutableCtx.notebookPath) {
       const bridge = getKernelBridge();

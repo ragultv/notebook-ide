@@ -275,6 +275,10 @@ export class BridgeProcess extends EventEmitter {
 
     // ── PID file helpers (orphan guard) ────────────────────────────────────────
 
+    private static getSafeFilename(notebookId: string): string {
+        return notebookId.replace(/[^a-zA-Z0-9]/g, '_');
+    }
+
     private static getPidsDir(): string {
         return path.resolve(config.dataDir, 'pids');
     }
@@ -283,8 +287,9 @@ export class BridgeProcess extends EventEmitter {
         try {
             const dir = BridgeProcess.getPidsDir();
             fs.mkdirSync(dir, { recursive: true });
+            const safeName = BridgeProcess.getSafeFilename(this.notebookId);
             fs.writeFileSync(
-                path.join(dir, `${this.notebookId}.pid`),
+                path.join(dir, `${safeName}.pid`),
                 JSON.stringify({ pid, notebookId: this.notebookId, ts: Date.now() })
             );
         } catch (e) {
@@ -294,7 +299,8 @@ export class BridgeProcess extends EventEmitter {
 
     private deletePidFile(): void {
         try {
-            const pidFile = path.join(BridgeProcess.getPidsDir(), `${this.notebookId}.pid`);
+            const safeName = BridgeProcess.getSafeFilename(this.notebookId);
+            const pidFile = path.join(BridgeProcess.getPidsDir(), `${safeName}.pid`);
             if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
         } catch { /* ignore */ }
     }

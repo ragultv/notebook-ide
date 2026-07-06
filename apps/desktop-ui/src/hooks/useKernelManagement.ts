@@ -14,7 +14,7 @@ interface UseKernelManagementReturn {
 
 export const useKernelManagement = (activeFileId: string | null): UseKernelManagementReturn => {
   const {
-    setKernelStatus, setKernelId, setKernelMetrics,
+    kernelStatus, setKernelStatus, setKernelId, setKernelMetrics,
     clearKernelMetrics, setRuntimeType, recordMetricSnapshot, runtimeType
   } = useUIStore();
 
@@ -24,8 +24,13 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
   // GPU runtime → CUDA (cells run on VRAM), CPU runtime → CPU (cells run on RAM)
   const device = runtimeType === 'gpu' ? 'cuda' : 'cpu';
 
-  // Metrics polling - records notebook kernel process metrics only (not app-wide)
+  // Metrics polling - records notebook kernel process metrics only when kernel is active
   useEffect(() => {
+    if (kernelStatus !== 'idle' && kernelStatus !== 'busy') {
+      clearKernelMetrics();
+      return;
+    }
+
     const pollMetrics = async () => {
       try {
         const rawMetrics: any = await controllerClient.getKernelMetrics(activeFileId || 'default');
@@ -54,7 +59,7 @@ export const useKernelManagement = (activeFileId: string | null): UseKernelManag
     pollMetrics();
     const interval = setInterval(pollMetrics, 3000); // Poll metrics every 3 seconds
     return () => clearInterval(interval);
-  }, [activeFileId, setKernelMetrics, clearKernelMetrics, recordMetricSnapshot]);
+  }, [activeFileId, kernelStatus, setKernelMetrics, clearKernelMetrics, recordMetricSnapshot]);
 
   const handleConnectKernel = useCallback(async (runtime: RuntimeType) => {
     try {

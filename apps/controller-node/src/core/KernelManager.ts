@@ -25,6 +25,7 @@ interface InternalKernelState {
     bridge: BridgeProcess;
     info: KernelInfo;
     notebookId: string;
+    lastUsed: number;
     executionCallbacks: Map<string, {
         onOutput: (output: any) => void;
         onComplete: (result: any) => void;
@@ -42,9 +43,11 @@ export class KernelManager extends EventEmitter {
     private static instance: KernelManager;
     private kernels: Map<string, InternalKernelState> = new Map(); // notebookId -> state
     private pythonPath: string = 'python';
+    private cullInterval: NodeJS.Timeout | null = null;
 
     private constructor() {
         super();
+        this.startCuller();
     }
 
     public static getInstance(): KernelManager {
@@ -82,6 +85,7 @@ export class KernelManager extends EventEmitter {
                 status:         'starting',
                 executionCount: 0
             },
+            lastUsed: Date.now(),
             executionCallbacks: new Map(),
             inputRequestPending: false,
             executionQueue: Promise.resolve(),
@@ -122,6 +126,7 @@ export class KernelManager extends EventEmitter {
             case 'status':
                 const oldStatus = state.info.status;
                 state.info.status = msg.state === 'busy' ? 'busy' : 'idle';
+                state.lastUsed = Date.now();
                 this.emit('kernel:status_change', notebookId, state.info.status);
 
                 // Detect execution completion: busy -> idle transition for a specific execution
@@ -310,6 +315,7 @@ export class KernelManager extends EventEmitter {
             }
             state.bridge.kill();
             this.kernels.delete(notebookId);
+            this.emit('kernel:status_change', notebookId, 'dormant');
             this.emit('kernel:stopped', notebookId);
         }
     }
@@ -333,6 +339,7 @@ export class KernelManager extends EventEmitter {
             await this.startKernel(notebookId);
             state = this.kernels.get(notebookId)!;
         }
+        state.lastUsed = Date.now();
 
         // Use caller-supplied executionId so the WebSocket route can tell the browser
         // the SAME id it passes here — without this the browser listens to a phantom id.
@@ -501,6 +508,7 @@ export class KernelManager extends EventEmitter {
             state.bridge.send({ type: 'restart', notebook_id: notebookId });
             state.info.executionCount = 0;
             state.info.status = 'idle';
+            state.lastUsed = Date.now();
             state.inputRequestPending = false;
         }
     }
@@ -508,6 +516,7 @@ export class KernelManager extends EventEmitter {
     public async sendStdin(notebookId: string, executionId: string, value: string): Promise<void> {
         const state = this.kernels.get(notebookId);
         if (state) {
+            state.lastUsed = Date.now();
             state.bridge.send({
                 type: 'stdin_reply',
                 notebook_id: notebookId,
@@ -637,6 +646,24 @@ export class KernelManager extends EventEmitter {
             this.on('kernel:completions', onCompletions);
             state.bridge.send({ type: 'complete', notebook_id: notebookId, request_id: requestId, code, cursor_pos: cursorPos });
         });
+    }
+
+    private startCuller(): void {
+        if (this.cullInterval) clearInterval(this.cullInterval);
+        this.cullInterval = setInterval(() => {
+            const now = Date.now();
+            for (const [id, kernel] of this.kernels.entries()) {
+                if (kernel.info.status === 'busy' || kernel.info.status === 'starting') {
+                    continue;
+                }
+                if (now - kernel.lastUsed > 5 * 60 * 1000) { // 5 min idle
+                    console.log(`[KernelManager] Reaped idle kernel: ${id}`);
+                    this.stopKernel(id).catch(err => {
+                        console.error(`[KernelManager] Error reaping kernel ${id}:`, err);
+                    });
+                }
+            }
+        }, 60_000); // check every 60s
     }
 }
 

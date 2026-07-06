@@ -56,6 +56,7 @@ export const createCellEntry: ToolEntry = {
 
     // Register this cell so runCell / updateCell can find it by number
     ctx.mutableCtx.runtimeCells.set(cellNum, { id: newCellId, source, type: cellType });
+    ctx.current_notebook.cells.push({ id: newCellId, source, type: cellType });
 
     // Fire-and-forget disk sync — the UI updates immediately via the cell_create SSE event
     if (ctx.mutableCtx.notebookPath) {
@@ -115,16 +116,25 @@ export const updateCellEntry: ToolEntry = {
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
     const n        = input['cell_number'] as number;
     const source   = input['source'] as string;
-    const existing = ctx.current_notebook.cells;
     let cellId: string;
 
-    if (n <= existing.length) {
-      cellId = existing[n - 1]!.id;
-    } else {
-      const runtime = ctx.mutableCtx.runtimeCells.get(n);
-      if (!runtime) return { success: false, error: `Cell ${n} not found` };
+    const runtime = ctx.mutableCtx.runtimeCells.get(n);
+    if (runtime) {
       cellId = runtime.id;
       ctx.mutableCtx.runtimeCells.set(n, { ...runtime, source });
+      if (ctx.current_notebook.cells[n - 1]) {
+        ctx.current_notebook.cells[n - 1]!.source = source;
+      }
+    } else if (n <= ctx.current_notebook.cells.length) {
+      cellId = ctx.current_notebook.cells[n - 1]!.id;
+      ctx.current_notebook.cells[n - 1]!.source = source;
+      ctx.mutableCtx.runtimeCells.set(n, {
+        id: cellId,
+        source,
+        type: ctx.current_notebook.cells[n - 1]!.type,
+      });
+    } else {
+      return { success: false, error: `Cell ${n} not found` };
     }
 
     ctx.emit({ type: 'cell_update', cell_id: cellId, source });
@@ -223,8 +233,27 @@ export const createNotebookEntry: ToolEntry = {
       }
 
       ctx.mutableCtx.notebookPath = relPath;
-      ctx.mutableCtx.cellCounter  = existingCellCount;
-      if (!existed) ctx.mutableCtx.runtimeCells.clear();
+      ctx.current_notebook.path   = relPath;
+      ctx.current_notebook.cells  = [];
+      ctx.mutableCtx.runtimeCells.clear();
+
+      if (existed) {
+        try {
+          const raw      = await fs.readFile(notebookPath, 'utf-8');
+          const existing = JSON.parse(raw) as { cells?: Array<{ id?: string; cell_type: string; source: string | string[] }> };
+          if (Array.isArray(existing.cells)) {
+            existingCellCount = existing.cells.length;
+            existing.cells.forEach((cell, i) => {
+              const cellNum = i + 1;
+              const src = Array.isArray(cell.source) ? cell.source.join('') : (cell.source ?? '');
+              const id = cell.id ?? `cell-${cellNum}`;
+              ctx.mutableCtx.runtimeCells.set(cellNum, { id, source: src, type: cell.cell_type as 'code' | 'markdown' });
+              ctx.current_notebook.cells.push({ id, source: src, type: cell.cell_type as 'code' | 'markdown' });
+            });
+          }
+        } catch { /* ignore */ }
+      }
+      ctx.mutableCtx.cellCounter = existingCellCount;
 
       const bridge = getKernelBridge();
       if (bridge) await bridge.updateBroadcastId(notebookPath);
