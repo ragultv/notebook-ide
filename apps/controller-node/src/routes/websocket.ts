@@ -73,22 +73,16 @@ export async function websocketRoutes(fastify: FastifyInstance) {
         // Register into shared broadcast registry for agent cell execution
         registerNotebookSocket(notebookId, socket);
 
-        // ── Kernel startup ────────────────────────────────────────────────────
-        try {
-            const info = await kernelManager.startKernel(notebookId);
-            socket.send(JSON.stringify({
-                type:            'kernel_status',
-                notebook_id:     notebookId,
-                status:          info.status,
-                execution_count: info.executionCount,
-            }));
-        } catch (e: any) {
-            socket.send(JSON.stringify({
-                type:        'error',
-                notebook_id: notebookId,
-                error:       `Failed to start kernel: ${e.message}`,
-            }));
-        }
+        // ── Kernel startup (lazy) ─────────────────────────────────────────────
+        // Do not eagerly start process on tab open. Check if kernel is already running;
+        // if not, send dormant status. Kernel starts lazily on first execution.
+        const existingInfo = kernelManager.getKernelStatus(notebookId);
+        socket.send(JSON.stringify({
+            type:            'kernel_status',
+            notebook_id:     notebookId,
+            status:          existingInfo ? existingInfo.status : 'dormant',
+            execution_count: existingInfo ? existingInfo.executionCount : 0,
+        }));
 
         // ── KernelManager event listeners → browser ───────────────────────────
 

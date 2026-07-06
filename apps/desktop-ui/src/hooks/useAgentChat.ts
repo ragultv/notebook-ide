@@ -57,6 +57,7 @@ export interface ActivePlan {
   goal: string;
   tasks: Array<{ id: string; description: string; status: string }>;
   plan_path: string;
+  notebook_path?: string;
   msgId?: string;
   proceeded?: boolean;
 }

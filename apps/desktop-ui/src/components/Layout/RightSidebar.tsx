@@ -23,6 +23,7 @@ interface RightSidebarProps {
   onNotebookCreatedByAgent?: (path: string) => void;
   updateNotebookCellsById?: (notebookId: string, cells: CellData[] | ((prev: CellData[]) => CellData[])) => void;
   onOpenFile?: (path: string) => void;
+  onActivateCell?: (indexOrId: number | string) => void;
   onCellRunStart?: (cellId: string) => void;
   onCellRunComplete?: (cellId: string, success: boolean) => void;
   onDeleteNotebook: (name?: string) => void;
@@ -147,33 +148,204 @@ function ToolBlock({ tool, input, result, done }: {
 
 const MD_PROSE = `
   prose dark:prose-invert max-w-none
-  prose-p:leading-relaxed prose-p:my-1.5 prose-p:text-sim-text/90
-  prose-pre:bg-sim-bg prose-pre:border prose-pre:border-sim-border prose-pre:rounded-xl prose-pre:p-3 prose-pre:shadow-lg prose-pre:text-[11.5px]
-  prose-code:bg-sim-border/70 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[11px] prose-code:font-mono
-  prose-code:text-sim-red prose-code:before:content-none prose-code:after:content-none
-  prose-headings:text-sim-text/90 prose-headings:font-semibold prose-headings:tracking-tight prose-headings:mb-1.5 prose-headings:mt-3
-  prose-h1:text-lg prose-h2:text-base prose-h3:text-[13px]
-  prose-a:text-sim-red hover:prose-a:text-sim-redHover prose-a:transition-colors
-  prose-blockquote:border-l-2 prose-blockquote:border-sim-red/40 prose-blockquote:bg-sim-red/5 prose-blockquote:py-0.5 prose-blockquote:px-3 prose-blockquote:rounded-r prose-blockquote:text-sim-text/70
-  prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
-  prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
-  prose-li:my-0.5 prose-li:text-sim-text/80 prose-li:marker:text-sim-text/40
-  prose-strong:text-sim-text prose-strong:font-semibold
-  prose-em:text-sim-text/70
-  prose-table:text-[11.5px] prose-table:w-full prose-table:border-collapse
-  prose-th:border-b prose-th:border-sim-border prose-th:p-1.5 prose-th:text-left prose-th:text-sim-text/90
-  prose-td:border-b prose-td:border-sim-border prose-td:p-1.5 prose-td:text-sim-text/70
+  prose-p:leading-relaxed prose-p:my-2 prose-p:text-zinc-300
+  prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:tracking-tight prose-headings:mb-2 prose-headings:mt-4
+  prose-h1:text-base prose-h2:text-sm prose-h3:text-xs
+  prose-a:text-blue-400 hover:prose-a:text-blue-300 prose-a:transition-colors prose-a:no-underline hover:prose-a:underline
+  prose-blockquote:border-l-2 prose-blockquote:border-blue-500/40 prose-blockquote:bg-blue-500/5 prose-blockquote:py-1 prose-blockquote:px-3 prose-blockquote:rounded-r prose-blockquote:text-zinc-300
+  prose-ul:my-2 prose-ul:list-disc prose-ul:pl-5 prose-ul:space-y-1
+  prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-5 prose-ol:space-y-1
+  prose-li:text-zinc-300 prose-li:marker:text-zinc-500 prose-li:leading-relaxed
+  prose-strong:text-white prose-strong:font-semibold
+  prose-em:text-zinc-400
+  prose-table:text-xs prose-table:w-full prose-table:border-collapse prose-table:my-3
+  prose-th:border-b prose-th:border-white/10 prose-th:p-2 prose-th:text-left prose-th:text-zinc-200 prose-th:font-semibold prose-th:bg-white/5
+  prose-td:border-b prose-td:border-white/5 prose-td:p-2 prose-td:text-zinc-300
 `.trim();
 
-function MarkdownBlock({ text }: { text: string }) {
+function CodeCanvas({ language, code }: { language?: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
   return (
-    <div style={{ fontSize: '12px', lineHeight: '1.6' }} className={MD_PROSE}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    <div className="my-3 rounded-xl border border-white/10 bg-[#18181a] dark:bg-[#141416] shadow-xl overflow-hidden font-mono not-prose group">
+      <div className="flex items-center justify-between px-3.5 py-2 bg-white/5 border-b border-white/5 text-[11px] text-zinc-400 font-sans">
+        <div className="flex items-center gap-1.5 font-medium tracking-wide uppercase">
+          <span className="w-2 h-2 rounded-full bg-blue-400/60 inline-block" />
+          <span>{language || 'code'}</span>
+        </div>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition-colors text-[10px]"
+        >
+          <span>{copied ? '✓ Copied' : 'Copy'}</span>
+        </button>
+      </div>
+      <div className="p-3.5 overflow-x-auto text-[11.5px] leading-relaxed text-zinc-200 selection:bg-blue-500/30">
+        <pre className="m-0 font-mono bg-transparent border-none p-0 shadow-none text-inherit">
+          <code>{code}</code>
+        </pre>
+      </div>
     </div>
   );
 }
 
-function ThinkingAccordion({ text, defaultOpen = false }: { text: string; defaultOpen?: boolean }) {
+const LINK_REGEX = /\b(?:([\w/.\-]+\.(?:ipynb|py|ts|tsx|js|jsx|json|md|txt|csv|yml|yaml|css|html))|(cell[\s_#]*\d+))\b/gi;
+
+function linkifyText(
+  text: string,
+  onOpenFile?: (path: string) => void,
+  onActivateCell?: (indexOrId: number | string) => void
+): React.ReactNode[] {
+  const parts = text.split(LINK_REGEX);
+  const res: React.ReactNode[] = [];
+  let i = 0;
+  while (i < parts.length) {
+    const chunk = parts[i];
+    const fileMatch = parts[i + 1];
+    const cellMatch = parts[i + 2];
+    if (chunk) res.push(chunk);
+    if (fileMatch) {
+      res.push(
+        <button
+          key={`f-${i}`}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenFile?.(fileMatch); }}
+          title={`Open file: ${fileMatch}`}
+          className="inline-flex items-center gap-1 bg-[#2a2a2c] hover:bg-[#38383b] dark:bg-[#28282b] dark:hover:bg-[#3a3a3d] border border-white/10 dark:border-white/10 text-blue-300 hover:text-blue-200 rounded-md px-1.5 py-0.5 text-[11px] font-mono cursor-pointer transition-all duration-150 shadow-sm align-baseline group not-prose mx-0.5"
+        >
+          <span className="opacity-70 group-hover:opacity-100">📄</span>
+          <span className="underline decoration-blue-400/40 group-hover:decoration-blue-400">{fileMatch}</span>
+          <span className="text-[9px] opacity-60 group-hover:opacity-100">↗</span>
+        </button>
+      );
+    } else if (cellMatch) {
+      const numMatch = cellMatch.match(/\d+/);
+      const cellNum = numMatch ? parseInt(numMatch[0], 10) : 1;
+      res.push(
+        <button
+          key={`c-${i}`}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onActivateCell?.(cellNum); }}
+          title={`Jump to ${cellMatch}`}
+          className="inline-flex items-center gap-1 bg-[#2a2a2c] hover:bg-[#38383b] dark:bg-[#28282b] dark:hover:bg-[#3a3a3d] border border-white/10 dark:border-white/10 text-blue-300 hover:text-blue-200 rounded-md px-1.5 py-0.5 text-[11px] font-mono cursor-pointer transition-all duration-150 shadow-sm align-baseline group not-prose mx-0.5"
+        >
+          <span className="opacity-70 group-hover:opacity-100">📋</span>
+          <span className="underline decoration-blue-400/40 group-hover:decoration-blue-400">{cellMatch}</span>
+          <span className="text-[9px] opacity-60 group-hover:opacity-100">↗</span>
+        </button>
+      );
+    }
+    i += 3;
+  }
+  return res;
+}
+
+const processNodeChildren = (
+  children: any,
+  onOpenFile?: (path: string) => void,
+  onActivateCell?: (indexOrId: number | string) => void
+): any => {
+  if (!children) return children;
+  if (typeof children === 'string') return linkifyText(children, onOpenFile, onActivateCell);
+  if (Array.isArray(children)) {
+    return children.map((child, idx) => {
+      if (typeof child === 'string') return <React.Fragment key={idx}>{linkifyText(child, onOpenFile, onActivateCell)}</React.Fragment>;
+      return child;
+    });
+  }
+  return children;
+};
+
+function MarkdownBlock({ text, onOpenFile, onActivateCell }: {
+  text: string;
+  onOpenFile?: (path: string) => void;
+  onActivateCell?: (indexOrId: number | string) => void;
+}) {
+  const components = useMemo(() => ({
+    code({ className, children, ...props }: any) {
+      const match = /language-(\w+)/.exec(className || '');
+      const isBlock = Boolean(match) || String(children).includes('\n');
+      if (isBlock) {
+        const codeText = String(children).replace(/\n$/, '');
+        return <CodeCanvas language={match ? match[1] : undefined} code={codeText} />;
+      }
+      const str = String(children).trim();
+      const isFile = /\.(ipynb|py|ts|tsx|js|jsx|json|md|txt|csv|yml|yaml|css|html)$/i.test(str) || str.startsWith('notebooks/') || str.startsWith('src/');
+      const isCell = /^cell[\s_#]*(\d+)$/i.test(str) || /^#(\d+)$/i.test(str);
+      if ((isFile && onOpenFile) || (isCell && onActivateCell)) {
+        return (
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              if (isFile && onOpenFile) {
+                onOpenFile(str);
+              } else if (isCell && onActivateCell) {
+                const m = str.match(/\d+/);
+                if (m) onActivateCell(parseInt(m[0], 10));
+              }
+            }}
+            title={isFile ? `Open file: ${str}` : `Jump to ${str}`}
+            className="inline-flex items-center gap-1 bg-[#2a2a2c] hover:bg-[#38383b] dark:bg-[#28282b] dark:hover:bg-[#3a3a3d] border border-white/10 dark:border-white/10 text-blue-300 hover:text-blue-200 rounded-md px-1.5 py-0.5 text-[11px] font-mono cursor-pointer transition-all duration-150 shadow-sm align-baseline group not-prose mx-0.5"
+          >
+            <span className="opacity-70 group-hover:opacity-100">{isFile ? '📄' : '📋'}</span>
+            <span className="underline decoration-blue-400/40 group-hover:decoration-blue-400">{str}</span>
+            <span className="text-[9px] opacity-60 group-hover:opacity-100">↗</span>
+          </button>
+        );
+      }
+      return (
+        <code className="bg-[#2a2a2c] dark:bg-[#28282b] border border-white/10 dark:border-white/10 text-zinc-200 dark:text-zinc-200 rounded-md px-1.5 py-0.5 text-[11.5px] font-mono shadow-sm not-prose mx-0.5" {...props}>
+          {children}
+        </code>
+      );
+    },
+    p: ({ children, ...props }: any) => <p {...props}>{processNodeChildren(children, onOpenFile, onActivateCell)}</p>,
+    li: ({ children, ...props }: any) => <li {...props}>{processNodeChildren(children, onOpenFile, onActivateCell)}</li>,
+    span: ({ children, ...props }: any) => <span {...props}>{processNodeChildren(children, onOpenFile, onActivateCell)}</span>,
+    a: ({ href, children, ...props }: any) => {
+      const str = String(href || '').trim();
+      const isFile = /\.(ipynb|py|ts|tsx|js|jsx|json|md|txt|csv|yml|yaml|css|html)$/i.test(str) || str.startsWith('notebooks/') || str.startsWith('src/');
+      const isCell = /^cell[\s_#]*(\d+)$/i.test(str) || /^#(\d+)$/i.test(str);
+      if ((isFile && onOpenFile) || (isCell && onActivateCell)) {
+        return (
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              if (isFile && onOpenFile) {
+                onOpenFile(str);
+              } else if (isCell && onActivateCell) {
+                const m = str.match(/\d+/);
+                if (m) onActivateCell(parseInt(m[0], 10));
+              }
+            }}
+            title={`Open: ${str}`}
+            className="inline-flex items-center gap-1 bg-[#2a2a2c] hover:bg-[#38383b] dark:bg-[#28282b] dark:hover:bg-[#3a3a3d] border border-white/10 dark:border-white/10 text-blue-300 hover:text-blue-200 rounded-md px-1.5 py-0.5 text-[11px] font-mono cursor-pointer transition-all duration-150 shadow-sm align-baseline group not-prose mx-0.5"
+          >
+            <span className="opacity-70 group-hover:opacity-100">{isFile ? '📄' : '📋'}</span>
+            <span className="underline decoration-blue-400/40 group-hover:decoration-blue-400">{children || str}</span>
+            <span className="text-[9px] opacity-60 group-hover:opacity-100">↗</span>
+          </button>
+        );
+      }
+      return <a href={href} {...props}>{children}</a>;
+    },
+  }), [onOpenFile, onActivateCell]);
+
+  return (
+    <div style={{ fontSize: '12px', lineHeight: '1.6' }} className={MD_PROSE}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+function ThinkingAccordion({ text, defaultOpen = false, onOpenFile, onActivateCell }: {
+  text: string;
+  defaultOpen?: boolean;
+  onOpenFile?: (path: string) => void;
+  onActivateCell?: (indexOrId: number | string) => void;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   if (!text.trim()) return null;
   return (
@@ -187,14 +359,14 @@ function ThinkingAccordion({ text, defaultOpen = false }: { text: string; defaul
       </button>
       {open && (
         <div className="px-3 pb-2 pt-1 bg-transparent border-t border-sim-border">
-          <MarkdownBlock text={text} />
+          <MarkdownBlock text={text} onOpenFile={onOpenFile} onActivateCell={onActivateCell} />
         </div>
       )}
     </div>
   );
 }
 
-function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segments, activePlan, onOpenPlan, onProceedWithPlan, isLast, msgId }: {
+function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segments, activePlan, onOpenPlan, onOpenFile, onActivateCell, onProceedWithPlan, isLast, msgId }: {
   content: string;
   isStreaming: boolean;
   activities: string[];
@@ -202,6 +374,8 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
   segments?: MsgSegment[];
   activePlan?: ActivePlan | null;
   onOpenPlan?: (path: string) => void;
+  onOpenFile?: (path: string) => void;
+  onActivateCell?: (indexOrId: number | string) => void;
   onProceedWithPlan?: () => void;
   isLast: boolean;
   msgId: string;
@@ -222,7 +396,7 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
         // Render segments in insertion order — text and tool calls interleaved correctly
         segments!.map((seg, i) => {
           if (seg.kind === 'text') {
-            return <MarkdownBlock key={i} text={seg.text} />;
+            return <MarkdownBlock key={i} text={seg.text} onOpenFile={onOpenFile} onActivateCell={onActivateCell} />;
           }
           return <ToolBlock key={seg.id} tool={seg.tool} input={seg.input} result={seg.result} done={seg.done} />;
         })
@@ -232,7 +406,7 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
           {msgToolCalls.map(tc => (
             <ToolBlock key={tc.id} tool={tc.tool} input={tc.input} result={tc.result} done={tc.done} />
           ))}
-          {content && <MarkdownBlock text={content} />}
+          {content && <MarkdownBlock text={content} onOpenFile={onOpenFile} onActivateCell={onActivateCell} />}
         </>
       )}
 
@@ -373,27 +547,36 @@ function PlanShortcut({ plan, onOpen, onProceed }: {
   onOpen?: (path: string) => void;
   onProceed: () => void;
 }) {
-  const label = plan.goal.length > 36 ? plan.goal.slice(0, 35) + '…' : plan.goal;
   return (
-    <div className="mt-3 flex items-center gap-2 flex-wrap">
-      <button
-        onClick={() => onOpen?.(plan.plan_path)}
-        title="Open plan in editor"
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#2d1b4e] border border-[#4c2d82] text-xs text-[#d1b3ff] hover:bg-[#3b2366] transition-colors font-medium shadow-sm"
-      >
-        <span>📋</span>
-        <span className="max-w-[200px] truncate">{label}</span>
-        <span className="opacity-50 ml-1">↗</span>
-      </button>
-      {!plan.proceeded && (
+    <div className="mt-3.5 rounded-xl border border-white/10 dark:border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-3.5 shadow-lg backdrop-blur-md">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-purple-500/20 text-purple-300 text-xs">📋</span>
+          <span className="font-semibold text-[11px] text-purple-300 uppercase tracking-wider">Implementation Plan Ready</span>
+        </div>
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-300 border border-green-500/30 font-medium">Verified</span>
+      </div>
+      <p className="text-xs font-medium text-zinc-200 mb-3 line-clamp-2 leading-relaxed">{plan.goal}</p>
+      <div className="flex items-center gap-2">
         <button
-          onClick={onProceed}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#4a2615] border border-[#7a3d21] text-xs text-[#ffb088] hover:bg-[#5c2f1a] transition-colors font-medium shadow-sm"
+          onClick={() => onOpen?.(plan.plan_path)}
+          title="Open plan in editor"
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 text-xs font-medium transition-all duration-150 shadow-sm"
         >
-          <span>▶</span>
-          <span>Proceed in Agent</span>
+          <span>📄</span>
+          <span>Open Plan</span>
+          <span className="opacity-60 text-[10px]">↗</span>
         </button>
-      )}
+        {!plan.proceeded && (
+          <button
+            onClick={onProceed}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-medium shadow-md shadow-blue-500/20 hover:shadow-blue-500/30 border border-blue-400/30 transition-all duration-150"
+          >
+            <span>▶</span>
+            <span>Proceed in Agent</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -470,7 +653,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   activeCellId,
   modelsRefreshTrigger,
   width, isResizing, onStartResizing,
-  onOpenFile, onCellRunStart, onCellRunComplete, notebookId: notebookFileId,
+  onOpenFile, onActivateCell, onCellRunStart, onCellRunComplete, notebookId: notebookFileId,
 }) => {
   const { project } = useProject();
 
@@ -754,6 +937,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                     msgId={msg.id}
                     activePlan={activePlan?.msgId === msg.id ? activePlan : null}
                     onOpenPlan={onOpenFile}
+                    onOpenFile={onOpenFile}
+                    onActivateCell={onActivateCell}
                     onProceedWithPlan={isLast ? proceedWithPlan : undefined}
                   />
                 );
