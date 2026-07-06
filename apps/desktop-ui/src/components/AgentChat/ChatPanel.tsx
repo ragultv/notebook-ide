@@ -90,9 +90,10 @@ function PlanViewer({ goal, tasks, onProceed }: PlanViewerProps) {
       </ol>
       <button
         onClick={onProceed}
-        className="w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
+        className="w-full py-2 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-medium rounded-lg shadow-md shadow-blue-500/20 hover:shadow-blue-500/30 border border-blue-400/30 transition-all duration-150 flex items-center justify-center gap-1.5"
       >
-        ▶ Proceed — switch to Agentic and implement
+        <span>▶</span>
+        <span>Proceed — switch to Agentic and implement</span>
       </button>
     </div>
   );

@@ -8,6 +8,7 @@ const statusColors: Record<KernelStatus, string> = {
   idle: 'bg-green-500',
   busy: 'bg-sim-red animate-pulse',
   error: 'bg-red-600',
+  dormant: 'bg-gray-400',
 };
 
 export const RuntimeMenu: React.FC<{ onConnect: (type: RuntimeType) => void }> = ({ onConnect }) => {

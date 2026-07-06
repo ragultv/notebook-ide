@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type KernelStatus = 'disconnected' | 'connecting' | 'idle' | 'busy' | 'error';
+export type KernelStatus = 'disconnected' | 'connecting' | 'idle' | 'busy' | 'error' | 'dormant';
 
 export interface KernelProcessMetrics {
   pid: number | null;

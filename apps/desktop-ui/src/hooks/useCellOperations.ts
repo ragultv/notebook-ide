@@ -24,7 +24,14 @@ export const useCellOperations = (
       content,
       status: 'idle',
     };
-    updateCells(prev => [...prev, newCell]);
+    updateCells(prev => {
+      // When a notebook is created or opened with 0 cells on disk, the UI initializes with
+      // a single empty placeholder cell. Replace it instead of leaving an empty cell at the top.
+      if (prev.length === 1 && (!prev[0].content || prev[0].content.trim() === '')) {
+        return [newCell];
+      }
+      return [...prev, newCell];
+    });
   }, [updateCells]);
 
   const handleDeleteCellFromAI = useCallback((index: number) => {
