@@ -74,11 +74,11 @@ const start = async () => {
         // P1-7: Kill any orphaned kernel processes from a previous crashed session
         BridgeProcess.sweepOrphans();
 
-        // Initialize Octopod runtime managers (order matters: store → session → persistence)
+        // Initialize OctoML  runtime managers (order matters: store → session → persistence)
         // executionEngine is imported above — its constructor registers the queue executor
         sessionManager.initialize();
         persistenceManager.initialize(notebookManager);
-        server.log.info('[Octopod] Runtime managers initialized.');
+        server.log.info('[OctoML] Runtime managers initialized.');
 
         // API keys are now managed by the new agent system via model-router.ts
 

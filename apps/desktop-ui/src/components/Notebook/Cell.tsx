@@ -19,7 +19,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
     Play, Trash2, ArrowUp, ArrowDown, MoreHorizontal, Wrench,
-    CheckCircle2, XCircle, GripVertical, Loader2, StopCircle, X,
+    CheckCircle2, XCircle, GripVertical, Loader2, StopCircle, X, Square,
 } from 'lucide-react';
 import { CellData, CellOutput } from '../../types';
 import { controllerClient } from '../../services/controller.client';
@@ -295,12 +295,17 @@ export const Cell: React.FC<CellProps> = React.memo(({
 
     // ── Drag ──────────────────────────────────────────────────────────────────
     const handleDragStart = (e: React.DragEvent) => {
+        const cleanNbName = (notebookName || notebookId || 'notebook')
+            .split(/[/\\]/)
+            .pop()!
+            .replace(/\.ipynb$/i, '');
+        const exactFileName = `${cleanNbName}.${cell.id}.${cell.type === 'code' ? 'py' : 'md'}`;
         e.dataTransfer.setData('application/json', JSON.stringify({
-            type: 'cell-drag', index: index + 1, cellId: cell.id, notebookId, notebookName,
+            type: 'cell-drag', index: index + 1, cellId: cell.id, notebookId, notebookName: cleanNbName,
             content: cell.content, cellType: cell.type,
         }));
         e.dataTransfer.setData('application/x-cell-index', index.toString());
-        e.dataTransfer.setData('text/plain', `[Cell ${index + 1}]`);
+        e.dataTransfer.setData('text/plain', exactFileName);
         e.dataTransfer.effectAllowed = 'copyMove';
     };
 
@@ -363,22 +368,27 @@ export const Cell: React.FC<CellProps> = React.memo(({
                         {isRunning || isStopping ? (
                             <button
                                 onClick={(e) => { e.stopPropagation(); if (!isStopping) handleInterrupt(); }}
-                                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border
+                                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border
                                     ${isStopping
-                                        ? 'bg-blue-500/10 dark:bg-blue-950/20 text-sim-redHover border-sim-red ring-2 ring-sim-red cursor-not-allowed'
-                                        : 'bg-red-500/10 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-400 dark:border-red-500 ring-2 ring-red-400 dark:ring-red-500 hover:bg-red-500/20 dark:hover:bg-red-900/40'
+                                        ? 'bg-zinc-800/80 text-zinc-400 border-zinc-700 cursor-not-allowed'
+                                        : 'bg-zinc-800/60 hover:bg-red-500/10 text-zinc-300 hover:text-red-400 border-zinc-700/80 hover:border-red-500/40'
                                     }`}
                                 title={isStopping ? 'Stopping...' : 'Interrupt kernel'}
                                 disabled={isStopping}
                             >
                                 {isStopping
                                     ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    : <StopCircle className="w-3.5 h-3.5" />}
+                                    : (
+                                        <div className="relative flex items-center justify-center">
+                                            <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+                                            <Square className="w-1.5 h-1.5 fill-current absolute" />
+                                        </div>
+                                    )}
                             </button>
                         ) : isQueued ? (
                             <button
                                 onClick={(e) => { e.stopPropagation(); handleCancelQueue(); }}
-                                className="w-8 h-8 rounded-full flex items-center justify-center bg-yellow-500/10 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-500 border border-yellow-400 dark:border-yellow-600 hover:bg-yellow-500/20 dark:hover:bg-yellow-900/40 hover:text-yellow-750 dark:hover:text-yellow-300 hover:border-yellow-400 transition-all group/cancel"
+                                className="w-8 h-8 rounded-full flex items-center justify-center bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 hover:bg-yellow-500/20 transition-all group/cancel"
                                 title="Queued — click to cancel"
                             >
                                 <Loader2 className="w-3.5 h-3.5 animate-spin group-hover/cancel:hidden" />
@@ -388,11 +398,11 @@ export const Cell: React.FC<CellProps> = React.memo(({
                             <button
                                 onClick={(e) => { e.stopPropagation(); runCell(); }}
                                 disabled={!connected}
-                                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md border
-                                    ${!connected ? 'opacity-40 cursor-not-allowed bg-sim-border border-sim-border text-sim-muted' : ''}
-                                    ${isSuccess ? 'bg-green-500/10 dark:bg-green-950/40 text-green-600 dark:text-green-500 border-green-300 dark:border-green-800 hover:border-green-500 hover:bg-green-500/20 dark:hover:bg-green-950/60 shadow-lg' : ''}
-                                    ${isError ? 'bg-red-500/10 dark:bg-red-900/20 text-red-600 dark:text-red-500 border-red-300 dark:border-red-500 hover:bg-red-500/20 dark:hover:bg-red-900/40' : ''}
-                                    ${!isRunning && !isSuccess && !isError && connected ? 'bg-sim-border border-sim-border text-sim-text hover:bg-sim-selection hover:border-sim-red/50 hover:text-sim-red' : ''}
+                                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border
+                                    ${!connected ? 'opacity-40 cursor-not-allowed bg-transparent border-transparent text-sim-muted' : ''}
+                                    ${isSuccess ? 'bg-transparent text-zinc-400 border-zinc-700/60 hover:text-zinc-200 hover:bg-zinc-800/50' : ''}
+                                    ${isError ? 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20' : ''}
+                                    ${!isRunning && !isSuccess && !isError && connected ? 'bg-transparent border-transparent text-zinc-400 hover:bg-zinc-800/60 hover:border-zinc-700 hover:text-zinc-200' : ''}
                                 `}
                                 title={connected ? 'Run cell (Shift+Enter)' : 'Kernel not connected'}
                             >
@@ -403,7 +413,7 @@ export const Cell: React.FC<CellProps> = React.memo(({
                         {/* Elapsed timer — only shown once the kernel has actually started */}
                         {(isRunning || isStopping) && execInfo?.runStartTime != null && (
                             <div className="flex flex-col items-center mt-1">
-                                <span className={`text-[10px] font-mono tabular-nums ${isStopping ? 'text-sim-redHover' : 'text-green-400'}`}>
+                                <span className={`text-[10px] font-mono tabular-nums ${isStopping ? 'text-red-400' : 'text-zinc-400'}`}>
                                     {isStopping ? 'Stopping' : (elapsedMs < 1 ? '0ms' : formatDuration(elapsedMs))}
                                 </span>
                             </div>

@@ -16,8 +16,7 @@ export class KernelBridge {
 
   async connect(notebookId: string): Promise<void> {
     this.notebookId = notebookId;
-    // Ensure the kernel is started; startKernel is idempotent if already running
-    await this.manager.startKernel(notebookId);
+    // Kernel process starts lazily on first cell execution via KernelManager.executeCode
   }
 
   /**
@@ -72,7 +71,7 @@ export class KernelBridge {
 
     try {
       const result = await this.manager.executeCode(
-        this.notebookId,
+        nbId,
         source,
         {
           onOutput: (output: Record<string, unknown>) => {

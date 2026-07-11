@@ -5,6 +5,7 @@ import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
 import { useAgentChat } from '../../hooks/useAgentChat.js';
 import type { NotebookCell } from '../../hooks/useAgentChat.js';
+import { CodeCanvas } from '../shared/CodeCanvas.js';
 import { ModeSelector } from './ModeSelector.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
 import { EscalationBanner } from './EscalationBanner.js';
@@ -23,30 +24,43 @@ interface ChatPanelProps {
 
 function AssistantMessage({ content }: { content: string }) {
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:p-0 prose-pre:bg-transparent prose-code:before:content-none prose-code:after:content-none">
+    <div className="prose prose-sm dark:prose-invert max-w-none text-[13px] leading-relaxed prose-p:my-3.5 prose-p:leading-relaxed prose-headings:mt-5 prose-headings:mb-3 prose-ul:my-3.5 prose-ul:space-y-2 prose-ol:my-3.5 prose-ol:space-y-2 prose-li:my-1 prose-pre:p-0 prose-pre:bg-transparent prose-code:before:content-none prose-code:after:content-none">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
         components={{
-          pre: ({ children }) => (
-            <pre className="rounded-md overflow-x-auto text-xs bg-gray-900 text-gray-100 p-3 my-2">{children}</pre>
-          ),
+          pre: ({ children }) => <>{children}</>,
           code: ({ className, children, ...props }) => {
-            const isBlock = className?.startsWith('language-');
-            return isBlock
-              ? <code className={className} {...props}>{children}</code>
-              : <code className="bg-gray-200 dark:bg-gray-700 rounded px-1 py-0.5 text-xs font-mono" {...props}>{children}</code>;
+            const match = /language-(\w+)/.exec(className || '');
+            const isBlock = Boolean(match) || String(children).includes('\n');
+            if (isBlock) {
+              const codeText = String(children).replace(/\n$/, '');
+              return <CodeCanvas language={match ? match[1] : undefined} code={codeText} />;
+            }
+            return <code className="bg-gray-200 dark:bg-gray-700 rounded px-1 py-0.5 text-xs font-mono" {...props}>{children}</code>;
           },
+          h1: ({ children, ...props }) => (
+            <h1 className="text-[18px] font-bold text-gray-900 dark:text-white mt-7 mb-3.5 tracking-tight border-b border-gray-200 dark:border-white/10 pb-2" {...props}>{children}</h1>
+          ),
+          h2: ({ children, ...props }) => (
+            <h2 className="text-[16px] font-bold text-gray-900 dark:text-white mt-6 mb-3 tracking-tight" {...props}>{children}</h2>
+          ),
+          h3: ({ children, ...props }) => (
+            <h3 className="text-[14.5px] font-bold text-gray-900 dark:text-white mt-6 mb-3 tracking-tight" {...props}>{children}</h3>
+          ),
+          h4: ({ children, ...props }) => (
+            <h4 className="text-[13.5px] font-bold text-gray-900 dark:text-white mt-5 mb-2.5 tracking-tight" {...props}>{children}</h4>
+          ),
           table: ({ children }) => (
-            <div className="overflow-x-auto my-2">
-              <table className="text-xs border-collapse w-full">{children}</table>
+            <div className="my-4 overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#141416] shadow-sm not-prose">
+              <table className="w-full text-left border-collapse text-[12.5px]">{children}</table>
             </div>
           ),
           th: ({ children }) => (
-            <th className="border border-gray-300 dark:border-gray-600 px-2 py-1 bg-gray-100 dark:bg-gray-700 font-semibold text-left">{children}</th>
+            <th className="border-b border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3.5 py-2.5 font-bold text-gray-900 dark:text-zinc-100 whitespace-nowrap text-[12px] uppercase tracking-wider">{children}</th>
           ),
           td: ({ children }) => (
-            <td className="border border-gray-300 dark:border-gray-600 px-2 py-1">{children}</td>
+            <td className="border-b border-gray-200 dark:border-white/5 px-3.5 py-2.5 text-gray-700 dark:text-zinc-300 leading-relaxed break-words">{children}</td>
           ),
         }}
       >
@@ -128,11 +142,14 @@ export function ChatPanel({
     onCellRunStart, onCellRunComplete,
   });
 
-  // "Switch & Continue" — switches mode then immediately sends a continue message
+
+
+  // "Switch & Continue" — switches mode then sends explicit instruction to execute the next step without repeating explanation
   const handleSwitchAndContinue = useCallback((newMode: typeof mode) => {
     setMode(newMode);
     dismissEscalation();
-    void sendMessage('Continue. Proceed autonomously in the new mode.', newMode);
+    const prompt = `We have switched to ${newMode} mode. Based on your previous analysis and recommendations, immediately execute the next concrete step or action (such as creating/editing cells, running code, or implementing pending plan tasks). Do NOT repeat or summarize the previous explanation—proceed directly with implementation.`;
+    void sendMessage(prompt, newMode);
   }, [setMode, dismissEscalation, sendMessage]);
 
   // Track which assistant messages have a plan attached

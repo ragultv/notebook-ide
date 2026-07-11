@@ -40,6 +40,7 @@ const BUILTIN: Array<{ id: string; name: string; type: string; base_url: string 
   { id: 'deepseek',   name: 'DeepSeek',      type: 'deepseek',   base_url: 'https://api.deepseek.com/v1' },
   { id: 'openrouter', name: 'OpenRouter',    type: 'openrouter', base_url: 'https://openrouter.ai/api/v1' },
   { id: 'togetherai', name: 'Together AI',   type: 'togetherai', base_url: 'https://api.together.xyz/v1' },
+  { id: 'cerebras', name: 'Cerebras', type: 'cerebras', base_url: 'https://api.cerebras.ai/v1' },
 ];
 
 // ── DB singleton ──────────────────────────────────────────────────────────────

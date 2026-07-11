@@ -18,7 +18,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onActivateTab
     };
 
     return (
-        <div className="flex items-center bg-transparent h-full select-none overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1 bg-transparent h-full select-none overflow-x-auto no-scrollbar px-1">
             {tabs.map(tab => {
                 const isActive = tab.id === activeTabId;
                 return (
@@ -26,12 +26,12 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onActivateTab
                         key={tab.id}
                         onClick={() => onActivateTab(tab.id)}
                         className={`
-              group flex items-center gap-2 px-3 h-full border-r border-sim-border cursor-pointer min-w-[120px] max-w-[200px] text-xs transition-colors
-              ${isActive
-                                ? 'bg-sim-surface text-sim-text border-t-2 border-t-sim-red font-semibold'
-                                : 'bg-sim-bg text-sim-muted hover:bg-sim-surface hover:text-sim-text border-t-2 border-t-transparent'
+                            group relative flex items-center gap-2 px-3 py-1.5 my-0.5 rounded-lg cursor-pointer min-w-[110px] max-w-[200px] text-xs transition-all
+                            ${isActive
+                                ? 'bg-white/10 dark:bg-zinc-800/80 text-sim-text font-medium shadow-sm border border-white/10'
+                                : 'bg-transparent text-sim-muted hover:bg-white/5 dark:hover:bg-zinc-800/40 hover:text-sim-text border border-transparent'
                             }
-            `}
+                        `}
                     >
                         <span className="flex-shrink-0 opacity-80">{getIcon(tab)}</span>
                         <span className="truncate flex-1 font-mono">{tab.title}</span>
@@ -41,17 +41,17 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onActivateTab
                                 onCloseTab(tab.id, e);
                             }}
                             className={`
-                p-0.5 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-sim-border
-                ${isActive ? 'text-sim-text' : 'text-sim-muted'}
-              `}
+                                p-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/10
+                                ${isActive ? 'text-sim-text' : 'text-sim-muted'}
+                            `}
                         >
                             <X className="w-3 h-3" />
                         </button>
                         {tab.isDirty && !isActive && (
-                            <div className="w-2 h-2 rounded-full bg-sim-muted ml-1 opacity-50" />
+                            <div className="w-1.5 h-1.5 rounded-full bg-sim-muted ml-1 opacity-50" />
                         )}
                         {tab.isDirty && isActive && (
-                            <div className="w-2 h-2 rounded-full bg-sim-red ml-1" />
+                            <div className="w-1.5 h-1.5 rounded-full bg-red-400 ml-1" />
                         )}
                     </div>
                 );

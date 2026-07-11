@@ -11,6 +11,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   deepseek:   '🐋',
   openrouter: '🔀',
   togetherai: '🤝',
+  cerebras:   '🧠',
   custom:     '🔧',
 };
 
@@ -23,6 +24,7 @@ const PROVIDER_DOCS: Record<string, string> = {
   deepseek:   'https://platform.deepseek.com',
   openrouter: 'https://openrouter.ai/keys',
   togetherai: 'https://api.together.ai/settings/api-keys',
+  cerebras:   'https://api.cerebras.ai',
 };
 
 interface ProviderCardProps {

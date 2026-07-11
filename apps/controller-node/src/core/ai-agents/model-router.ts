@@ -23,7 +23,7 @@ function buildModel(providerId: string, modelId: string): LanguageModel {
     }
     case 'openai': {
       if (!apiKey) throw new Error(`No API key for OpenAI`);
-      return createOpenAI({ apiKey })(modelId);
+      return createOpenAI({ apiKey }).chat(modelId);
     }
     case 'groq': {
       if (!apiKey) throw new Error(`No API key for Groq`);
@@ -37,12 +37,19 @@ function buildModel(providerId: string, modelId: string): LanguageModel {
       if (!apiKey) throw new Error(`No API key for DeepSeek`);
       return createDeepSeek({ apiKey })(modelId);
     }
+    case 'cerebras': {
+      if (!apiKey) throw new Error(`No API key for Cerebras`);
+      return createOpenAI({
+        apiKey,
+        baseURL: 'https://api.cerebras.ai/v1',
+      }).chat(modelId);
+    }
     default: {
       // nvidia, openrouter, togetherai, custom — all OpenAI-compatible
       return createOpenAI({
         apiKey:  apiKey || 'local',
         baseURL: baseUrl,
-      })(modelId);
+      }).chat(modelId);
     }
   }
 }

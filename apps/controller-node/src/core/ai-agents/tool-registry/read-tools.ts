@@ -23,18 +23,27 @@ async function readDataFile(filePath: string, ext: string): Promise<{ content: s
     const raw = await fs.readFile(filePath, 'utf-8');
     try {
       const parsed = JSON.parse(raw);
-      // Strip outputs from cells so agent only sees the source code
+      // Return 2-3 line code preview per cell to save prompt context
       if (Array.isArray(parsed.cells)) {
-        parsed.cells = parsed.cells.map((cell: any) => ({
-          cell_type: cell.cell_type,
-          source: cell.source,
-        }));
+        const cellPreviews = parsed.cells.map((cell: any, idx: number) => {
+          const srcString = Array.isArray(cell.source) ? cell.source.join('') : (cell.source ?? '');
+          const lines = srcString.split('\n');
+          const previewLines = lines.slice(0, 3).join('\n');
+          const isTruncated = lines.length > 3;
+          return {
+            cell_number: idx + 1,
+            id: cell.id || `cell-${idx + 1}`,
+            cell_type: cell.cell_type,
+            preview: isTruncated ? `${previewLines}\n... (${lines.length - 3} more lines)` : previewLines,
+            total_lines: lines.length,
+          };
+        });
+        const pretty = JSON.stringify({ cells: cellPreviews }, null, 2);
+        return {
+          content: pretty.slice(0, MAX_TEXT_BYTES),
+          meta: `Notebook with ${parsed.cells.length} cells (showing 2-3 line previews per cell. Use readCell tool with target cell_number to read full content cell by cell if more context is needed)`,
+        };
       }
-      const pretty = JSON.stringify(parsed, null, 2);
-      return {
-        content: pretty.slice(0, MAX_TEXT_BYTES),
-        meta: `Notebook with ${parsed.cells?.length || 0} cells${pretty.length > MAX_TEXT_BYTES ? ` [truncated to ${MAX_TEXT_BYTES} chars]` : ''}`,
-      };
     } catch {
       return { content: raw.slice(0, MAX_TEXT_BYTES) };
     }
@@ -142,7 +151,7 @@ export const listProjectEntry: ToolEntry = {
 export const readFileEntry: ToolEntry = {
   definition: {
     name: 'readFile',
-    description: 'Read a file relative to the project root. Handles csv, json, py, xlsx, and text files. Never reads outside the project.',
+    description: 'Read a file relative to the project root. For notebooks (.ipynb), returns 2-3 line previews per cell. Use readCell to read full cell content cell by cell.',
     inputSchema: z.object({ path: z.string() }),
     permittedModes: ['ASK', 'PLAN', 'AGENT', 'AGENTIC'],
   },
@@ -158,7 +167,7 @@ export const readFileEntry: ToolEntry = {
         ctx.current_notebook.path   = userPath;
         const bridge = getKernelBridge();
         if (bridge) {
-          await bridge.updateBroadcastId(safePath);
+          await bridge.updateBroadcastId(userPath);
         }
 
         // Pre-populate runtimeCells and current_notebook.cells from the read notebook
@@ -196,7 +205,7 @@ export const readFileEntry: ToolEntry = {
             meta,
             cells_loaded: loaded,
             _INSTRUCTION: loaded > 0
-              ? `${loaded} cells are now ready. You may call runCell(1) through runCell(${loaded}) directly in this same turn.`
+              ? `${loaded} cells loaded with 2-3 line code previews. If more context is needed, use readCell({ target: "1" }) to inspect full code cell by cell. You may also call runCell(1) through runCell(${loaded}).`
               : 'Notebook opened. No cells found — you may add cells with createCell.',
           }
         };

@@ -81,15 +81,16 @@ export class OctomlStore {
     await fs.appendFile(file, JSON.stringify(turn) + '\n', 'utf-8');
   }
 
-  async getPlan(planId: string): Promise<Plan | null> {
+  async getPlan(_planId?: string): Promise<Plan | null> {
     return this.readJson<Plan | null>(
-      this.resolve('plans', `${planId}.json`),
+      this.resolve('plan.json'),
       null,
     );
   }
 
   async savePlan(plan: Plan): Promise<void> {
-    await this.writeJson(this.resolve('plans', `${plan.id}.json`), plan);
+    await this.writeJson(this.resolve('plan.json'), plan);
+    await fs.rm(this.resolve('plans'), { recursive: true, force: true }).catch(() => undefined);
   }
 
   async getLastRun(): Promise<RunResult | null> {

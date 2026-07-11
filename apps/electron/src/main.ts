@@ -14,6 +14,7 @@ import {
 import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { spawn, ChildProcess } from 'child_process';
 import * as http from 'http';
 import { pathToFileURL } from 'url';
@@ -42,7 +43,7 @@ Menu.setApplicationMenu(null);
 // diagnosable without DevTools.
 function setupLogFile(): fs.WriteStream | null {
   try {
-    const logDir = path.join(app.getPath('home'), '.octoml', 'logs');
+    const logDir = path.join(os.homedir(), '.octoml', 'logs');
     fs.mkdirSync(logDir, { recursive: true });
     return fs.createWriteStream(path.join(logDir, 'main.log'), { flags: 'a' });
   } catch {
@@ -120,7 +121,7 @@ function spawnServer(): void {
 
   console.log('[Electron] Spawning server:', cmd, args.join(' '));
 
-  const prodDataDir = path.join(app.getPath('home'), '.octoml', 'data');
+  const prodDataDir = path.join(os.homedir(), '.octoml', 'data');
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     PORT: String(SERVER_PORT),
@@ -164,23 +165,40 @@ function spawnServer(): void {
  */
 function waitForServer(timeout = 30_000): Promise<void> {
   return new Promise((resolve, reject) => {
-    const start    = Date.now();
-    const interval = setInterval(() => {
+    const start = Date.now();
+    let resolved = false;
+
+    const checkHealth = () => {
+      if (resolved) return;
       if (Date.now() - start > timeout) {
-        clearInterval(interval);
+        resolved = true;
         reject(new Error('Server startup timed out'));
         return;
       }
       http.get(`${SERVER_URL}/health`, (res) => {
-        if (res.statusCode === 200) {
-          clearInterval(interval);
+        if (res.statusCode === 200 && !resolved) {
+          resolved = true;
           serverReady = true;
           resolve();
+        } else if (!resolved) {
+          setTimeout(checkHealth, 200);
         }
-      }).on('error', () => { /* server not ready yet */ });
-    }, 500);
+      }).on('error', () => {
+        if (!resolved) {
+          setTimeout(checkHealth, 200);
+        }
+      });
+    };
+
+    checkHealth();
   });
 }
+
+// ── Early Server Startup ──────────────────────────────────────────────────────
+// Start the backend server even before app.whenReady() so startup runs in parallel
+// with Electron's native initialization.
+spawnServer();
+const serverReadyPromise = waitForServer();
 
 // ── BrowserWindow ─────────────────────────────────────────────────────────────
 
@@ -196,11 +214,12 @@ function createWindow(): void {
     frame:          false,                    // hide default OS window controls
     backgroundColor: '#0d0d0f',              // match app dark background
     webPreferences: {
-      preload:           path.join(__dirname, 'preload.js'),
-      nodeIntegration:   false,              // security: no direct Node access
-      contextIsolation:  true,              // security: context bridge only
-      sandbox:           false,              // needed for contextBridge with preload
-      webSecurity:       true,
+      preload:              path.join(__dirname, 'preload.js'),
+      nodeIntegration:      false,              // security: no direct Node access
+      contextIsolation:     true,               // security: context bridge only
+      sandbox:              false,              // needed for contextBridge with preload
+      webSecurity:          true,
+      backgroundThrottling: false,              // prevent Chromium from throttling/disconnecting sockets after long runtime
     },
     icon: getAppIcon(),
   });
@@ -213,8 +232,13 @@ function createWindow(): void {
     mainWindow?.show();
   });
 
-  // Load renderer with retry logic (useful in dev mode when Vite is booting)
-  const loadRenderer = () => {
+  // Load renderer with retry logic after backend server is ready on port 3001
+  const loadRenderer = async () => {
+    try {
+      await serverReadyPromise;
+    } catch (err: any) {
+      console.warn('[Electron] Server startup wait error:', err.message);
+    }
     mainWindow?.loadURL(RENDERER_URL).catch((err) => {
       console.warn('[Electron] Failed to load renderer URL, retrying in 500ms...', err.message);
       setTimeout(loadRenderer, 500);
@@ -402,15 +426,12 @@ app.whenReady().then(async () => {
 
   registerIPCHandlers();
 
-  // 1. Spawn the backend server
-  spawnServer();
-
-  // 2. Create the window immediately (shows a loading state)
+  // 1. Create the window (loadRenderer inside createWindow awaits serverReadyPromise)
   createWindow();
 
-  // 3. Wait for server to be ready, then tell the renderer
+  // 2. Wait for early-spawned server to be ready, then notify renderer
   try {
-    await waitForServer();
+    await serverReadyPromise;
     log('[Electron] Server is ready on port', SERVER_PORT);
     mainWindow?.webContents.send('server:log', `[READY] Server listening on :${SERVER_PORT}`);
   } catch (err) {

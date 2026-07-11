@@ -18,23 +18,43 @@ export function getKernelBridge(): KernelBridge | null {
 export const runCellEntry: ToolEntry = {
   definition: {
     name: 'runCell',
-    description: 'Execute a single notebook cell by its number or raw source. You must provide EITHER cell_number (as string or number) OR source code.',
+    description: 'Execute a single notebook cell by its 1-based cell number (1, 2, ...). Example: runCell({ cell_number: 1 })',
     inputSchema: z.object({
-      target: z.union([z.string(), z.number()]).optional().describe('The cell number to run (e.g. "1" or 1) or the raw Python source code.'),
-      cell_number: z.union([z.string(), z.number()]).optional().describe('The cell number to run (e.g. 1 or "1")'),
+      cell_number: z.union([z.string(), z.number()]).optional().describe('The 1-based cell number to run (e.g. 1 or "1")'),
+      target: z.union([z.string(), z.number()]).optional().describe('The 1-based cell number to run (e.g. 1 or "1")'),
+      source: z.string().optional().describe('Optional raw source code to run'),
+      number: z.union([z.string(), z.number()]).optional(),
+      cell: z.union([z.string(), z.number()]).optional(),
     }),
     permittedModes: ['AGENTIC'],
   },
   execute: async (input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> => {
-    const rawTarget = input['target'] ?? input['cell_number'];
-    const target = String(rawTarget !== undefined && rawTarget !== null ? rawTarget : '');
-    const isNumber = /^\d+$/.test(target.trim());
+    let rawTarget = input['cell_number'] ?? input['target'] ?? input['number'] ?? input['cell'] ?? input['source'];
+    let target = String(rawTarget !== undefined && rawTarget !== null ? rawTarget : '').trim();
+
+    const totalCells = Math.max(ctx.mutableCtx.runtimeCells.size, ctx.current_notebook.cells.length);
+
+    // If no argument was provided (e.g. `{}`) or target is empty:
+    if (!target) {
+      if (totalCells === 1) {
+        target = '1';
+      } else if (totalCells > 1) {
+        return {
+          success: false,
+          error: `Missing required argument 'cell_number'. Please call runCell({ cell_number: 1 }) through runCell({ cell_number: ${totalCells} }).`
+        };
+      } else {
+        return { success: false, error: 'No cells exist in the notebook to execute.' };
+      }
+    }
+
+    const isNumber = /^\d+$/.test(target);
     let sourceToRun = '';
     let cellId: string | null = null;
     let cellType: string | null = null;
 
     if (isNumber) {
-      const n = parseInt(target.trim(), 10);
+      const n = parseInt(target, 10);
       const runtime = ctx.mutableCtx.runtimeCells.get(n);
       if (runtime) {
         sourceToRun = runtime.source;
@@ -42,18 +62,16 @@ export const runCellEntry: ToolEntry = {
         cellType    = runtime.type;
       } else {
         const existing = ctx.current_notebook.cells;
-        if (n <= existing.length) {
+        if (n >= 1 && n <= existing.length) {
           sourceToRun = existing[n - 1]!.source;
           cellId      = existing[n - 1]!.id;
           cellType    = existing[n - 1]!.type;
         } else {
-          return { success: false, error: `Cell ${n} not found` };
+          return { success: false, error: `Cell ${n} not found. Available cells: 1 to ${totalCells}.` };
         }
       }
     } else {
       sourceToRun = target;
-      // If the agent passed raw source code, try to find the corresponding cell ID in the notebook
-      // so we can broadcast the execution state to the UI.
       for (const cell of ctx.mutableCtx.runtimeCells.values()) {
         if (cell.source.trim() === target.trim()) {
           cellId = cell.id;
@@ -70,6 +88,10 @@ export const runCellEntry: ToolEntry = {
           cellType = matchedCell.type;
         }
       }
+    }
+
+    if (!sourceToRun.trim()) {
+      return { success: false, error: `Cell is empty or not found. Please provide a valid 1-based cell_number (e.g. { cell_number: 1 }).` };
     }
 
     if (cellType === 'markdown') {
