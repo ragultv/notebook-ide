@@ -43,6 +43,9 @@ export const createPlanEntry: ToolEntry = {
     await store.savePlan(plan);
     await store.setState({ active_plan_id: plan.id });
 
+    // Clean up any old separate .octoml/plans directory so there is only ever a single plan
+    await fs.rm(path.join(ctx.project_path, '.octoml', 'plans'), { recursive: true, force: true }).catch(() => undefined);
+
     // Write human-readable plan.md to .octoml/
     const planMdPath = path.join(ctx.project_path, '.octoml', 'plan.md');
     await fs.mkdir(path.dirname(planMdPath), { recursive: true });
@@ -97,15 +100,17 @@ export const updatePlanEntry: ToolEntry = {
     plan.updated_at = new Date().toISOString();
     await store.savePlan(plan);
 
-    // Keep plan.md in sync with task status
+    // Keep single plan.md in sync with task status
+    const isAllDone = plan.tasks.length > 0 && plan.tasks.every(t => t.status === 'done');
     const planMdPath = path.join(ctx.project_path, '.octoml', 'plan.md');
     const statusIcon: Record<string, string> = { done: 'x', in_progress: '~', failed: '!', pending: ' ' };
-    const md = `# Plan: ${plan.goal}\n\nUpdated: ${plan.updated_at}\n` +
+    const titlePrefix = isAllDone ? '# Plan [COMPLETED]' : '# Plan';
+    const md = `${titlePrefix}: ${plan.goal}\n\nUpdated: ${plan.updated_at}\n` +
       (plan.notebook_path ? `Notebook: ${plan.notebook_path}\n` : '') +
       `\n## Tasks\n\n` +
       plan.tasks.map((t, i) => `- [${statusIcon[t.status] ?? ' '}] **${i + 1}. ${t.description}** _(${t.status})_`).join('\n') + '\n';
     await fs.writeFile(planMdPath, md, 'utf-8').catch(() => undefined);
 
-    return { success: true, data: { plan_id: plan.id, updates: results } };
+    return { success: true, data: { plan_id: plan.id, updates: results, completed: isAllDone } };
   },
 };

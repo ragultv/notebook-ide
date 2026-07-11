@@ -65,7 +65,18 @@ export class KernelManager extends EventEmitter {
         await drainPool();
     }
 
+    public static normalizeNotebookId(id: string): string {
+        if (!id) return '';
+        let normalized = id.replace(/\\/g, '/');
+        const projectRoot = projectStore.getCurrentProject()?.path?.replace(/\\/g, '/');
+        if (projectRoot && normalized.toLowerCase().startsWith(projectRoot.toLowerCase() + '/')) {
+            normalized = normalized.slice(projectRoot.length + 1);
+        }
+        return normalized.replace(/^\/+/, '').trim();
+    }
+
     public async startKernel(notebookId: string): Promise<KernelInfo> {
+        notebookId = KernelManager.normalizeNotebookId(notebookId);
         if (this.kernels.has(notebookId)) {
             return this.kernels.get(notebookId)!.info;
         }
@@ -332,6 +343,7 @@ export class KernelManager extends EventEmitter {
         },
         providedExecutionId?: string
     ): Promise<ExecutionResult> {
+        notebookId = KernelManager.normalizeNotebookId(notebookId);
         let state = this.kernels.get(notebookId);
 
         if (!state) {
@@ -470,6 +482,7 @@ export class KernelManager extends EventEmitter {
     }
 
     public async interruptKernel(notebookId: string): Promise<void> {
+        notebookId = KernelManager.normalizeNotebookId(notebookId);
         const state = this.kernels.get(notebookId);
         if (!state) return;
 
@@ -496,6 +509,7 @@ export class KernelManager extends EventEmitter {
     }
 
     public async restartKernel(notebookId: string): Promise<void> {
+        notebookId = KernelManager.normalizeNotebookId(notebookId);
         // 1. Drain the queue — cancel all pending cells immediately
         cellExecutionQueue.drain(notebookId);
 
@@ -514,6 +528,7 @@ export class KernelManager extends EventEmitter {
     }
 
     public async sendStdin(notebookId: string, executionId: string, value: string): Promise<void> {
+        notebookId = KernelManager.normalizeNotebookId(notebookId);
         const state = this.kernels.get(notebookId);
         if (state) {
             state.lastUsed = Date.now();
@@ -527,6 +542,7 @@ export class KernelManager extends EventEmitter {
     }
 
     public async sendCommMsg(notebookId: string, commId: string, data: any): Promise<void> {
+        notebookId = KernelManager.normalizeNotebookId(notebookId);
         const state = this.kernels.get(notebookId);
         if (state) {
             state.bridge.send({
@@ -539,6 +555,7 @@ export class KernelManager extends EventEmitter {
     }
 
     public async getVariables(notebookId: string): Promise<void> {
+        notebookId = KernelManager.normalizeNotebookId(notebookId);
         const state = this.kernels.get(notebookId);
         if (state) {
             state.bridge.send({
@@ -550,6 +567,7 @@ export class KernelManager extends EventEmitter {
     }
 
     public getKernelStatus(notebookId: string): KernelInfo | null {
+        notebookId = KernelManager.normalizeNotebookId(notebookId);
         return this.kernels.get(notebookId)?.info || null;
     }
 

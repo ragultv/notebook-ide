@@ -8,7 +8,7 @@ import controllerClient, { ProviderEntry, ProviderModelEntry } from '../../servi
 
 // ── Provider presets ─────────────────────────────────────────────────────────
 
-type ProviderType = 'openai' | 'gemini' | 'openai-compatible' | 'nvidia' | 'groq' | 'openrouter' | 'anthropic' | 'deepseek' | 'togetherai';
+type ProviderType = 'openai' | 'gemini' | 'openai-compatible' | 'nvidia' | 'groq' | 'openrouter' | 'anthropic' | 'deepseek' | 'togetherai' | 'cerebras';
 
 interface ProviderPreset {
   type: ProviderType;
@@ -60,6 +60,11 @@ const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     type: 'togetherai', name: 'Together AI', baseUrl: 'https://api.together.xyz/v1',
     docsUrl: 'https://api.together.ai/settings/api-keys', color: '#8b5cf6',
     description: 'Open-source models at scale', builtinId: 'togetherai',
+  },
+  cerebras: {
+    type: 'cerebras', name: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1',
+    docsUrl: 'https://api.cerebras.ai', color: '#a855f7',
+    description: 'Wafer-scale AI speed', builtinId: 'cerebras',
   },
   'openai-compatible': {
     type: 'openai-compatible', name: 'Custom (OpenAI-compatible)', baseUrl: '',

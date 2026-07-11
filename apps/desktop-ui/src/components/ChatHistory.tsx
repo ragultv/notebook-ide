@@ -6,6 +6,7 @@ import { CellData } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import { CodeCanvas } from './shared/CodeCanvas';
 
 interface ChatSession {
   id: string;
@@ -435,19 +436,16 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
                                         rehypePlugins={[rehypeHighlight]}
                                         components={{
                                           p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                          pre: ({ children }) => <>{children}</>,
                                           code: ({ className, children, ...props }) => {
                                             const match = /language-(\w+)/.exec(className || '');
-                                            return (
-                                              <code className={className} {...props}>
-                                                {children}
-                                              </code>
-                                            );
+                                            const isBlock = Boolean(match) || String(children).includes('\n');
+                                            if (isBlock) {
+                                              const codeText = String(children).replace(/\n$/, '');
+                                              return <CodeCanvas language={match ? match[1] : undefined} code={codeText} />;
+                                            }
+                                            return <code className="bg-gray-200 dark:bg-gray-700 rounded px-1 py-0.5 text-xs font-mono" {...props}>{children}</code>;
                                           },
-                                          pre: ({ children }) => (
-                                            <pre className="bg-sim-bg border border-sim-border rounded p-2 overflow-x-auto mb-2 text-sim-text">
-                                              {children}
-                                            </pre>
-                                          ),
                                         }}
                                       >
                                         {displayContent}

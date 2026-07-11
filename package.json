@@ -5,21 +5,25 @@
   "type": "module",
   "scripts": {
     "controller:install": "cd apps/controller-node && npm install",
-    "controller:build":   "cd apps/controller-node && npm run build",
+    "controller:build": "cd apps/controller-node && npm run build",
     "controller:rebuild": "cd apps/controller-node && npm run rebuild:electron",
-    "controller:start":   "cd apps/controller-node && npm run start",
-    "controller:dev":     "cd apps/controller-node && npm run dev",
-    "ui:install":         "cd apps/desktop-ui && npm install",
-    "ui:dev":             "cd apps/desktop-ui && npm run dev",
-    "ui:build":           "cd apps/desktop-ui && npm run build",
-    "electron:install":   "cd apps/electron && npm install",
-    "electron:build":     "cd apps/electron && npm run build:electron",
-    "electron:dist":      "cd apps/electron && npm run build",
-    "electron:dev":       "cd apps/electron && npm run dev",
-    "dev":          "concurrently \"npm run controller:dev\" \"npm run ui:dev\"",
-    "install:all":  "npm run controller:install && npm run ui:install && npm run electron:install && npm run rebuild:native",
+    "controller:start": "cd apps/controller-node && npm run start",
+    "controller:dev": "cd apps/controller-node && npm run dev",
+    "ui:install": "cd apps/desktop-ui && npm install",
+    "ui:dev": "cd apps/desktop-ui && npm run dev",
+    "ui:build": "cd apps/desktop-ui && npm run build",
+    "electron:install": "cd apps/electron && npm install",
+    "electron:build": "cd apps/electron && npm run build:electron",
+    "electron:dist": "cd apps/electron && npm run build",
+    "electron:dev": "cd apps/electron && npm run dev",
+    "dev": "concurrently \"npm run controller:dev\" \"npm run ui:dev\"",
+    "install:all": "npm run controller:install && npm run ui:install && npm run electron:install && npm run rebuild:native",
     "rebuild:native": "node scripts/rebuild-native.js",
-    "clean":        "node scripts/clean.js",
-    "build:prod":   "node scripts/build-prod.js"
+    "clean": "node scripts/clean.js",
+    "build:prod": "node scripts/build-prod.js"
+  },
+  "dependencies": {
+    "@ai-sdk/cerebras": "^3.0.6",
+    "ai": "^7.0.18"
   }
-}
+}

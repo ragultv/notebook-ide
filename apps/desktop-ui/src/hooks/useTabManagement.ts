@@ -12,13 +12,57 @@ interface UseTabManagementReturn {
   handleCloseTab: (id: string, event?: React.MouseEvent) => void;
 }
 
+const STORAGE_KEY_TABS = 'octoml_open_tabs';
+const STORAGE_KEY_ACTIVE_TAB = 'octoml_active_tab_id';
+
+const loadSavedTabs = (): Tab[] => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_TABS);
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+};
+
+const loadSavedActiveTabId = (): string | null => {
+  try {
+    return localStorage.getItem(STORAGE_KEY_ACTIVE_TAB) || null;
+  } catch {
+    return null;
+  }
+};
+
 export const useTabManagement = (
   files: ProjectFile[],
   activeFileId: string | null,
   setActiveFileId: (id: string | null) => void
 ): UseTabManagementReturn => {
-  const [tabs, setTabs] = useState<Tab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [tabs, setTabs] = useState<Tab[]>(loadSavedTabs);
+  const [activeTabId, setActiveTabId] = useState<string | null>(loadSavedActiveTabId);
+
+  // Persist open tabs and active tab to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_TABS, JSON.stringify(tabs));
+    } catch { /* ignore */ }
+  }, [tabs]);
+
+  useEffect(() => {
+    try {
+      if (activeTabId) localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, activeTabId);
+      else localStorage.removeItem(STORAGE_KEY_ACTIVE_TAB);
+    } catch { /* ignore */ }
+  }, [activeTabId]);
+
+  // Restore activeFileId on mount if active tab is a notebook
+  useEffect(() => {
+    if (activeTabId && !activeFileId) {
+      const tab = tabs.find(t => t.id === activeTabId);
+      if (tab && tab.type === 'notebook') {
+        setActiveFileId(activeTabId);
+      }
+    }
+  }, [activeTabId, activeFileId, tabs, setActiveFileId]);
 
   const activeTab = useMemo(() => tabs.find(t => t.id === activeTabId), [tabs, activeTabId]);
 

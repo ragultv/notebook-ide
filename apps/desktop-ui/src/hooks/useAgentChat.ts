@@ -50,6 +50,8 @@ export interface AttachedFile {
   name: string;
   content: string;
   path?: string; // actual OS path (available in Electron via File.path)
+  cellNumber?: number;
+  notebookPath?: string;
 }
 
 export interface ActivePlan {
@@ -214,13 +216,20 @@ export function useAgentChat(opts: UseAgentChatOptions) {
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
   // ── File management ───────────────────────────────────────────────────────
-  const addFile = useCallback((file: File) => {
+  const addFile = useCallback((file: File, meta?: { cellNumber?: number; notebookPath?: string }) => {
     const filePath = (file as unknown as { path?: string }).path; // Electron exposes the OS path
     const reader = new FileReader();
     reader.onload = (e) => {
       setAttachedFiles(prev => [
         ...prev,
-        { id: `f-${Date.now()}-${file.name}`, name: file.name, content: e.target?.result as string, path: filePath },
+        {
+          id: `f-${Date.now()}-${file.name}`,
+          name: file.name,
+          content: e.target?.result as string,
+          path: filePath,
+          cellNumber: meta?.cellNumber,
+          notebookPath: meta?.notebookPath,
+        },
       ]);
     };
     reader.readAsText(file);
@@ -376,6 +385,17 @@ Resume from the first pending task and complete ALL remaining tasks.]\n\n`;
 
     if (currentAttachments.length > 0) {
       const attachTexts = await Promise.all(currentAttachments.map(async f => {
+        let cellNum = f.cellNumber;
+        if (cellNum === undefined) {
+          const m = f.name.match(/cell[-.]?(\d+)/i);
+          if (m) cellNum = parseInt(m[1], 10);
+        }
+
+        if (cellNum !== undefined && !isNaN(cellNum)) {
+          const nbInfo = f.notebookPath ? ` from notebook "${f.notebookPath}"` : '';
+          return `\n\n[Attached Notebook Cell #${cellNum}${nbInfo}]\n\`\`\`python\n${f.content}\n\`\`\`\n(CRITICAL INSTRUCTION: The user has attached Cell #${cellNum}${nbInfo}. To run or execute this exact cell, call runCell({ cell_number: ${cellNum} }) directly. DO NOT call createCell or pass raw source.)`;
+        }
+
         const pathLine = f.path ? `\nFile path: ${f.path}` : '';
 
         // If it's an in-memory file (no path, e.g. a cell drag), include its content directly
@@ -406,7 +426,17 @@ Resume from the first pending task and complete ALL remaining tasks.]\n\n`;
       ...messages.map(m => {
         let text = m.content;
         if (m.attachments && m.attachments.length > 0) {
-          text += m.attachments.map(f => `\n\n[Attached file: ${f.name}]\n(Please use the readFile tool to read this file if needed)`).join('');
+          text += m.attachments.map(f => {
+            let cellNum = f.cellNumber;
+            if (cellNum === undefined) {
+              const match = f.name.match(/cell[-.]?(\d+)/i);
+              if (match) cellNum = parseInt(match[1], 10);
+            }
+            if (cellNum !== undefined && !isNaN(cellNum)) {
+              return `\n\n[Attached Notebook Cell #${cellNum}]\n(To run this cell, call runCell({ cell_number: ${cellNum} }))`;
+            }
+            return `\n\n[Attached file: ${f.name}]`;
+          }).join('');
         }
         return { role: m.role, content: text, timestamp: m.timestamp };
       }),
