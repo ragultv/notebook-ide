@@ -256,7 +256,7 @@ export const createNotebookEntry: ToolEntry = {
       ctx.mutableCtx.cellCounter = existingCellCount;
 
       const bridge = getKernelBridge();
-      if (bridge) await bridge.updateBroadcastId(notebookPath);
+      if (bridge) await bridge.updateBroadcastId(relPath);
 
       if (!existed) ctx.emit({ type: 'notebook_create', path: relPath });
 

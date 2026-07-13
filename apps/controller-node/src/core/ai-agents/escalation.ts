@@ -18,11 +18,11 @@ function hits(text: string, words: string[]): boolean {
 export function checkEscalation(mode: Mode, response: string): EscalationResult | null {
   switch (mode) {
     case 'ASK':
+      if (hits(response, ['plan mode', 'switch to plan', 'plan first', ...ASK_WRITE_WORDS])) {
+        return { suggest_mode: 'PLAN', reason: 'Switch to PLAN mode to outline and structure this task' };
+      }
       if (hits(response, ASK_EXEC_WORDS)) {
         return { suggest_mode: 'AGENTIC', reason: 'This task requires code execution' };
-      }
-      if (hits(response, ASK_WRITE_WORDS)) {
-        return { suggest_mode: 'PLAN', reason: 'This task involves planning or writing' };
       }
       return null;
 

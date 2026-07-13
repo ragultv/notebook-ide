@@ -174,19 +174,35 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
     if (fileType === 'xlsx' && currentSheet) loadXLSX(currentSheet);
   }, [currentSheet]);
 
+  const getCandidatePaths = (path: string): string[] => {
+    if (path.includes('/') || path.includes('\\')) return [path];
+    return [path, `data/${path}`, `datasets/${path}`];
+  };
+
   const loadCSV = async () => {
     if (isObjectUrl) {
       const response = await fetch(filePath);
       parseCSVContent(await response.text());
       return;
     }
-    try {
-      const data = await controllerClient.previewCSV(filePath, 500);
-      setTableData({ headers: data.headers, rows: data.rows, totalRows: data.totalRows, dtypes: data.dtypes });
-    } catch {
-      const { content } = await controllerClient.readFile(filePath);
-      parseCSVContent(content);
+    const candidates = getCandidatePaths(filePath);
+    let lastErr: unknown;
+    for (const p of candidates) {
+      try {
+        const data = await controllerClient.previewCSV(p, 500);
+        setTableData({ headers: data.headers, rows: data.rows, totalRows: data.totalRows, dtypes: data.dtypes });
+        return;
+      } catch (err) {
+        try {
+          const { content } = await controllerClient.readFile(p);
+          parseCSVContent(content);
+          return;
+        } catch (err2) {
+          lastErr = err2;
+        }
+      }
     }
+    throw lastErr;
   };
 
   const parseCSVContent = (raw: string) => {
@@ -213,9 +229,19 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
       setError('Excel preview requires the file to be inside the project folder.');
       return;
     }
-    const data = await controllerClient.previewExcel(filePath, sheet, 500);
-    setTableData({ headers: data.headers, rows: data.rows, totalRows: data.totalRows, sheets: data.sheets, currentSheet: data.currentSheet, dtypes: data.dtypes });
-    if (!currentSheet && data.currentSheet) setCurrentSheet(data.currentSheet);
+    const candidates = getCandidatePaths(filePath);
+    let lastErr: unknown;
+    for (const p of candidates) {
+      try {
+        const data = await controllerClient.previewExcel(p, sheet, 500);
+        setTableData({ headers: data.headers, rows: data.rows, totalRows: data.totalRows, sheets: data.sheets, currentSheet: data.currentSheet, dtypes: data.dtypes });
+        if (!currentSheet && data.currentSheet) setCurrentSheet(data.currentSheet);
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr;
   };
 
   const loadImage = () => {
@@ -228,8 +254,18 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
       setContent(await response.text());
       return;
     }
-    const { content: text } = await controllerClient.readFile(filePath);
-    setContent(text);
+    const candidates = getCandidatePaths(filePath);
+    let lastErr: unknown;
+    for (const p of candidates) {
+      try {
+        const { content: text } = await controllerClient.readFile(p);
+        setContent(text);
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr;
   };
 
   const getIcon = () => {
@@ -333,7 +369,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ filePath, fileName, is
           <div className="text-center max-w-sm">
             <div className="text-red-500 mb-2 text-sm font-medium">{error}</div>
             <p className="text-xs text-sim-muted">Try loading this file using pandas or another library in a code cell.</p>
-            <button onClick={loadFile} className="mt-3 px-4 py-1.5 bg-sim-red/20 hover:bg-sim-red/30 border border-sim-red/30 rounded-lg text-xs text-sim-red transition-colors">
+            <button onClick={loadFile} className="mt-3 px-4 py-1.5 bg-sim-red/20 hover:bg-sim-red/30 border border-sim-red/30 rounded-lg text-xs text transition-colors">
               Retry
             </button>
           </div>

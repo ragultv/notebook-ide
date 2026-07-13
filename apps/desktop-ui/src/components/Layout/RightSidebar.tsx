@@ -9,6 +9,7 @@ import { useProject } from '../../context/ProjectContext';
 import type { CellData, ProjectFile } from '../../types';
 import octomlLogo from '../../icon.png';
 import { getFileIcon } from '../shared/FileIcons';
+import { CodeCanvas } from '../shared/CodeCanvas';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 interface RightSidebarProps {
@@ -148,50 +149,20 @@ function ToolBlock({ tool, input, result, done }: {
 
 const MD_PROSE = `
   prose dark:prose-invert max-w-none
-  prose-p:leading-relaxed prose-p:my-2 prose-p:text-zinc-300
-  prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:tracking-tight prose-headings:mb-2 prose-headings:mt-4
-  prose-h1:text-base prose-h2:text-sm prose-h3:text-xs
+  prose-p:leading-relaxed prose-p:my-3.5 prose-p:text-zinc-300
+  prose-headings:text-white prose-headings:font-bold prose-headings:tracking-tight prose-headings:mb-3.5 prose-headings:mt-7
+  prose-h1:text-[18px] prose-h2:text-[16px] prose-h3:text-[14.5px] prose-h4:text-[13.5px]
   prose-a:text-blue-400 hover:prose-a:text-blue-300 prose-a:transition-colors prose-a:no-underline hover:prose-a:underline
-  prose-blockquote:border-l-2 prose-blockquote:border-blue-500/40 prose-blockquote:bg-blue-500/5 prose-blockquote:py-1 prose-blockquote:px-3 prose-blockquote:rounded-r prose-blockquote:text-zinc-300
-  prose-ul:my-2 prose-ul:list-disc prose-ul:pl-5 prose-ul:space-y-1
-  prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-5 prose-ol:space-y-1
-  prose-li:text-zinc-300 prose-li:marker:text-zinc-500 prose-li:leading-relaxed
-  prose-strong:text-white prose-strong:font-semibold
+  prose-blockquote:border-l-2 prose-blockquote:border-blue-500/40 prose-blockquote:bg-blue-500/5 prose-blockquote:py-2.5 prose-blockquote:px-4 prose-blockquote:rounded-r prose-blockquote:text-zinc-300 prose-blockquote:my-4
+  prose-ul:my-3.5 prose-ul:list-disc prose-ul:pl-5 prose-ul:space-y-2
+  prose-ol:my-3.5 prose-ol:list-decimal prose-ol:pl-5 prose-ol:space-y-2
+  prose-li:text-zinc-300 prose-li:marker:text-zinc-500 prose-li:leading-relaxed prose-li:my-1
+  prose-strong:text-white prose-strong:font-bold
   prose-em:text-zinc-400
-  prose-table:text-xs prose-table:w-full prose-table:border-collapse prose-table:my-3
-  prose-th:border-b prose-th:border-white/10 prose-th:p-2 prose-th:text-left prose-th:text-zinc-200 prose-th:font-semibold prose-th:bg-white/5
-  prose-td:border-b prose-td:border-white/5 prose-td:p-2 prose-td:text-zinc-300
+  prose-table:text-xs prose-table:w-full prose-table:border-collapse prose-table:my-4
+  prose-th:border-b prose-th:border-white/10 prose-th:p-3 prose-th:text-left prose-th:text-zinc-100 prose-th:font-bold prose-th:bg-white/5
+  prose-td:border-b prose-td:border-white/5 prose-td:p-3 prose-td:text-zinc-300
 `.trim();
-
-function CodeCanvas({ language, code }: { language?: string; code: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  return (
-    <div className="my-3 rounded-xl border border-white/10 bg-[#18181a] dark:bg-[#141416] shadow-xl overflow-hidden font-mono not-prose group">
-      <div className="flex items-center justify-between px-3.5 py-2 bg-white/5 border-b border-white/5 text-[11px] text-zinc-400 font-sans">
-        <div className="flex items-center gap-1.5 font-medium tracking-wide uppercase">
-          <span className="w-2 h-2 rounded-full bg-blue-400/60 inline-block" />
-          <span>{language || 'code'}</span>
-        </div>
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition-colors text-[10px]"
-        >
-          <span>{copied ? '✓ Copied' : 'Copy'}</span>
-        </button>
-      </div>
-      <div className="p-3.5 overflow-x-auto text-[11.5px] leading-relaxed text-zinc-200 selection:bg-blue-500/30">
-        <pre className="m-0 font-mono bg-transparent border-none p-0 shadow-none text-inherit">
-          <code>{code}</code>
-        </pre>
-      </div>
-    </div>
-  );
-}
 
 const LINK_REGEX = /\b(?:([\w/.\-]+\.(?:ipynb|py|ts|tsx|js|jsx|json|md|txt|csv|yml|yaml|css|html))|(cell[\s_#]*\d+))\b/gi;
 
@@ -331,10 +302,39 @@ function MarkdownBlock({ text, onOpenFile, onActivateCell }: {
       }
       return <a href={href} {...props}>{children}</a>;
     },
+    h1: ({ children, ...props }: any) => (
+      <h1 className="text-[18px] font-bold text-white mt-7 mb-3.5 tracking-tight border-b border-white/10 pb-2" {...props}>{children}</h1>
+    ),
+    h2: ({ children, ...props }: any) => (
+      <h2 className="text-[16px] font-bold text-white mt-6 mb-3 tracking-tight" {...props}>{children}</h2>
+    ),
+    h3: ({ children, ...props }: any) => (
+      <h3 className="text-[14.5px] font-bold text-white mt-6 mb-3 tracking-tight" {...props}>{children}</h3>
+    ),
+    h4: ({ children, ...props }: any) => (
+      <h4 className="text-[13.5px] font-bold text-white mt-5 mb-2.5 tracking-tight" {...props}>{children}</h4>
+    ),
+    table: ({ children, ...props }: any) => (
+      <div className="my-4 overflow-x-auto rounded-xl border border-white/10 bg-[#18181a] dark:bg-[#141416] shadow-md not-prose">
+        <table className="w-full text-left border-collapse text-[12.5px]" {...props}>
+          {children}
+        </table>
+      </div>
+    ),
+    th: ({ children, ...props }: any) => (
+      <th className="border-b border-white/10 bg-white/5 px-3.5 py-2.5 font-bold text-zinc-100 whitespace-nowrap text-[12px] uppercase tracking-wider" {...props}>
+        {children}
+      </th>
+    ),
+    td: ({ children, ...props }: any) => (
+      <td className="border-b border-white/5 px-3.5 py-2.5 text-zinc-300 leading-relaxed break-words" {...props}>
+        {children}
+      </td>
+    ),
   }), [onOpenFile, onActivateCell]);
 
   return (
-    <div style={{ fontSize: '12px', lineHeight: '1.6' }} className={MD_PROSE}>
+    <div style={{ fontSize: '13px', lineHeight: '1.75' }} className={MD_PROSE}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{text}</ReactMarkdown>
     </div>
   );
@@ -384,14 +384,7 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
   const useSegments  = segments && segments.length > 0;
 
   return (
-    <div className="py-2.5">
-      {(showThinking || activities.length > 0) && (
-        <div className="flex flex-wrap gap-3 mb-2">
-          {showThinking && <ActivityTag label="Thinking" />}
-          {activities.map((a, i) => <ActivityTag key={`act-${i}-${a}`} label={a} />)}
-        </div>
-      )}
-
+    <div className="py-3.5 space-y-3.5">
       {useSegments ? (
         // Render segments in insertion order — text and tool calls interleaved correctly
         segments!.map((seg, i) => {
@@ -401,18 +394,26 @@ function AssistantMessage({ content, isStreaming, activities, msgToolCalls, segm
           return <ToolBlock key={seg.id} tool={seg.tool} input={seg.input} result={seg.result} done={seg.done} />;
         })
       ) : (
-        // Fallback: tools first then text (live streaming or old messages without segments)
+        // Fallback: text first then tools (so live streaming tools appear below where initialized)
         <>
+          {content && <MarkdownBlock text={content} onOpenFile={onOpenFile} onActivateCell={onActivateCell} />}
           {msgToolCalls.map(tc => (
             <ToolBlock key={tc.id} tool={tc.tool} input={tc.input} result={tc.result} done={tc.done} />
           ))}
-          {content && <MarkdownBlock text={content} onOpenFile={onOpenFile} onActivateCell={onActivateCell} />}
         </>
       )}
 
       {isStreaming && content && (
         <span className="inline-block w-0.5 h-3 bg-white/30 ml-0.5 animate-pulse rounded-sm align-middle" />
       )}
+
+      {(showThinking || activities.length > 0) && (
+        <div className="flex flex-wrap gap-3 mt-2">
+          {showThinking && <ActivityTag label="Thinking" />}
+          {activities.map((a, i) => <ActivityTag key={`act-${i}-${a}`} label={a} />)}
+        </div>
+      )}
+
       {!isStreaming && activePlan && activePlan.msgId === msgId && !activePlan.proceeded && onProceedWithPlan && (
         <PlanShortcut plan={activePlan} onOpen={onOpenPlan} onProceed={onProceedWithPlan} />
       )}
@@ -613,7 +614,7 @@ function HistoryPanel({
               <div
                 key={s.id}
                 onClick={() => onLoad(s.id)}
-                className="group flex items-start gap-3 px-4 py-3 hover:bg-sim-border cursor-pointer transition-colors"
+                className="group flex items-start gap-3 px-4 py-3 hover:bg-sim-border hover:rounded-md hover:mx-2 cursor-pointer transition-colors"
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-sim-text truncate leading-snug">{s.title || 'New conversation'}</p>
@@ -731,11 +732,20 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     [activeCellId, notebookCells],
   );
 
+  const formatCellFileName = useCallback((nbNameOrPath: string | undefined, cellId: string, cellType: string) => {
+    const baseName = (nbNameOrPath || 'notebook')
+      .split(/[/\\]/)
+      .pop()!
+      .replace(/\.ipynb$/i, '');
+    const ext = cellType === 'code' ? 'py' : 'md';
+    return `${baseName}.${cellId}.${ext}`;
+  }, []);
+
   const includeCellChip = useCallback(() => {
     if (!activeCell) return;
-    const nbName = notebookName ? notebookName.replace('.ipynb', '') : 'notebook';
-    addFile(new File([activeCell.content], `${nbName}.${activeCell.id}.${activeCell.type === 'code' ? 'py' : 'md'}`, { type: 'text/plain' }));
-  }, [activeCell, addFile, notebookName]);
+    const fileName = formatCellFileName(notebookName, activeCell.id, activeCell.type);
+    addFile(new File([activeCell.content], fileName, { type: 'text/plain' }));
+  }, [activeCell, addFile, formatCellFileName, notebookName]);
 
   const handleSend = useCallback(() => {
     const t = input.trim();
@@ -752,20 +762,13 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     e.preventDefault();
     setIsDragOver(false);
 
-    // 1. Native OS files
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      Array.from(e.dataTransfer.files).forEach(f => addFile(f));
-      return;
-    }
-
-    // 2. Cell drag
+    // 1. Cell drag (check first so dragged cells always use the clean cell file naming)
     try {
       const cellDataStr = e.dataTransfer.getData('application/json');
       if (cellDataStr) {
         const data = JSON.parse(cellDataStr);
         if (data.type === 'cell-drag' && data.content) {
-          const ext = data.cellType === 'code' ? 'py' : 'md';
-          const fileName = data.notebookId && data.cellId ? `${data.notebookId}.${data.cellId}.${ext}` : `cell.${ext}`;
+          const fileName = formatCellFileName(data.notebookName || data.notebookId, data.cellId, data.cellType);
           const file = new File([data.content], fileName, { type: 'text/plain' });
           addFile(file);
           return;
@@ -773,6 +776,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       }
     } catch (err) {
       // ignore parse errors
+    }
+
+    // 2. Native OS files
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      Array.from(e.dataTransfer.files).forEach(f => addFile(f));
+      return;
     }
 
     // 3. File Explorer drag (virtual path)
@@ -787,7 +796,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         console.error("Failed to read dropped file from explorer", err);
       }
     }
-  }, [addFile]);
+  }, [addFile, formatCellFileName]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files ?? []).forEach(f => addFile(f));
@@ -1024,7 +1033,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   >
                     <span>📋</span>
                     <span className="max-w-[150px] truncate font-mono">
-                      {notebookName ? notebookName.replace('.ipynb', '') : 'notebook'}.{activeCell.id}.{activeCell.type === 'code' ? 'py' : 'md'}
+                      {formatCellFileName(notebookName, activeCell.id, activeCell.type)}
                     </span>
                     <span className="text-sim-muted opacity-60">+ include</span>
                   </button>

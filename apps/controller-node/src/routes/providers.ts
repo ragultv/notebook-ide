@@ -12,7 +12,10 @@ async function fetchProviderModels(
   baseUrl: string,
   apiKey: string,
 ): Promise<Array<{ model_id: string; model_name: string; context_length: number }>> {
-  const base = baseUrl.replace(/\/+$/, '');
+  let base = baseUrl.replace(/\/+$/, '');
+  if (type === 'cerebras' && !base.endsWith('/v1')) {
+    base = `${base}/v1`;
+  }
   let url = `${base}/models`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
